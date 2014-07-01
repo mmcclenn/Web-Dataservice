@@ -1,0 +1,21 @@
+
+
+=head1 NAME
+
+Web::DataService::Introduction - introduction to Web::DataService and how to use it
+
+=head1 SYNOPSIS
+
+This document provides a basic introduction to L<Web::DataService>, a
+framework for implementing data services for the World Wide Web.
+
+=head1 INTRODUCTION
+
+
+
+=head1 TUTORIAL
+
+
+
+
+

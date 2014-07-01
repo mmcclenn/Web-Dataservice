@@ -1,0 +1,337 @@
+
+
+=head1 NAME
+
+Web::DataService::Configuration - configuration attributes and how to use them
+
+=head1 SYNOPSIS
+
+This document lists the various attributes available for you to use in
+configuring a data service with L<Web::DataService>.
+
+=head1 ATTRIBUTE SYNTAX
+
+The various configuration methods provided by L<Web::DataService> all use a
+consistent syntax.  Some of these routines take an initial name parameter; all
+of the rest of the parameters must be a mixture of hashrefs and strings.  The
+hashrefs each configure some object, and the strings each document the object
+that they follow.  We refer to this mix of attribute hashrefs and
+documentation strings as a I<definition list>.
+
+    $ds->define_format(
+	{ name => 'json', content_type => 'application/json',
+	  doc_path => 'formats/json', title => 'JSON',
+	  default_vocab => 'com' },
+	    "The JSON format is intended primarily to support client applications,",
+	    "including the PBDB Navigator.  Response fields are named using compact",
+	    "3-character field names.",
+	{ name => 'xml', disabled => 1, content_type => 'text/xml', title => 'XML',
+	  doc_path => 'formats/xml',
+	  default_vocab => 'dwc' },
+	    "The XML format is intended primarily to support data interchange with",
+	    "other databases, using the Darwin Core element set.");
+
+For example, the above call defines two output formats: one named 'json' and
+the other named 'xml'.  Each of these objects is defined by the set of
+attributes contained in a hashref.  All of the documentation strings are
+automatically collected (joined by newlines) as the attribute "doc" of the
+object whose definition they immediately follow.
+
+=head1 ATTRIBUTE DOCUMENTATION
+
+=head2 Data Service attributes
+
+You can specify any of the following attributes when defining a new data
+service or sub-service.  The attribute C<name> is always required, the others
+are optional.  Default values, if any, are specified in each entry.
+
+=head3 name
+
+Provides a unique identifier for this data service.
+
+=head3 label
+
+Provides a short title by which this data service can be referred to in
+documentation.
+
+=head3 title
+
+Provides a long title by which this data service can be referred to in
+documentation.
+
+=head3 parent
+
+The value of this attribute, if specified, must be a reference to an instance
+of Web::DataService.  The newly defined instance will be a sub-service of that
+instance.  This means that:
+
+=over 4
+
+=item 1.
+
+The sub-service will inherit the parent's attributes.
+
+=item 2.
+
+A new request generated on the parent data service may be assigned to the
+child, based on the path prefixes.
+
+=back
+
+=head3 version
+
+If specified, this will be reported in the standard documentation template as
+part of the header.  You can increment this whenever you make a change to the
+interface.  The value can be any string, i.e. "23" or "1.2b5".
+
+=head3 default_limit
+
+This sets the default limit on the number of results reported for any request
+that does not itslef specify a limit.  If not set, it defaults to 500.
+
+=head3 streaming_threshold
+
+This sets the threshold for streaming.  Any request whose (serialized) result
+exceeds this size in bytes will be streamed, provided that streaming is
+available.
+
+=head3 allow_unrecognized
+
+If this attribute is given a true value, then unrecognized parameter names
+will generate warnings instead of errors.  See L<HTTP::Validate>.
+
+=head3 foundation_plugin
+
+This value of this attribute, if specified, must be the name of a module that
+implements the Web::DataService I<foundation_plugin> interface
+(see L<Web::DataService::Plugins>).  This plugin handles
+the basic functionality of parsing and generating HTTP requests and
+interacting with the HTTP server.  You only need to specify this attribute if
+you wish to use a custom plugin; if L<Dancer> is already loaded, then this
+attribute will default to L<Web::DataService::Plugin::Dancer>.
+
+    use Dancer;
+    use Web::Dataservice;
+    
+    my $ds = Web::DataService->new({ name => 'myserv' });
+
+If you set up your code like the above example, the right plugin will be loaded by
+default.  If no foundation plugin can be loaded, the call to C<new> will die.
+
+=head3 templating_plugin
+
+The value of this attribute, if specified, must be the name of a module that
+implements the Web::DataService I<templating_plugin> interface
+(see L<Web::DataService::Plugins>).  If L<Template> is already loaded, then this
+attribute will default to L<Web::DataService::Plugin::Template>.
+
+It is possible to define a data service without a templating plugin.  However,
+in this case auto-documentation will not be enabled.
+
+=head3 backend_plugin
+
+The value of this attribute, if specified, must be the name of a module that
+implements the Web::DataService I<backend_plugin> interface (see
+L<Web::DataService::Plugins>).  This currently includes a single method,
+C<get_connection>, which returns a database connection handle.  If
+L<Dancer::Plugin::Database> is already loaded, then this attribute will
+default to L<Web::DataService::Plugin::Dancer>.
+
+It is possible to define a data service without a backend plugin, you simply
+have to implement a different method for obtaining a backend connection.
+
+=head3 path_prefix
+
+The value of this attribute must be a string.  It should be the
+common prefix of the URL paths for this data service.  If you define multiple
+sub-services, the path prefixes will be used to select which sub-service
+should handle each request.
+
+=head3 ruleset_prefix
+
+The value of this attribute must be a string.  It will be added to the front
+of each auto-generated ruleset name.
+
+=head3 public_access
+
+If this attribute is given a true value, then each HTTP response will include
+the header "Access-Control-Allow-Origin: *".
+
+=head3 doc_templates
+
+The value of this attribute must be a file path indicating where the templates
+for documentation pages are stored.  Relative paths are evaluated relative to
+the current directory of the data service process.  If not specified, this
+attribute defaults to "doc".
+
+=head3 doc_defs
+
+The value of this attribute must be the name of a template file in the
+documentation template directory.  It will be included before every
+documentation template that gets rendered.  The idea is for this template to
+define functions/directives that can be used by the documentation templates.
+However, you can use it in any way that you choose.
+
+=head3 doc_header
+
+The value of this attribute must be the name of a template file in the
+documentation template directory.  For each documentation template that gets
+rendered, this file will be included after the definition file and before the
+documentation template.  The idea is for this to output the header for the
+documentation pages, but you can use it in any way that you choose.
+
+=head3 doc_footer
+
+The value of this attribute must be the name of a template file in the
+documentation template directory.  For each documentation template that gets
+rendered, this file will be included after the definition file and before the
+documentation template.  The idea is for this to output the header for the
+documentation pages, but you can use it in any way that you choose.
+
+=head2 Path attributes
+
+You can specify any of the following attributes when configuring a new path
+node.  The attribute "path" is required, the rest are optional.  Path
+attributes inherit hierarchically.  Any path whose attributes include both
+"class" and "method" indicates a data service operation.  Any path whose
+attributes include "doc_title" indicates a documentation page.  The special
+path "/" defines a root set of attributes which are inherited by all other
+path nodes associated with this data service.
+
+=head3 path
+
+This required attribute specifies the path to which the other attributes
+apply.  Attributes inherit hierarchically, so that a node whose path is
+"foo/bar" inherits all the attributes of "foo" except for those which are
+specifically overridden.
+
+=head3 class
+
+This attribute specifies the name of a class into which any request generated
+on this path will be blessed.  That class must itself be set up to inherit
+from L<Web::DataService::Request>.  Any path which will correspond to a data
+service operation must have a valid value for this attribute.
+
+=head3 method
+
+This attribute specifies a method which will be called at the appropriate time
+in order to execute the data service operation.  Any path which will
+correspond to a data service operation must have a valid value for this
+attribute.
+
+=head3 arg
+
+The value of this attribute, if any, will be passed as an argument to the
+operation method.  This can be used to distinguish between different paths
+which may call the same method.
+
+=head3 ruleset
+
+If this attribute is specified, then the correspondingly named ruleset will be
+called to validate and clean the parameter values for any request on this
+path.  If not specified, a ruleset name will be automatically generated using
+the ruleset prefix (if any) defined for this data service followed by the path
+with slashes "/" replaced by colons ":".  This automatically generated ruleset
+will be used if a ruleset with that name is actually defined.  If no ruleset
+could be found, then only the raw parameter values will be available and no
+checking of parameter values will occur.
+
+=head3 output
+
+If this attribute is specified, then the correspondingly named output block
+will be used to generate result messages according to the selected output
+format.
+
+You may specify a value for this attribute and for L</output_opt> for the same
+path, in which case the former specifies the fixed output for the operation and
+the latter specifies additional optional output.
+
+If the value of this attribute does not correspond to any named output block,
+then an error will be generated at runtime.
+
+=head3 output_opt
+
+If this attribute is specified, then the correspondingly named output map
+(set) will be used to select optional output blocks according to the value of
+the parameter named by L</output_param>.
+
+=head3 public_access
+
+=head3 output_param
+
+=head3 vocab_param
+
+=head3 limit_param
+
+=head3 offset_param
+
+=head3 count_param
+
+=head3 nohead_param
+
+=head3 linebreak_param
+
+=head3 showsource_param
+
+=head3 textresult_param
+
+=head3 send_files
+
+=head3 file_dir
+
+=head3 default_limit
+
+=head3 streaming_threshold
+
+=head3 init_operation_hook
+
+=head3 post_params_hook
+
+=head3 post_configure_hook
+
+=head3 post_process_hook
+
+=head3 output_record_hook
+
+=head3 allow_method
+
+=head3 allow_format
+
+=head3 allow_vocab
+
+=head3 doc_template
+
+=head3 doc_header
+
+=head3 doc_defs
+
+=head3 doc_footer
+
+=head3 doc_title
+
+=head2 Format attributes
+
+=head2 Vocabulary attributes
+
+=head2 Set element attributes
+
+=head2 Output element attributes
+
+=head1 AUTHOR
+
+mmcclenn "at" cpan.org
+
+=head1 BUGS
+
+Please report any bugs or feature requests to C<bug-web-dataservice at rt.cpan.org>, or through the web interface at
+L<http://rt.cpan.org/NoAuth/ReportBug.html?Queue=Web-DataService>.  I will be
+notified, and then you'll automatically be notified of progress on your bug as
+I make changes.
+
+=head1 COPYRIGHT & LICENSE
+
+Copyright 2014 Michael McClennen, all rights reserved.
+
+This program is free software; you can redistribute it and/or modify it
+under the same terms as Perl itself.
+
