@@ -39,27 +39,29 @@ use Carp qw( carp croak );
 # If $param is not given, then return the configuration group $name if that
 # was given, or else a hash of the entire set of configuration parameters.
 
-sub get_config {
+sub _read_config {
     
-    my ($class, $ds, $name, $param) = @_;
+    my ($class, $ds) = @_;
     
-    my $config = Dancer::config;
+    my $config = Dancer::config
+    my $ds_name = $ds->name;
+    $ds->{_config} = $config->{$ds_name};
     
-    if ( defined $param )
-    {
-	return $config->{$name}{$param} if defined $name;
-	return $config->{$param};
-    }
+    # if ( defined $param )
+    # {
+    # 	return $config->{$name}{$param} if defined $name;
+    # 	return $config->{$param};
+    # }
     
-    elsif ( defined $name )
-    {
-	return $config->{$name};
-    }
+    # elsif ( defined $name )
+    # {
+    # 	return $config->{$name};
+    # }
     
-    else
-    {
-	return $config;
-    }
+    # else
+    # {
+    # 	return $config;
+    # }
 }
 
 
@@ -101,8 +103,10 @@ sub get_base_url {
 # Return the parameters for the current request.
 
 sub get_params {
-
-    return Dancer::params;
+    
+    my $params = Dancer::params;
+    delete $params->{splat};
+    return $params;
 }
 
 

@@ -11,6 +11,7 @@ use strict;
 
 package Web::DataService::Request;
 
+use Try::Tiny;
 use Scalar::Util qw(reftype);
 use Carp qw(carp croak);
 

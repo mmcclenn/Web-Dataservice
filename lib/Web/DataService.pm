@@ -41,14 +41,16 @@ serializing the result in the appropriate output format.
 
 package Web::DataService;
 
-our $VERSION = '0.13';
-
-use parent qw(Exporter);
+our $VERSION = '0.20';
 
 use Carp qw( croak );
 use Scalar::Util qw( reftype blessed weaken );
 use POSIX qw( strftime );
 use Try::Tiny;
+use HTTP::Validate;
+
+use Moo;
+use Moo::Role ();
 
 use Web::DataService::Format;
 use Web::DataService::Vocabulary;
@@ -58,9 +60,12 @@ use Web::DataService::Documentation;
 use Web::DataService::Output;
 use Web::DataService::Render;
 use Web::DataService::PodParser;
+#use Web::DataService::Plugin::Interface;
 use Web::DataService::Plugin::JSON qw(json_list_value);
 
-use HTTP::Validate qw( :validators );
+
+
+extends 'Exporter';
 
 
 HTTP::Validate->VERSION(0.35);
@@ -77,53 +82,110 @@ BEGIN {
 
 our @HTTP_METHOD_LIST = ('GET', 'HEAD', 'POST', 'PUT', 'DELETE');
 
-
-my (%DS_DEF) = ( 'name' => 'single',
-		 'label' => 'single',
-		 'title' => 'single',
-		 'parent' => 'single',
-		 'version' => 'single',
-		 'foundation_plugin' => 'single',
-		 'templating_plugin' => 'single',
-		 'backend_plugin' => 'single',
-		 'path_prefix' => 'single',
-		 'ruleset_prefix' => 'single',
-		 'public_access' => 'single',
-		 'template' => 'single',
-		 'doc_templates' => 'single',
-		 'output_templates' => 'single',
-		 'doc_defs' => 'single',
-		 'doc_header' => 'single',
-		 'doc_footer' => 'single',
-		 'doc_stylesheet' => 'single',
-		 'default_limit' => 'single',
-		 'streaming_threshold' => 'single',
-		 'allow_unrecognized' => 'single');
-
 our ($DEBUG);
 our ($ONE_REQUEST);
 
-my (%DS_DEFAULT) = ( 'default_limit' => 500, 
-		     'streaming_threshold' => 20480 );
 
-sub new {
+has name => ( is => 'ro', required => 1,
+	      isa => \&valid_name );
+
+has parent => ( is => 'ro', init_arg => '_parent' );
+
+has foundation_plugin => ( is => 'ro' );
+
+has templating_plugin => ( is => 'lazy', builder => sub { $_[0]->_init_value('templating_plugin') } );
+
+has backend_plugin => ( is => 'ro', builder => sub { $_[0]->_init_value('backend_plugin') } );
+
+has title => ( is => 'lazy', builder => sub { $_[0]->_init_value('title') } );
+
+has label => ( is => 'lazy', builder => sub { $_[0]->_init_value('label') } );
+
+has version => ( is => 'lazy', builder => sub { $_[0]->_init_value('version') } );
+
+has path_prefix => ( is => 'lazy', builder => sub { $_[0]->_init_value('path_prefix') } );
+
+has doc_template_dir => ( is => 'lazy', builder => sub { $_[0]->_init_value('doc_template_dir') } );
+
+has output_template_dir => ( is => 'lazy', builder => sub { $_[0]->_init_value('output_template_dir') } );
+
+has ruleset_prefix => ( is => 'lazy', builder => sub { $_[0]->_init_value('ruleset_prefix') } );
+
+has allow_unrecognized => ( is => 'lazy', builder => sub { $_[0]->_init_value('allow_unrecognized') } );
+
+has public_access => ( is => 'lazy', builder => sub { $_[0]->_init_value('public_access') } );
+
+has doc_defs => ( is => 'lazy', builder => sub { $_[0]->_init_value('doc_defs') } );
+
+has doc_header => ( is => 'lazy', builder => sub { $_[0]->_init_value('doc_header') } );
+
+has doc_footer => ( is => 'lazy', builder => sub { $_[0]->_init_value('doc_footer') } );
+
+has doc_stylesheet => ( is => 'lazy', builder => sub { $_[0]->_init_value('doc_stylesheet') } );
+
+has op_template => ( is => 'lazy', builder => sub { $_[0]->_init_value('op_template') } );
+
+has default_limit => ( is => 'lazy', builder => sub { $_[0]->_init_value('default_limit') } );
+
+has streaming_size => ( is => 'lazy', builder => sub { $_[0]->_init_value('streaming_size') } );
+
+has standard_params => ( is => 'lazy', builder => sub { $_[0]->_init_value('standard_params') } );
+
+has select_param => ( is => 'lazy', builder => sub { $_[0]->_init_value('select_param') } );
+
+has limit_param => ( is => 'lazy', builder => sub { $_[0]->_init_value('limit_param') } );
+
+has offset_param => ( is => 'lazy', builder => sub { $_[0]->_init_value('offset_param') } );
+
+has vocab_param => ( is => 'lazy', builder => sub { $_[0]->_init_value('vocab_param') } );
+
+has count_param => ( is => 'lazy', builder => sub { $_[0]->_init_value('count_param') } );
+
+has count_default => ( is => 'lazy', builder => sub { $_[0]->_init_value('count_default') } );
+
+has source_param => ( is => 'lazy', builder => sub { $_[0]->_init_value('source_param') } );
+
+has source_default => ( is => 'lazy', builder => sub { $_[0]->_init_value('source_default') } );
+
+has linebreak_param => ( is => 'lazy', builder => sub { $_[0]->_init_value('linebreak_param') } );
+
+has linebreak_default => ( is => 'lazy', builder => sub { $_[0]->_init_value('linebreak_default') } );
+
+has header_param => ( is => 'lazy', builder => sub { $_[0]->_init_value('header_param') } );
+
+has header_default => ( is => 'lazy', builder => sub { $_[0]->_init_value('header_default') } );
+
+has nohead_param => ( is => 'lazy', builder => sub { $_[0]->_init_value('nohead_param') } );
+
+
+
+sub valid_name {
+
+    die "$_[0] is not a valid name"
+	unless $_[0] =~ qr{ ^ [\w.:-]+ $ }xs;
+}
+
+
+# BUILD ( )
+# 
+# This method is called automatically after object initialization.
+
+sub BUILD {
+
+    my ($self) = @_;
     
-    my ($class_or_parent, $attrs) = @_;
+    # Check and configure the foundation plugin
+    # -----------------------------------------
     
-    croak "Each data service must be given a set of attributes"
-	unless ref $attrs && reftype $attrs eq 'HASH';
+    # If a foundation plugin was specified in the initialization, make sure
+    # that it is correct.
     
-    my $instance = {};
+    my $foundation_plugin = $self->foundation_plugin;
     
-    # First, make sure we have a valid foundation plugin.  This is necessary
-    # in order to get configuration information.
-    
-    $instance->{foundation_plugin} = $attrs->{foundation_plugin};
-    
-    if ( $instance->{foundation_plugin} )
+    if ( $foundation_plugin )
     {
-	croak "class '$attrs->{foundation_plugin}' is not a valid foundation plugin: cannot find method 'get_config'"
-	    unless $instance->{foundation_plugin}->can('get_config');
+	croak "class '$foundation_plugin' is not a valid foundation plugin: cannot find method '_read_config'"
+	    unless $foundation_plugin->can('_read_config');
     }
     
     # Otherwise, if 'Dancer.pm' has already been required then install the
@@ -132,91 +194,34 @@ sub new {
     elsif ( $INC{'Dancer.pm'} )
     {
 	require Web::DataService::Plugin::Dancer;
-	$instance->{foundation_plugin} = 'Web::DataService::Plugin::Dancer';
+	$self->{foundation_plugin} = 'Web::DataService::Plugin::Dancer';
     }
+    
+    # Otherwise, we cannot proceed.  Give the user some idea of what to do.
     
     else
     {
-	croak "could not find a foundation framework: try using 'Dancer'";
+	croak "could not find a foundation framework: try adding 'use Dancer;' \
+before 'use Web::DataService' (and make sure that Dancer is installed)";
     }
     
-    # Ensure that we have a non-empty name, and retrieve any configuration
-    # directives for this named data service.
+    # From this point on, we will be able to read the configuration file
+    # (assuming that a valid one is present).  So do so.
     
-    croak "Each data service must be given a 'name' attribute"
-	unless defined $attrs->{name} && $attrs->{name} ne '';
+    $self->_read_config;
     
-    my $name = $attrs->{name};
-    my $config = $instance->{foundation_plugin}->get_config($name);
+    # Check and configure the templating plugin
+    # -----------------------------------------
     
-    # If $class_or_parent is actually a Web::DataService instance, use it as the parent.
+    # If a templating plugin was explicitly specified, either in the code
+    # or in the configuration file, check that it is valid.
     
-    my $parent_attrs = {};
-    my $parent_name = '';
+    my $templating_plugin = $self->templating_plugin;
     
-    if ( ref $class_or_parent && $class_or_parent->isa('Web::DataService') )
+    if ( $templating_plugin )
     {
-	$parent_attrs = $class_or_parent;
-	$parent_name = $class_or_parent->{name};
-	$instance->{parent} = $class_or_parent;
-    }
-    
-    # Determine attribute values.  Any values found in the configuration hash
-    # serve as defaults, and %DS_DEFAULT values are used if nothing else is
-    # specified.
-    
-    foreach my $key ( keys %DS_DEF )
-    {
-	my $value = $attrs->{$key} // $config->{$key} // $DS_DEFAULT{$key};
-	$instance->{$key} = $value if defined $value;
-    }
-    
-    # The label and title default to the name, if not otherwise specified.
-    
-    $instance->{label} //= $instance->{name};
-    $instance->{title} //= $instance->{name};
-    
-    # Create a pattern for recognizing paths, unless one has been specifically provided.
-    
-    if ( $attrs->{path_prefix} && ! $instance->{path_re} )
-    {
-	$instance->{path_re} = qr{ ^ [/]? $attrs->{path_prefix} (?: [/] (.*) | $ ) }xs;
-    }
-    
-    # Create a new HTTP::Validate object so that we can do parameter
-    # validations.
-    
-    $instance->{validator} = HTTP::Validate->new();
-    
-    $instance->{validator}->validation_settings(allow_unrecognized => 1)
-	if $instance->{allow_unrecognized};
-    
-    # Create a default vocabulary, to be used in case no others are defined.
-    
-    $instance->{vocab} = { 'default' => 
-			   { name => 'default', use_field_names => 1, _default => 1,
-			     doc => "The default vocabulary consists of the underlying field names" } };
-    
-    $instance->{vocab_list} = [ 'default' ];
-    
-    # Add a few other necessary fields.
-    
-    $instance->{path_attrs} = {};
-    $instance->{format} = {};
-    $instance->{format_list} = [];
-    $instance->{subservice} = {};
-    $instance->{subservice_list} = [];
-    
-    $instance->{DEBUG} = 1 if $config->{ds_debug};
-    
-    # Now check to make sure we have rest of the necessary plugins.
-    
-    # If a templating plugin was explicitly specified, check that it is valid. 
-    
-    if ( $instance->{templating_plugin} )
-    {
-	croak "class '$instance->{templating_plugin}' is not a valid templating plugin: cannot find method 'render_template'"
-	    unless $instance->{templating_plugin}->can('render_template');
+	croak "class '$templating_plugin' is not a valid templating plugin: cannot find method 'render_template'"
+	    unless $templating_plugin->can('render_template');
     }
     
     # Otherwise, if 'Template.pm' has already been required then install the
@@ -225,73 +230,81 @@ sub new {
     elsif ( $INC{'Template.pm'} )
     {
 	require Web::DataService::Plugin::TemplateToolkit;
-	$instance->{templating_plugin} = 'Web::DataService::Plugin::TemplateToolkit';
+	$self->{templating_plugin} = 'Web::DataService::Plugin::TemplateToolkit';
     }
+    
+    # Otherwise, templating will not be available.
     
     else
     {
 	warn "WARNING: no templating engine was specified, so documentation pages\n";
 	warn "    and templated output will not be available.\n";
+	
+	$templating_plugin = $self->{templating_plugin} = 'Web::DataService::Plugin::Templating';
     }
     
     # If we have a templating plugin, instantiate it for documentation and
     # output.
     
-    if ( $instance->{templating_plugin} )
+    if ( defined $templating_plugin && $templating_plugin ne 'Web::DataService::Plugin::Templating' )
     {
-	my $plugin = $instance->{templating_plugin};
-	my $doc_templates = $instance->{doc_templates} // 'doc';
-	my $output_templates = $instance->{output_templates};
+	my $doc_dir = $self->doc_template_dir;
+	my $output_dir = $self->output_template_dir;
 	
 	# If we were given a directory for documentation templates, initialize
 	# an engine for evaluating them.
 	
-	if ( $doc_templates )
+	if ( $doc_dir )
 	{
-	    $doc_templates = $ENV{PWD} . '/' . $doc_templates
-		unless $doc_templates =~ qr{ ^ / }xs;
+	    $doc_dir = $ENV{PWD} . '/' . $doc_dir
+		unless $doc_dir =~ qr{ ^ / }xs;
 	    
-	    croak "$doc_templates: $!" unless -r $doc_templates;
+	    croak "$doc_dir: $!" unless -r $doc_dir;
 	    
-	    $instance->{doc_templates} = $doc_templates;
+	    $self->{doc_template_dir} = $doc_dir;
 	    
-	    $instance->{doc_engine} = 
-		$plugin->initialize_engine($instance, $config,
-				       { template_dir => $doc_templates });
+	    $self->{doc_engine} = 
+		$plugin->initialize_engine($self, $config,
+				       { template_dir => $doc_dir });
 	}
 	
 	# we were given a directory for output templates, initialize an
 	# engine for evaluating them as well.
     
-	if ( $output_templates )
+	if ( $output_dir )
 	{
-	    $output_templates = $ENV{PWD} . '/' . $output_templates
+	    $output_dir = $ENV{PWD} . '/' . $output_dir
 		unless $output_templates =~ qr{ ^ / }xs;
 	    
-	    croak "$output_templates: $!" unless -r $output_templates;
+	    croak "$output_dir: $!" unless -r $output_dir;
 	    
-	    $instance->{output_templates} = $output_templates;
+	    $self->{output_templates} = $output_templates;
 	    
-	    $instance->{output_engine} =
-		$plugin->initialize_engine($instance, $config,
-				       { template_dir => $output_templates });
+	    $self->{output_engine} =
+		$plugin->initialize_engine($self, $config,
+				       { template_dir => $output_dir });
 	}
 	
 	# If no stylesheet URL path was specified, use the default.
 	
-	unless ( defined $instance->{doc_stylesheet} )
+	unless ( defined $self->{doc_stylesheet} )
 	{
-	    my $prefix = $instance->{path_prefix} ? "/$instance->{path_prefix}/" : '/';
-	    $instance->{doc_stylesheet} = $prefix . 'css/dsdoc.css';
+	    my $prefix = $self->{path_prefix} ? "/$self->{path_prefix}/" : '/';
+	    $self->{doc_stylesheet} = $prefix . 'css/dsdoc.css';
 	}
     }
     
+    # Check and configure the backend plugin
+    # --------------------------------------
+    
     # If a backend plugin was explicitly specified, check that it is valid.
     
-    if ( $instance->{backend_plugin} )
+    my $backend_plugin = $self->backend_plugin;
+    
+    if ( $backend_plugin )
     {
-	croak "class 'instance->{backend_plugin}' is not a valid backend plugin: cannot find method 'get_connection'"
-	    unless $instance->{backend_plugin}->can('get_connection');
+	croak "class '$backend_plugin' is not a valid backend plugin: cannot find method 'get_connection'"
+	    unless $backend_plugin->can('get_connection');
     }
     
     # Otherwise, if 'Dancer::Plugin::Database' is available then select the
@@ -299,38 +312,136 @@ sub new {
     
     elsif ( $INC{'Dancer.pm'} && $INC{'Dancer/Plugin/Database.pm'} )
     {
-	$instance->{backend_plugin} = 'Web::DataService::Plugin::Dancer';
+	$self->{backend_plugin} = 'Web::DataService::Plugin::Dancer';
     }
+    
+    # Otherwise, we get the stub backend plugin which will throw an exception
+    # if called.  If you still wish to access a backend data system, then you
+    # must either add code to the various operation methods to explicitly
+    # connect to it or write an 'init_request_hook'.
     
     else
     {
-	# If no backend plugin is available, then leave this field undefined.
-	# The application must then either add code to the various operation
-	# methods or rely on an 'init_request_hook' to provide access to
-	# backend data.
+	$self->{backend_plugin} = 'Web::DataService::Plugin::Backend';
     }
     
-    # Bless the new instance, and link it in to its parent if necessary.
+    # Check and set some attributes
+    # -----------------------------
     
-    bless $instance, $class_or_parent;
+    # The title must be non-empty, but we can't just label it 'required'
+    # because it might be specified in the configuration file.
     
-    if ( $instance->{parent} )
+    my $title = $self->title;
+    
+    croak "you must specify a title, either in the call to 'new' or in the configuration file"
+	unless defined $title && $title ne '';
+    
+    # If path_prefix has been set but not path_re, generate the latter from
+    # the former.
+    
+    my $prefix = $self->path_prefix;
+    
+    if ( defined $prefix && $prefix ne '' && ! $self->path_re )
     {
-	my $parent = $instance->{parent};
-	
-	$parent->{subservice}{$name} = $instance;
-	push @{$parent->{subservice_list}}, $instance;
+	$self->{path_re} = qr{ ^ [/]? $prefix (?: [/] (.*) | $ ) }xs;
     }
+    
+    # Create a new HTTP::Validate object so that we can do parameter
+    # validations. 
+    
+    $self->{validator} = HTTP::Validate->new();
+    
+    $self->{validator}->validation_settings(allow_unrecognized => 1)
+	if $self->allow_unrecognized;
+    
+    # Create a default vocabulary, to be used in case no others are defined.
+    
+    $self->{vocab} = { 'default' => 
+		       { name => 'default', use_field_names => 1, _default => 1,
+			 doc => "The default vocabulary consists of the underlying field names" } };
+    
+    $self->{vocab_list} = [ 'default' ];
+    
+    # Add a few other necessary fields.
+    
+    $self->{path_attrs} = {};
+    $self->{format} = {};
+    $self->{format_list} = [];
+    $self->{subservice} = {};
+    $self->{subservice_list} = [];
     
     # Give the various plugins a chance to check and/or modify this instance.
     
-    $instance->plugin_init('foundation_plugin');
-    $instance->plugin_init('templating_plugin');
-    $instance->plugin_init('backend_plugin');
+    $self->_plugin_init('foundation_plugin');
+    $self->_plugin_init('templating_plugin');
+    $self->_plugin_init('backend_plugin');
+}
+
+
+# _init_value ( param )
+# 
+# Return the initial value for the specified parameter.  If it is already
+# present as a direct attribute, return that.  Otherwise, look it up in the
+# hash of values from the configuration file.  If those fail, check our parent
+# (if we have a parent).
+
+sub _init_value {
     
-    # Return the new instance.
+    my ($self, $param) = @_;
     
-    return $instance;
+    die "empty configuration parameter" unless defined $param && $param ne '';
+    
+    # First check to see if we have this attribute specified directly.
+    # Otherwise, check whether it is in our _config hash.  Otherwise,
+    # if we have a parent then check its direct attributes and _config hash.
+    # Otherwise, return undefined.
+    
+    return $self->{$param} if defined $self->{$param};
+    return $self->{_config}{$param} if defined $self->{_config}{$param};
+    return $self->{parent}{$param} if defined $self->{parent}{$param};
+    return $self->{parent}->_init_value($param) if defined $self->{parent};
+
+    return;
+}
+
+
+# _plugin_init ( plugin )
+# 
+# If the specified plugin has an 'initialize_service' method, call it with
+# ourselves as the argument.
+
+sub _plugin_init {
+
+    my ($self, $plugin) = @_;
+    
+    return unless defined $self->{$plugin};
+    return unless $self->{$plugin}->can('initialize_service');
+    
+    $self->{$plugin}->initialize_service($self);
+}
+
+
+# config_value ( param )
+# 
+# Return the value (if any) specified for this parameter in the configuration
+# file.  If not found, check the configuration for our parent (if we have a
+# parent).  This differs from _init_value above in that direct attributes are
+# not checked.
+
+sub config_value {
+
+    my ($self, $param) = @_;
+    
+    die "empty configuration parameter" unless defined $param && $param ne '';
+    
+    # First check to see whether this parameter is in our _config hash.
+    # Otherwise, if we have a parent then check its _config hash.  Otherwise,
+    # return undefined.
+    
+    return $self->{_config}{$param} if defined $self->{_config}{$param};
+    return $self->{parent}->_init_value($param) if defined $self->{parent};
+
+    return;
 }
 
 
@@ -349,6 +460,9 @@ sub define_subservice {
     # used for the subservice as well.
     
     my $class = ref $self;
+    
+    croak "define_subservice: must be called on an existing data service instance"
+	unless $class;
     
     # We go through the arguments one by one.  Hashrefs define new
     # subservices, while strings add to the documentation of the subservice
@@ -385,35 +499,15 @@ sub define_subservice {
 
 
 
-
-
-sub plugin_init {
-
-    my ($self, $plugin) = @_;
-    
-    return unless defined $self->{$plugin};
-    return unless $self->{$plugin}->can('initialize_service');
-    
-    $self->{$plugin}->initialize_service($self);
-}
-
-
 sub get_connection {
     
     my ($self) = @_;
     
-    croak "cannot execute get_connection: no backend plugin was defined"
+    croak "get_connection: no backend plugin was loaded"
 	unless defined $self->{backend_plugin};
     return $self->{backend_plugin}->get_connection($self);
 }
 
-
-sub get_config {
-    
-    my ($self, @args) = @_;
-    
-    return $self->{foundation_plugin}->get_config(@args);
-}
 
 
 sub set_mode {
@@ -432,27 +526,6 @@ sub set_mode {
 	    $ONE_REQUEST = 1;
 	}
     }
-}
-
-
-# accessor methods for the various attributes:
-
-sub get_attr {
-    
-    return $_[0]->{$_[1]};
-}
-
-
-# set_version ( v )
-# 
-# Set the 'version' attribute of this data service
-
-sub set_version {
-    
-    my ($self, $v) = @_;
-    
-    $self->{version} = $v;
-    return $self;
 }
 
 
@@ -1245,6 +1318,7 @@ sub debug {
     return $DEBUG || $self->{DEBUG};
 }
 
+
 =head1 METHODS
 
 =head2 CONFIGURATION
@@ -1419,6 +1493,41 @@ This program is free software; you can redistribute it and/or modify it
 under the same terms as Perl itself.
 
 =cut
+
+
+package Web::DataService::Plugin::Foundation;
+
+use Moo::Role ();
+
+sub _read_config { die "no foundation plugin was specified"; }
+
+sub get_request_url { die "no foundation plugin was specified"; }
+
+sub get_base_url { die "no foundation plugin was specified"; }
+
+sub get_params { die "no foundation plugin was specified"; }
+
+sub set_header { die "no foundation plugin was specified"; }
+
+sub set_content_type { die "no foundation plugin was specified"; }
+
+
+package Web::DataService::Plugin::Templating;
+
+use Moo::Role ();
+
+sub intialize_service { die "no templating plugin was specified"; }
+
+sub intialize_engine { die "no templating plugin was specified"; }
+
+sub render_template { die "no templating plugin was specified"; }
+
+
+package Web::DataService::Plugin::Backend;
+
+use Moo::Role ();
+
+sub get_connection { die "get_connection: no backend plugin was specified"; }
 
 
 1;
