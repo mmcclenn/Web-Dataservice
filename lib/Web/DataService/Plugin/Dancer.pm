@@ -19,6 +19,12 @@ package Web::DataService::Plugin::Dancer;
 use Carp qw( carp croak );
 
 
+sub initialize_plugin {
+    
+    Dancer::set(warnings => 0);
+    Dancer::set(app_handles_errors => 1);
+}
+
 
 # The following methods are called with the parameters specified: $ds is a
 # reference to a data service instance, $request is a reference to the request
@@ -28,7 +34,7 @@ use Carp qw( carp croak );
 
 # ============================================================================
 
-# get_config ( ds, name, param )
+# read_config ( ds, name, param )
 # 
 # This method returns configuration information from the application
 # configuration file used by the foundation framework.  If $param is given,
@@ -39,33 +45,16 @@ use Carp qw( carp croak );
 # If $param is not given, then return the configuration group $name if that
 # was given, or else a hash of the entire set of configuration parameters.
 
-sub _read_config {
+sub read_config {
     
     my ($class, $ds) = @_;
     
-    my $config = Dancer::config
-    my $ds_name = $ds->name;
-    $ds->{_config} = $config->{$ds_name};
-    
-    # if ( defined $param )
-    # {
-    # 	return $config->{$name}{$param} if defined $name;
-    # 	return $config->{$param};
-    # }
-    
-    # elsif ( defined $name )
-    # {
-    # 	return $config->{$name};
-    # }
-    
-    # else
-    # {
-    # 	return $config;
-    # }
+    my $config_hash = Dancer::config;
+    $ds->{_config} = $config_hash;
 }
 
 
-# get_connection ( request )
+# get_connection ( )
 # 
 # This method returns a database connection.  If you wish to use it, make sure
 # that you "use Dancer::Plugin::Database" in your main program.
@@ -76,7 +65,17 @@ sub get_connection {
 }
 
 
-# get_request_url ( request )
+# get_base_url ( )
+# 
+# Return the base URL for the data service.
+
+sub get_base_url {
+    
+    return Dancer::request->uri_base;
+}
+
+
+# get_request_url ( outer )
 # 
 # Return the full URL that generated the current request
 
@@ -86,19 +85,7 @@ sub get_request_url {
 }
 
 
-# get_base_url ( request )
-# 
-# Return the base URL for the data service.
-
-sub get_base_url {
-    
-    my ($class, $request) = @_;
-    
-    return Dancer::request->uri_base . $request->{ds}->get_base_path;
-}
-
-
-# get_params ( request )
+# get_params ( outer )
 # 
 # Return the parameters for the current request.
 
@@ -110,13 +97,13 @@ sub get_params {
 }
 
 
-# set_cors_header ( request, arg )
+# set_cors_header ( outer, arg )
 # 
 # Set the CORS access control header according to the argument.
 
 sub set_cors_header {
 
-    my ($plugin, $request, $arg) = @_;
+    my ($plugin, $outer, $arg) = @_;
     
     if ( defined $arg && $arg eq '*' )
     {
@@ -125,19 +112,19 @@ sub set_cors_header {
 }
 
 
-# set_content_type ( request, type )
+# set_content_type ( outer, type )
 # 
 # Set the response content type.
 
 sub set_content_type {
     
-    my ($plugin, $request, $type) = @_;
+    my ($plugin, $outer, $type) = @_;
     
     Dancer::content_type($type);
 }
 
 
-# set_header ( request, header, value )
+# set_header ( outer, header, value )
 # 
 # Set an arbitrary header in the response.
 
@@ -149,7 +136,7 @@ sub set_header {
 }
 
 
-# set_status ( ds, outer, status )
+# set_status ( outer, status )
 # 
 # Set the response status code.
 
@@ -160,17 +147,63 @@ sub set_status {
     Dancer::status($code);
 }
 
+
+# set_body ( outer, body )
+# 
+# Set the response body.
+
+sub set_body {
+    
+    my ($class, $request, $body) = @_;
+    $DB::single = 1;
+    my $a = 1;
+    #Dancer::SharedData->response->content($body);
+    #Dancer::SharedData->response->halt();
+}
+
 	
-# send_file ( request, filename )
+# file_path ( @components )
+# 
+# Concatenate the specified file paths together, in a file-system-independent
+# manner. 
+
+sub file_path {
+
+    shift;
+    return Dancer::path(@_);
+}
+
+
+# file_readable ( filename )
+# 
+# Return true if the specified file exists and is readable, false otherwise.
+
+sub file_readable {
+    
+    my $file_name = Dancer::path(Dancer::setting('public'), $_[1]);
+    return -r $file_name;
+}
+
+
+# file_exists ( filename )
+# 
+# Return true if the specified file exists, false otherwise.
+
+sub file_exists {
+
+    my $file_name = Dancer::path(Dancer::setting('public'), $_[1]);
+    return -e $file_name;
+}
+
+
+# send_file ( outer, filename )
 # 
 # Send as the response the contents of the specified file.  For Dancer, the path
 # is always evaluated relative to the 'public' directory.
 
 sub send_file {
     
-    my ($class, $request, $filename) = @_;
-    
-    return Dancer::send_file($filename);
+    return Dancer::send_file($_[2]);
 }
 
 

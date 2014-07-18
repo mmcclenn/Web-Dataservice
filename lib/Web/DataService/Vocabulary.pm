@@ -1,23 +1,24 @@
 #
 # Web::DataService::Vocabulary.pm
 # 
-# This module is responsible for the definition of output vocablaries.
+# This module provides a role that is used by 'Web::DataService'.  It implements
+# routines for defining and documenting vocabularies.
 # 
 # Author: Michael McClennen
 
 use strict;
 
-package Web::DataService;
+package Web::DataService::Vocabulary;
 
-use Carp qw(carp croak);
+use Carp 'croak';
+
+use Moo::Role;
 
 our (%VOCAB_DEF) = (name => 'ignore',
 		    title => 'single',
 		    doc_path => 'single',
 		    use_field_names => 'single',
 		    disabled => 'single');
-
-our ($DEFAULT_INSTANCE);
 
 
 # define_vocab ( attrs... )
@@ -27,10 +28,7 @@ our ($DEFAULT_INSTANCE);
 
 sub define_vocab {
 
-    # If we were called as a method, use the object on which we were called.
-    # Otherwise, use the globally defined one.
-    
-    my $self = $_[0]->isa('Web::DataService') ? shift : $DEFAULT_INSTANCE;
+    my $ds = shift;
     
     my ($last_node);
     
@@ -53,8 +51,8 @@ sub define_vocab {
 	    # Make sure this vocabulary was not already defined by a previous call,
 	    # and set the attributes as specified.
 	    
-	    croak "define_vocab: '$name' was already defined" if defined $self->{vocab}{$name}
-		and not $self->{vocab}{$name}{_default};
+	    croak "define_vocab: '$name' was already defined" if defined $ds->{vocab}{$name}
+		and not $ds->{vocab}{$name}{_default};
 	    
 	    # Create a new record to represent this vocabulary.
 	    
@@ -70,17 +68,17 @@ sub define_vocab {
 	    # Remove the default vocabulary, because it is only used if no
 	    # other vocabularies are defined.
 	    
-	    if ( $self->{vocab}{default}{_default} and not $item->{disabled} )
+	    if ( $ds->{vocab}{default}{_default} and not $item->{disabled} )
 	    {
-		delete $self->{vocab}{default};
-		shift @{$self->{vocab_list}};
+		delete $ds->{vocab}{default};
+		shift @{$ds->{vocab_list}};
 	    }
 	    
 	    # Now install the new vocabulary.  But don't add it to the list if
 	    # the 'disabled' attribute is set.
 	    
-	    $self->{vocab}{$name} = $record;
-	    push @{$self->{vocab_list}}, $name unless $record->{disabled};
+	    $ds->{vocab}{$name} = $record;
+	    push @{$ds->{vocab_list}}, $name unless $record->{disabled};
 	    $last_node = $record;
 	}
 	
@@ -88,7 +86,7 @@ sub define_vocab {
 	
 	elsif ( not ref $item )
 	{
-	    $self->add_node_doc($last_node, $item);
+	    $ds->add_node_doc($last_node, $item);
 	}
 	
 	else
@@ -102,7 +100,7 @@ sub define_vocab {
 }
 
 
-# validate_vocab ( )
+# valid_vocab ( )
 # 
 # Return a code reference (actually a reference to a closure) that can be used
 # in a parameter rule to validate a vocaubulary-selecting parameter.  All
@@ -110,11 +108,11 @@ sub define_vocab {
 
 sub valid_vocab {
     
-    my ($self) = @_;
+    my ($ds) = @_;
     
     # The ENUM_VALUE subroutine is defined by HTTP::Validate.pm.
     
-    return ENUM_VALUE(@{$self->{vocab_list}});
+    return ENUM_VALUE(@{$ds->{vocab_list}});
 }
 
 
@@ -128,49 +126,73 @@ sub valid_vocab {
 # If the option 'extended' is true, then include the text description of each
 # vocabulary.
 
-sub document_vocab {
+sub document_vocabs {
 
-    my ($self, $path, $options) = @_;
+    my ($ds, $path, $options) = @_;
     
     $options ||= {};
-    $path //= '/';
+    $path ||= '/';
     
     # Go through the list of defined vocabularies in order, filtering out
     # those which are not allowed for this path.  The reason for doing it this
     # way is so that the vocabularies will always be listed in the order
     # defined, instead of the arbitrary hash order.
     
-    my $list = $self->{vocab_list};
-    my $allowed = $options->{all} ? $self->{vocab}
-	: $self->{path_attrs}{$path}{allow_vocab};
+    my @vocabs;
     
-    return '' unless ref $allowed eq 'HASH' && ref $list eq 'ARRAY';
+    if ( $path eq '/' )
+    {
+	@vocabs = grep { ! $ds->{vocab}{$_}{undocumented} } @{$ds->{vocab_list}};
+    }
     
-    my @names = grep { $allowed->{$_} && ! $self->{vocab}{$_}{disabled} } @$list;
+    else
+    {
+	my $allowed = $ds->node_attr($path, 'allow_vocab');
+	
+	return "MSG_VOCAB_NONE_ALLOWED"
+	    unless ref $allowed eq 'HASH';
+	
+	@vocabs = grep { $allowed->{$_} && ! $ds->{vocab}{$_}{undocumented} } @{$ds->{vocab_list}};
+	return "MSG_VOCAB_NONE_ALLOWED" unless @vocabs;    
+    }
     
-    return '' unless @names;
+    # Figure out the default formats for each vocabulary.
     
-    my @paths = grep { $self->{vocab}{$_}{doc_path} } @names;
+    my %default_for;
+    
+    foreach my $format ( @{$ds->{format_list}} )
+    {
+	my $default_vocab = $ds->{format}{$format}{default_vocab} || $ds->{vocab_list}[0];
+	push @{$default_for{$default_vocab}}, "C<$format>";
+    }
+    
+    # Go through the list of defined vocabularies in order, 
+    
+    my @paths = grep { $ds->{vocab}{$_}{doc_path} } @vocabs;
     
     my $doc = "=over 4\n\n";
     my $ext_header = $options->{extended} || ! @paths ? " | Description" : '';
     my $doc_header = @paths ? " | Documentation" : '';
     
-    $doc .= "=for pp_table_header Vocabulary* | Name$doc_header$ext_header\n\n";
+    $doc .= "=for wds_table_header Vocabulary* | Name | Default for $doc_header $ext_header\n\n";
     
-    foreach my $name (@names)
+ VOCABULARY:
+    foreach my $name (@vocabs)
     {
-	my $frec = $self->{vocab}{$name};
+	my $frec = $ds->{vocab}{$name};
 	my $title = $frec->{title} || $frec->{name};
-	my $doc_link = $self->generate_path_link($frec->{doc_path}) if $frec->{doc_path};
+	my $def_list = $default_for{$name} ? join(', ', @{$default_for{$name}}) : '';
+	my $doc_link = $ds->node_link($frec->{doc_path}) if $frec->{doc_path};
 	
-	$doc .= "=item $frec->{title} | C<$frec->{name}>";
+	next VOCABULARY if $frec->{undocumented};
+	
+	$doc .= "=item $title | C<$frec->{name}> | $def_list";
 	$doc .= " | $doc_link" if $doc_link && @paths && $options->{extended};
 	$doc .= "\n\n";
-
+	
 	if ( $options->{extended} || ! @paths )
 	{
-	    $doc .= "$frec->{doc}\n\n" if $frec->{doc};
+	    $doc .= "$frec->{doc_string}\n\n" if $frec->{doc_string};
 	}
 	
 	elsif ( $doc_link )
@@ -184,43 +206,5 @@ sub document_vocab {
     return $doc;
 }
 
-
-# document_vocab ( name )
-# 
-# Return a string containing POD documentation of the vocabulary
-# possibilities.  If a name is specified, return the documentation string for
-# that vocabulary only.
-
-sub document_one_vocab {
-    
-    my ($self, $name) = @_;
-    
-    # Otherwise, if a single vocabulary name was given, return its
-    # documentation string if any.
-    
-    if ( $name )
-    {
-	return $self->{vocab}{$name}{doc};
-    }
-    
-    # Otherwise, document the entire list of enabled vocabularies in POD
-    # format.
-    
-    my $doc = "=over 4\n\n";
-    
-    $doc .= "=for pp_table_no_header Name* | Documentation\n\n";
-    
-    foreach my $v (@{$self->{vocab_list}})
-    {
-	my $vrec = $self->{vocab}{$v};
-	
-	$doc .= "=item $vrec->{name}\n\n";
-	$doc .= "$vrec->{doc}\n\n" if $vrec->{doc};
-    }
-    
-    $doc .= "=back\n\n";
-    
-    return $doc;
-}
 
 1;

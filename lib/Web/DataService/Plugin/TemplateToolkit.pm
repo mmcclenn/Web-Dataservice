@@ -35,14 +35,14 @@ sub initialize_service {
 }
 
 
-# initialize_engine ( ds, config, attrs )
+# new_engine ( ds, config, attrs )
 # 
 # This method is called automatically to initialize the necessary template
 # processing engines.
 
-sub initialize_engine {
+sub new_engine {
     
-    my ($plugin, $ds, $config, $attrs) = @_;
+    my ($plugin, $ds, $attrs) = @_;
     
     # Start with a set of default attributes. 
     
@@ -53,7 +53,7 @@ sub initialize_engine {
     
     # These can be overridden by attributes in the configuration file.
     
-    my $tt_config = $config->{engines}{template_toolkit} // $config->{template_toolkit} // {};
+    my $tt_config = $ds->config_value('engines')->{template_toolkit} // $ds->config_value('template_toolkit') // {};
     
     foreach my $key ( keys %$tt_config )
     {

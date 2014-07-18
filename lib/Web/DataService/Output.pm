@@ -7,228 +7,18 @@
 
 use strict;
 
-package Web::DataService;
+package Web::DataService::Output;
 
 use Encode;
 use Scalar::Util qw(reftype);
-use Carp qw(croak);
+use Carp qw(carp croak);
 
-#use Dancer::Plugin::StreamData;
-
-
-our (%SET_DEF) = (value => 'single',
-		  maps_to => 'single',
-		  fixed => 'single',
-		  disabled => 'single',
-		  undoc => 'single');
-
-our ($NAME_REGEXP) = qr{ ^ [\w:/.-]+ $ }xs;
-
-our ($DEFAULT_INSTANCE, @HTTP_METHOD_LIST);
-
-# define_map ( name, specification... )
-# 
-# Define a set of values, with optional value map and documentation.  Such
-# sets can be used to define and document acceptable parameter values,
-# document data values, and many other uses.
-# 
-# The names of sets must be unique within a single data service.
-
-sub define_set {
-
-    my $self = shift;
-    my $name = shift;
-    
-    # Make sure the name is unique.
-    
-    croak "define_set: the first argument must be a valid name"
-	unless defined $name && ! ref $name && $name =~ $NAME_REGEXP;
-    
-    croak "define_set: '$name' was already defined at $self->{valueset}{$name}{defined_at}"
-	if ref $self->{valueset}{$name};
-    
-    # Create a new set object.
-    
-    my ($package, $filename, $line) = caller;
-    
-    my $vs = { name => $name,
-	       defined_at => "line $line of $filename",
-	       value => {},
-	       enabled => [],
-	       documented => [] };
-    
-    bless $vs, 'Web::DataService::Set';
-    
-    $self->{set}{$name} = $vs;
-    
-    # Then process the records and documentation strings one by one.  Throw an
-    # exception if we find an invalid record.
-    
-    my $doc_node;
-    my @doc_lines;
-    
-    foreach my $item (@_)
-    {
-	# A scalar is interpreted as a documentation string.
-	
-	unless ( ref $item )
-	{
-	    $self->add_doc($vs, $item) if defined $item;
-	    next;
-	}
-	
-	# Any item that is not a record or a scalar is an error.
-	
-	unless ( ref $item && reftype $item eq 'HASH' )
-	{
-	    croak "define_set: arguments must be records (hash refs) and documentation strings";
-	}
-	
-	# Add the record to the documentation list.
-	
-	$self->add_doc($vs, $item);
-	
-	# Check for invalid attributes.
-	
-	foreach my $k ( keys %$item )
-	{
-	    croak "define_set: unknown attribute '$k'"
-		unless defined $SET_DEF{$k};
-	}
-	
-	# Check that each reord contains an actual value, and that these
-	# values do not repeat.
-	
-	my $value = $item->{value};
-	
-	croak "define_set: you must specify a nonempty 'value' key in each record"
-	    unless defined $value && $value ne '';
-	
-	croak "define_set: value '$value' cannot be defined twice"
-	    if exists $vs->{value}{$value};
-	
-	# Add the value to the various lists it belongs to, and to the hash
-	# containing all defined values.
-	
-	push @{$vs->{enabled}}, $value unless $item->{disabled};
-	$vs->{value}{$value} = $item;
-    }
-    
-    # Finish the documentation for this object.
-    
-    $self->process_doc($vs);
-    
-    # Get a list of all items that are neither marked as disabled nor as
-    # undocumented.  This list will be used when generating documentation strings.
-    
-    @{$vs->{documented}} = grep { ! $vs->{value}{$_}{undoc} } @{$vs->{enabled}};
-    
-    my $a = 1;	# we can stop here when debugging
-}
-
-
-# valid_set ( name )
-# 
-# Return a reference to a validator routine (actualy a closure) which will
-# accept the list of values defined for the specified set.  If the given name
-# does not correspond to any set, the returned routine will reject any value
-# it is given.
-
-sub valid_set {
-
-    my ($self, $set_name) = @_;
-    
-    my $vs = $self->{set}{$set_name};
-    
-    unless ( ref $vs eq 'Web::DataService::Set' )
-    {
-	print STDERR "WARNING: unknown set '$set_name'";
-	return \&bad_set_validator;
-    }
-    
-    # If there is at least one enabled value for this set, return the
-    # appropriate closure.
-    
-    if ( ref $vs->{enabled} eq 'ARRAY' && @{$vs->{enabled}} )
-    {
-	return ENUM_VALUE( @{$vs->{enabled}} );
-    }
-    
-    # Otherwise, return a reference to a routine which will always return an
-    # error.
-    
-    return \&bad_set_validator;
-}
-
-
-sub bad_set_validator {
-
-    return { error => "No valid values have been defined for {param}." };
-}
-
-
-# document_set ( set_name )
-# 
-# Return a string in Pod format documenting the values that were assigned to
-# this set.
-
-sub document_set {
-
-    my ($self, $set_name) = @_;
-    
-    # Look up a set object using the given name.  If none could be found,
-    # return an explanatory message.
-    
-    my $vs = $self->{set}{$set_name};
-    
-    return "=over\n\n=item I<Could not find the specified set>\n\n=back"
-	unless ref $vs eq 'Web::DataService::Set';
-    
-    return "=over\n\n=item I<The specified set does not contain any documented items>\n\n=back"
-	unless ref $vs->{documented} eq 'ARRAY' && @{$vs->{documented}};
-    
-    # Now return the documentation in Pod format.
-    
-    my $doc = "=over\n\n";
-    
-    foreach my $name (@{$vs->{documented}})
-    {
-	my $rec = $vs->{value}{$name};
-	next if $rec->{undoc};
-	
-	$doc .= "=item $rec->{value}\n\n";
-	$doc .= "$rec->{doc}\n\n" if defined $rec->{doc} && $rec->{doc} ne '';
-    }
-    
-    $doc .= "=back";
-    
-    return $doc;
-}
-
-
-# get_set_map_list ( set_name )
-# 
-# Return the list of 'map_to' values for the specified set.  The parameter
-# $variety can be either 'enabled', 'unfixed', or 'documented'.  It defaults
-# to 'enabled'.
-
-sub get_set_map_list {
-
-    my ($self, $set_name) = @_;
-    
-    my $vs = $self->{set}{$set_name};
-    
-    return unless ref $vs eq 'Web::DataService::Set';
-    
-    my $value_list = $vs->{enabled} || return;
-    
-    return grep { defined $_ } map { $vs->{value}{$_}{maps_to} } @$value_list;
-}
+use Moo::Role;
 
 
 sub define_output_map {
     
-    goto \&define_set;
+    goto \&Web::DataService::Set::define_set;
 }
 
 
@@ -239,7 +29,7 @@ sub define_output_map {
 
 sub define_block {
     
-    my $self = $_[0]->isa('Web::DataService') ? shift : $DEFAULT_INSTANCE;
+    my $self = shift;
     my $name = shift;
     
     # Check to make sure that we were given a valid name.
@@ -249,7 +39,7 @@ sub define_block {
 	croak "define_block: the first argument must be an output block name";
     }
     
-    elsif ( $name !~ $NAME_REGEXP )
+    elsif ( not $self->valid_name($name) )
     {
 	croak "define_block: invalid block name '$name'";
     }
@@ -325,6 +115,7 @@ our %OUTPUT_DEF = (output => 'type',
 		   not_field => 'single',
 		   if_code => 'code',
 		   dedup => 'single',
+		   name => 'single',
 		   value => 'single',
 		   always => 'single',
 		   text_join => 'single',
@@ -429,7 +220,7 @@ following list: 'include', 'output', 'set', 'select', 'filter'"
 }
 
 
-# configure_output ( request )
+# _setup_output ( request )
 # 
 # Determine the list of selection, processing and output rules for the
 # specified query, based on the query's attributes.  These attributes include: 
@@ -442,7 +233,7 @@ following list: 'include', 'output', 'set', 'select', 'filter'"
 # Depending upon the attributes of the various output records, all, some or
 # none of them may be relevant to a particular query.
 
-sub configure_output {
+sub _setup_output {
 
     my ($self, $request) = @_;
     
@@ -902,7 +693,8 @@ sub get_output_keys {
     
     # Then add the optional blocks.
     
-    my $output_param = $self->{path_attrs}{$path}{output_param};
+    my $output_param = $self->{node_attrs}{$path}{output_param};   # re-do
+                                                                   # with ->node_attrs
     
     push @keys, @{$request->{params}{$output_param}}
 	if defined $output_param and ref $request->{params}{$output_param} eq 'ARRAY';
@@ -1425,7 +1217,7 @@ sub document_response {
     
     my ($self, $path) = @_;
     
-    my $attrs = $self->{path_attrs}{$path};
+    my $attrs = $self->{path_attrs}{$path};  # re-do with ->node_attr
     
     my @blocks;
     my @labels;
@@ -1488,7 +1280,8 @@ sub document_response {
     # path.  If none are specifically selected for this path, then all of the
     # vocabularies defined for this data service are allowed.
     
-    my $vocabularies = $self->{path_attrs}{$path}{allow_vocab} || $self->{vocab};
+    my $vocabularies = $self->{node_attrs}{$path}{allow_vocab} || $self->{vocab};	
+    # $$$ re-do with ->node_attr
     
     unless ( ref $vocabularies eq 'HASH' && keys %$vocabularies )
     {
@@ -1507,7 +1300,7 @@ sub document_response {
     }
     
     # Now generate the header for the documentation, in Pod format.  We
-    # include the special "=for pp_table_header" line to give PodParser.pm the
+    # include the special "=for wds_table_header" line to give PodParser.pm the
     # information it needs to generate an HTML table.
     
     my $doc_string = '';
@@ -1517,14 +1310,14 @@ sub document_response {
     if ( $field_count > 1 )
     {
 	$doc_string .= "=over 4\n\n";
-	$doc_string .= "=for pp_table_header Field name*/$field_count | Block!anchor(block:) | Description\n\n";
+	$doc_string .= "=for wds_table_header Field name*/$field_count | Block!anchor(block:) | Description\n\n";
 	$doc_string .= "=item $field_string\n\n";
     }
     
     else
     {
 	$doc_string .= "=over 4\n\n";
-	$doc_string .= "=for pp_table_header Field name / Block / Description\n\n";
+	$doc_string .= "=for wds_table_header Field name / Block / Description\n\n";
     }
     
     # Run through each block one at a time, documenting all of the fields in
@@ -1857,13 +1650,13 @@ sub check_field_type {
 }
 
 
-# generate_single_result ( request )
+# _generate_single_result ( request )
 # 
 # This function is called after an operation is executed and returns a single
 # record.  Return this record formatted as a single string according to the
 # specified output format.
 
-sub generate_single_result {
+sub _generate_single_result {
 
     my ($self, $request) = @_;
     
@@ -1914,7 +1707,7 @@ sub generate_single_result {
 }
 
 
-# generate_compound_result ( request )
+# _generate_compound_result ( request )
 # 
 # This function is called after an operation is executed and returns a
 # statement handle or list of records.  Return each record in turn formatted
@@ -1922,7 +1715,7 @@ sub generate_single_result {
 # given, and if the size of the output exceeds the threshold for streaming,
 # set up to stream the rest of the output.
 
-sub generate_compound_result {
+sub _generate_compound_result {
 
     my ($self, $request, $streaming_threshold) = @_;
     
@@ -1972,14 +1765,14 @@ sub generate_compound_result {
     if ( defined $request->{result_offset} && $request->{result_offset} > 0
 	 && ! $request->{offset_handled} )
     {
-	$self->next_record($request) foreach 1..$request->{result_offset};
+	$self->_next_record($request) foreach 1..$request->{result_offset};
     }
     
     # Now fetch and process each output record in turn.  If output streaming is
     # available and our total output size exceeds the threshold, switch over
     # to streaming.
     
-    while ( my $record = $self->next_record($request) )
+    while ( my $record = $self->_next_record($request) )
     {
 	# If there are any processing steps to do, then process this record.
 	
@@ -2016,7 +1809,7 @@ sub generate_compound_result {
 	if ( defined $streaming_threshold && length($output) > $streaming_threshold )
 	{
 	    $request->{stashed_output} = $output;
-	    Dancer::Plugin::StreamData::stream_data($request, &stream_compound_result);
+	    Dancer::Plugin::StreamData::stream_data($request, &_stream_compound_result);
 	}
     }
     
@@ -2068,7 +1861,7 @@ sub generate_compound_result {
     # }
 
 
-# stream_compound_result ( )
+# _stream_compound_result ( )
 # 
 # Continue to generate a compound query result from where
 # generate_compound_result() left off, and stream it to the client
@@ -2081,7 +1874,7 @@ sub generate_compound_result {
 # in memory.  This allows the server to send results up to hundreds of
 # megabytes in length without bogging down.
 
-sub stream_compound_result {
+sub _stream_compound_result {
     
     my ($request, $writer) = @_;
     
@@ -2102,7 +1895,7 @@ sub stream_compound_result {
     
     # Then process the remaining rows.
     
-    while ( my $record = $self->next_record($request) )
+    while ( my $record = $self->_next_record($request) )
     {
 	# If there are any processing steps to do, then process this record.
 	
@@ -2148,14 +1941,14 @@ sub stream_compound_result {
 }
 
 
-# next_record ( request )
+# _next_record ( request )
 # 
 # Return the next record to be output for the given request.  If
 # $self->{main_result} is set, use that first.  Once that is exhausted (or if
 # it was never set) then if $result->{main_sth} is set then read records from
 # it until exhausted.
 
-sub next_record {
+sub _next_record {
     
     my ($self, $request) = @_;
     
@@ -2187,12 +1980,12 @@ sub next_record {
 }
 
 
-# generate_empty_result ( request )
+# _generate_empty_result ( request )
 # 
 # This function is called after an operation is executed and returns no results
 # at all.  Return the header and footer only.
 
-sub generate_empty_result {
+sub _generate_empty_result {
     
     my ($self, $request) = @_;
     

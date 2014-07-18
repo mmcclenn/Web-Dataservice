@@ -1,18 +1,19 @@
 #
 # Web::DataService::Render
 # 
-# This module is responsible for rendering documentation pages and output
-# pages via templates.
+# This module provides a role that is used by 'Web::DataService'.  It
+# implements routines for generating documentation pages and output pages by
+# rendering templates.
 # 
 # Author: Michael McClennen
 
 use strict;
 
-package Web::DataService;
+package Web::DataService::Render;
 
-use Carp qw(carp croak);
+use Carp 'croak';
 
-
+use Moo::Role;
 
 
 # check_doc ( template )
@@ -24,16 +25,16 @@ use Carp qw(carp croak);
 
 sub check_doc {
 
-    my ($self, $template) = @_;
+    my ($ds, $template_path) = @_;
     
-    return unless defined $template && $template ne '';
+    return unless defined $template_path && $template_path ne '';
     
-    my $template_file = $self->{doc_templates} . '/' . $template;
+    my $template_full_path = $ds->{foundation_plugin}->file_path($ds->{doc_template_dir}, $template_path);
     
-    if ( -e $template_file )
+    if ( -e $template_full_path )
     {
-	return $template if -r $template_file;
-	croak "template $template_file: $!";
+	return $template_path if -r $template_full_path;
+	croak "template $template_path: $!";
     }
     
     return;
@@ -73,11 +74,11 @@ sub render_doc {
 
 sub check_output {
 
-    my ($self, $template) = @_;
+    my ($ds, $template) = @_;
     
     return unless defined $template && $template ne '';
     
-    my $template_file = $self->{output_templates} . '/' . $template;
+    my $template_file = $ds->{foundation_plugin}->file_path($ds->{output_templates}, $template);
     
     if ( -e $template_file )
     {
@@ -99,14 +100,14 @@ sub check_output {
 
 sub render_output {
     
-    my $self = shift;
+    my $ds = shift;
     
     # Throw an exception if no templating module was selected.
     
     croak "you must select a templating module"
-	unless defined $self->{templating_plugin};
+	unless defined $ds->{templating_plugin};
     
-    $self->{templating_plugin}->render_template($self->{doc_templates}, @_);
+    $ds->{templating_plugin}->render_template($ds->{doc_templates}, @_);
 }
 
 

@@ -1,4 +1,4 @@
-#
+# 
 # DataService.pm
 # 
 # This is a framework for building data service applications.
@@ -39,63 +39,105 @@ serializing the result in the appropriate output format.
 
 =cut
 
+use lib '/Users/mmcclenn/Sites/Web-DataService/lib';
+
 package Web::DataService;
 
 our $VERSION = '0.20';
 
-use Carp qw( croak );
+use Carp qw( croak confess );
 use Scalar::Util qw( reftype blessed weaken );
 use POSIX qw( strftime );
 use Try::Tiny;
-use HTTP::Validate;
+use Sub::Identify;
 
-use Moo;
-use Moo::Role ();
-
+use Web::DataService::Node;
+use Web::DataService::Set;
 use Web::DataService::Format;
 use Web::DataService::Vocabulary;
-use Web::DataService::Cache;
-use Web::DataService::Request;
-use Web::DataService::Documentation;
-use Web::DataService::Output;
+use Web::DataService::Ruleset;
 use Web::DataService::Render;
+use Web::DataService::Output;
+use Web::DataService::Execute;
+
+use Web::DataService::Request;
+use Web::DataService::IRequest;
+use Web::DataService::IDocument;
 use Web::DataService::PodParser;
-#use Web::DataService::Plugin::Interface;
+
 use Web::DataService::Plugin::JSON qw(json_list_value);
 
+use Moo;
+use namespace::clean;
+
+with 'Web::DataService::Node', 'Web::DataService::Set',
+     'Web::DataService::Format', 'Web::DataService::Vocabulary',
+     'Web::DataService::Ruleset', 'Web::DataService::Render',
+     'Web::DataService::Output', 'Web::DataService::Execute';
 
 
-extends 'Exporter';
-
+our (@CARP_NOT) = qw(Web::DataService::Request Moo);
 
 HTTP::Validate->VERSION(0.35);
 
 
-BEGIN {
-    our (@EXPORT_OK) = @HTTP::Validate::VALIDATORS;
-    
-    our (%EXPORT_TAGS) = (
-        validators => \@HTTP::Validate::VALIDATORS
-    );
-}
-
-
 our @HTTP_METHOD_LIST = ('GET', 'HEAD', 'POST', 'PUT', 'DELETE');
 
-our ($DEBUG);
-our ($ONE_REQUEST);
+our @DEFAULT_METHODS = ('GET', 'HEAD');
 
+our %SPECIAL_FEATURE = (format_suffix => 1, fixed_paths => 1,
+			documentation => 1, doc_paths => 1, 
+			strict_params => 1, stream_output => 1);
+
+our @FEATURE_STANDARD = ('format_suffix', 'documentation', 'doc_paths', 
+			 'strict_params', 'stream_output');
+
+our @FEATURE_FIXED = ('fixed_paths', 'documentation', 'strict_params',
+		      'stream_output');
+
+our @FEATURE_ALL = ('format_suffix', 'fixed_paths', 'documentation', 
+		    'doc_paths', 'strict_params', 'stream_output');
+
+our %SPECIAL_PARAM = (show => 1, limit => 1, offset => 1, count => 1, format => 1,
+		      vocab => 1, showsource => 1, linebreak => 1, header => 1, save => 1);
+
+our @SPECIAL_STANDARD = ('show', 'limit', 'offset', 'count', 'vocab', 'showsource',
+			 'linebreak', 'header');
+
+our @SPECIAL_SINGLE = ('show', 'format', 'vocab', 'showsource', 'linebreak', 'header');
+
+our @SPECIAL_ALL = ('show', 'limit', 'offset', 'count', 'format', 'vocab',
+		    'showsource', 'linebreak', 'header', 'save');
+
+# Execution modes
+
+our ($DEBUG, $ONE_REQUEST, $CHECK_LATER);
+
+
+# Attributes of a Web::DataService object
 
 has name => ( is => 'ro', required => 1,
-	      isa => \&valid_name );
+	      isa => \&_valid_name );
 
 has parent => ( is => 'ro', init_arg => '_parent' );
+
+has features => ( is => 'ro', required => 1 );
+
+has special_params => ( is => 'ro', required => 1 );
 
 has foundation_plugin => ( is => 'ro' );
 
 has templating_plugin => ( is => 'lazy', builder => sub { $_[0]->_init_value('templating_plugin') } );
 
-has backend_plugin => ( is => 'ro', builder => sub { $_[0]->_init_value('backend_plugin') } );
+has backend_plugin => ( is => 'lazy', builder => sub { $_[0]->_init_value('backend_plugin') } );
+
+has path_prefix => ( is => 'lazy', builder => sub { $_[0]->_init_value('path_prefix') } );
+
+has hostname => ( is => 'lazy', builder => sub { $_[0]->_init_value('hostname') } );
+
+has port => ( is => 'lazy', builder => sub { $_[0]->_init_value('port') } );
+
+has generate_url_hook => ( is => 'rw', isa => \&_code_ref );
 
 has title => ( is => 'lazy', builder => sub { $_[0]->_init_value('title') } );
 
@@ -103,7 +145,11 @@ has label => ( is => 'lazy', builder => sub { $_[0]->_init_value('label') } );
 
 has version => ( is => 'lazy', builder => sub { $_[0]->_init_value('version') } );
 
-has path_prefix => ( is => 'lazy', builder => sub { $_[0]->_init_value('path_prefix') } );
+has path_re => ( is => 'lazy', builder => sub { $_[0]->_init_value('path_re') } );
+
+has doc_suffix => ( is => 'lazy', builder => sub { $_[0]->_init_value('doc_suffix') } );
+
+has doc_index => ( is => 'lazy', builder => sub { $_[0]->_init_value('doc_index') } );
 
 has doc_template_dir => ( is => 'lazy', builder => sub { $_[0]->_init_value('doc_template_dir') } );
 
@@ -111,7 +157,7 @@ has output_template_dir => ( is => 'lazy', builder => sub { $_[0]->_init_value('
 
 has ruleset_prefix => ( is => 'lazy', builder => sub { $_[0]->_init_value('ruleset_prefix') } );
 
-has allow_unrecognized => ( is => 'lazy', builder => sub { $_[0]->_init_value('allow_unrecognized') } );
+has no_strict_params => ( is => 'lazy', builder => sub { $_[0]->_init_value('no_strict_params') } );
 
 has public_access => ( is => 'lazy', builder => sub { $_[0]->_init_value('public_access') } );
 
@@ -123,46 +169,46 @@ has doc_footer => ( is => 'lazy', builder => sub { $_[0]->_init_value('doc_foote
 
 has doc_stylesheet => ( is => 'lazy', builder => sub { $_[0]->_init_value('doc_stylesheet') } );
 
-has op_template => ( is => 'lazy', builder => sub { $_[0]->_init_value('op_template') } );
-
 has default_limit => ( is => 'lazy', builder => sub { $_[0]->_init_value('default_limit') } );
 
-has streaming_size => ( is => 'lazy', builder => sub { $_[0]->_init_value('streaming_size') } );
+has default_header => ( is => 'lazy', builder => sub { $_[0]->_init_value('default_header') } );
 
-has standard_params => ( is => 'lazy', builder => sub { $_[0]->_init_value('standard_params') } );
+has default_showsource => ( is => 'lazy', builder => sub { $_[0]->_init_value('default_showsource') } );
 
-has select_param => ( is => 'lazy', builder => sub { $_[0]->_init_value('select_param') } );
+has default_count => ( is => 'lazy', builder => sub { $_[0]->_init_value('default_count') } );
 
-has limit_param => ( is => 'lazy', builder => sub { $_[0]->_init_value('limit_param') } );
+has default_linebreak => ( is => 'lazy', builder => sub { $_[0]->_init_value('default_linebreak') } );
 
-has offset_param => ( is => 'lazy', builder => sub { $_[0]->_init_value('offset_param') } );
+has stream_threshold => ( is => 'lazy', builder => sub { $_[0]->_init_value('stream_threshold') } );
 
-has vocab_param => ( is => 'lazy', builder => sub { $_[0]->_init_value('vocab_param') } );
+has data_source => ( is => 'lazy', builder => sub { $_[0]->_init_value('data_source') } );
 
-has count_param => ( is => 'lazy', builder => sub { $_[0]->_init_value('count_param') } );
+has data_provider => ( is => 'lazy', builder => sub { $_[0]->_init_value('data_provider') } );
 
-has count_default => ( is => 'lazy', builder => sub { $_[0]->_init_value('count_default') } );
+has data_license => ( is => 'lazy', builder => sub { $_[0]->_init_value('data_license') } );
 
-has source_param => ( is => 'lazy', builder => sub { $_[0]->_init_value('source_param') } );
+has license_url => ( is => 'lazy', builder => sub { $_[0]->_init_value('license_url') } );
 
-has source_default => ( is => 'lazy', builder => sub { $_[0]->_init_value('source_default') } );
+has admin_name => ( is => 'lazy', builder => sub { $_[0]->_init_value('admin_name') } );
 
-has linebreak_param => ( is => 'lazy', builder => sub { $_[0]->_init_value('linebreak_param') } );
+has admin_email => ( is => 'lazy', builder => sub { $_[0]->_init_value('admin_email') } );
 
-has linebreak_default => ( is => 'lazy', builder => sub { $_[0]->_init_value('linebreak_default') } );
-
-has header_param => ( is => 'lazy', builder => sub { $_[0]->_init_value('header_param') } );
-
-has header_default => ( is => 'lazy', builder => sub { $_[0]->_init_value('header_default') } );
-
-has nohead_param => ( is => 'lazy', builder => sub { $_[0]->_init_value('nohead_param') } );
+has validator => ( is => 'ro', init_arg => undef );
 
 
+# Validator methods for the data service attributes.
 
-sub valid_name {
+sub _valid_name {
 
-    die "$_[0] is not a valid name"
-	unless $_[0] =~ qr{ ^ [\w.:-]+ $ }xs;
+    die "not a valid name"
+	unless $_[0] =~ qr{ ^ [\w.:][\w.:-]* $ }xs;
+}
+
+
+sub _code_ref {
+
+    die "must be a code ref"
+	unless ref $_[0] && reftype $_[0] eq 'CODE';
 }
 
 
@@ -174,6 +220,130 @@ sub BUILD {
 
     my ($self) = @_;
     
+    local($Carp::CarpLevel) = 1;	# We shouldn't have to do this, but
+                                        # Noo and Carp don't play well together.
+    
+    # If no path prefix was defined, make it the empty string.
+    
+    $self->{path_prefix} //= '';
+    
+    # Process the feature list
+    # ------------------------
+    
+    # These may be specified either as a listref or as a string with
+    # comma-separated values.
+    
+    my $features_value = $self->features;
+    my @features = ref $features_value eq 'ARRAY' ? @$features_value : split /\s*,\s*/, $features_value;
+    
+ ARG:
+    foreach my $o ( @features )
+    {
+	next unless defined $o && $o ne '';
+	
+	my $feature_value = 1;
+	my $key = $o;
+	
+	# If 'standard' was specified, enable the standard set of features.
+	# (But don't override any that have already been set or cleared
+	# explicitly.)
+	
+	if ( $o eq 'standard' )
+	{
+	    foreach my $p ( @FEATURE_STANDARD )
+	    {
+		$self->{feature}{$p} //= 1;
+	    }
+	    
+	    next ARG;
+	}
+	
+	# If we get an argument that looks like 'no_feature', then disable
+	# the feature.
+	
+	elsif ( $o =~ qr{ ^ no_ (\w+) $ }xs )
+	{
+	    $key = $1;
+	    $feature_value = 0;
+	}
+	
+	# Now, complain if the user gives us something unrecognized.
+	
+	croak "unknown feature '$o'\n" unless $SPECIAL_FEATURE{$key};
+	
+	# Give this parameter the specified value (either on or off).
+	# Parameters not mentioned default to off, unless 'standard' was
+	# included.
+	
+	$self->{feature}{$key} = $feature_value;
+    }
+    
+    # Process the list of special parameters
+    # --------------------------------------
+    
+    # These may be specified either as a listref or as a string with
+    # comma-separated values.
+    
+    my $special_value = $self->special_params;
+    my @specials = ref $special_value eq 'ARRAY' ? @$special_value : split /\s*,\s*/, $special_value;
+    
+ ARG:
+    foreach my $s ( @specials )
+    {
+	next unless defined $s && $s ne '';
+	my $key = $s;
+	my $name = $s;
+	
+	# If 'standard' was specified, enable the "standard" set of parameters
+	# with their default names (but don't override any that have already
+	# been enabled).
+	
+	if ( $s eq 'standard' )
+	{
+	    foreach my $p ( @SPECIAL_STANDARD )
+	    {
+		$self->{special}{$p} //= $p;
+	    }
+	    
+	    next ARG;
+	}
+	
+	# If we get an argument that looks like 'no_param', then disable
+	# the parameter.
+	
+	elsif ( $s =~ qr{ ^ no_ (\w+) $ }xs )
+	{
+	    $key = $1;
+	    $name = '';
+	}
+	
+	# If we get an argument that looks like 'param=name', then enable the
+	# feature 'param' but use 'name' as the accepted parameter name.
+	
+	elsif ( $s =~ qr{ ^ (\w+) = (\w+) $ }xs )
+	{
+	    $key = $1;
+	    $name = $2;
+	}
+	
+	# Now, complain if the user gives us something unrecognized, or an
+	# invalid parameter name.
+	
+	croak "unknown special parameter '$key'\n" unless $SPECIAL_PARAM{$key};
+	croak "invalid parameter name '$name' - bad character\n" if $name =~ /[^\w]/;
+	
+	# Enable this parameter with the specified name.
+	
+	$self->{special}{$key} = $name;
+    }
+    
+    # Make sure there are no feature or special parameter conflicts.
+    
+    croak "you may not specify the feature 'format_suffix' together with the special parameter 'format'"
+	if $self->{feature}{format_suffix} && $self->{special}{format};
+    
+    $self->{feature}{doc_paths} = 0 unless $self->{feature}{documentation};
+    
     # Check and configure the foundation plugin
     # -----------------------------------------
     
@@ -184,7 +354,7 @@ sub BUILD {
     
     if ( $foundation_plugin )
     {
-	croak "class '$foundation_plugin' is not a valid foundation plugin: cannot find method '_read_config'"
+	croak "class '$foundation_plugin' is not a valid foundation plugin: cannot find method '_read_config'\n"
 	    unless $foundation_plugin->can('_read_config');
     }
     
@@ -202,13 +372,13 @@ sub BUILD {
     else
     {
 	croak "could not find a foundation framework: try adding 'use Dancer;' \
-before 'use Web::DataService' (and make sure that Dancer is installed)";
+before 'use Web::DataService' (and make sure that Dancer is installed)\n";
     }
     
     # From this point on, we will be able to read the configuration file
     # (assuming that a valid one is present).  So do so.
     
-    $self->_read_config;
+    $self->{foundation_plugin}->read_config($self);
     
     # Check and configure the templating plugin
     # -----------------------------------------
@@ -216,12 +386,12 @@ before 'use Web::DataService' (and make sure that Dancer is installed)";
     # If a templating plugin was explicitly specified, either in the code
     # or in the configuration file, check that it is valid.
     
-    my $templating_plugin = $self->templating_plugin;
-    
-    if ( $templating_plugin )
+    if ( $self->{templating_plugin} )
     {
-	croak "class '$templating_plugin' is not a valid templating plugin: cannot find method 'render_template'"
-	    unless $templating_plugin->can('render_template');
+	my $plugin_name = $self->{templating_plugin} || "''";
+	
+	croak "$plugin_name is not a valid templating plugin: cannot find method 'render_template'\n"
+	    unless $self->{templating_plugin}->can('render_template');
     }
     
     # Otherwise, if 'Template.pm' has already been required then install the
@@ -237,19 +407,47 @@ before 'use Web::DataService' (and make sure that Dancer is installed)";
     
     else
     {
-	warn "WARNING: no templating engine was specified, so documentation pages\n";
-	warn "    and templated output will not be available.\n";
+	if ( $self->{feature}{documentation} )
+	{
+	    warn "WARNING: no templating engine was specified, so documentation pages\n";
+	    warn "    and templated output will not be available.\n";
+	    $self->{feature}{documentation} = 0;
+	    $self->{feature}{doc_paths} = 0;
+	}
 	
-	$templating_plugin = $self->{templating_plugin} = 'Web::DataService::Plugin::Templating';
+	$self->{templating_plugin} = 'Web::DataService::Plugin::Templating';
     }
     
     # If we have a templating plugin, instantiate it for documentation and
     # output.
     
-    if ( defined $templating_plugin && $templating_plugin ne 'Web::DataService::Plugin::Templating' )
+    if ( defined $self->{templating_plugin} && 
+	 $self->{templating_plugin} ne 'Web::DataService::Plugin::Templating' )
     {
 	my $doc_dir = $self->doc_template_dir;
 	my $output_dir = $self->output_template_dir;
+	
+	# If we weren't given a document template directory, use 'doc' if it
+	# exists and is readable.
+	
+	unless ( defined $doc_dir )
+	{
+	    my $default = $ENV{PWD} . '/doc';
+	    
+	    if ( -r $default )
+	    {
+		$doc_dir = $default;
+	    }
+	    
+	    elsif ( $self->{feature}{documentation} )
+	    {
+		warn "WARNING: no document template directory was found, so documentation pages\n";
+		warn "    will not be available.  Try putting them in the directory 'doc',\n";
+		warn "    or specifying the attribute 'doc_template_dir'.\n";
+		$self->{feature}{documentation} = 0;
+		$self->{feature}{doc_paths} = 0;
+	    }
+	}
 	
 	# If we were given a directory for documentation templates, initialize
 	# an engine for evaluating them.
@@ -259,13 +457,13 @@ before 'use Web::DataService' (and make sure that Dancer is installed)";
 	    $doc_dir = $ENV{PWD} . '/' . $doc_dir
 		unless $doc_dir =~ qr{ ^ / }xs;
 	    
-	    croak "$doc_dir: $!" unless -r $doc_dir;
+	    croak "the documentation template directory '$doc_dir' is not readable: $!\n"
+		unless -r $doc_dir;
 	    
 	    $self->{doc_template_dir} = $doc_dir;
 	    
 	    $self->{doc_engine} = 
-		$plugin->initialize_engine($self, $config,
-				       { template_dir => $doc_dir });
+		$self->{templating_plugin}->new_engine($self, { template_dir => $doc_dir });
 	}
 	
 	# we were given a directory for output templates, initialize an
@@ -274,24 +472,25 @@ before 'use Web::DataService' (and make sure that Dancer is installed)";
 	if ( $output_dir )
 	{
 	    $output_dir = $ENV{PWD} . '/' . $output_dir
-		unless $output_templates =~ qr{ ^ / }xs;
+		unless $output_dir =~ qr{ ^ / }xs;
 	    
-	    croak "$output_dir: $!" unless -r $output_dir;
+	    croak "the output template directory '$output_dir' is not readable: $!\n"
+		unless -r $output_dir;
 	    
-	    $self->{output_templates} = $output_templates;
+	    $self->{output_template_dir} = $output_dir;
 	    
 	    $self->{output_engine} =
-		$plugin->initialize_engine($self, $config,
-				       { template_dir => $output_dir });
+		$self->{templating_plugin}->new_engine($self, { template_dir => $output_dir });
 	}
 	
 	# If no stylesheet URL path was specified, use the default.
 	
-	unless ( defined $self->{doc_stylesheet} )
-	{
-	    my $prefix = $self->{path_prefix} ? "/$self->{path_prefix}/" : '/';
-	    $self->{doc_stylesheet} = $prefix . 'css/dsdoc.css';
-	}
+	$self->{doc_stylesheet} //= $self->generate_url({ path => 'css/dsdoc.css' });
+	
+	# Generate a closure that we can use for making relative URLs.
+	
+	$self->{doc_url_sub} = sub { $self->generate_url({ doc => $_[0] }) };
+	$self->{path_url_sub} = sub { $self->generate_url({ path => $_[0] }) };
     }
     
     # Check and configure the backend plugin
@@ -299,12 +498,12 @@ before 'use Web::DataService' (and make sure that Dancer is installed)";
     
     # If a backend plugin was explicitly specified, check that it is valid.
     
-    my $backend_plugin = $self->backend_plugin;
-    
-    if ( $backend_plugin )
+    if ( $self->{backend_plugin} )
     {
-	croak "class '$backend_plugin' is not a valid backend plugin: cannot find method 'get_connection'"
-	    unless $backend_plugin->can('get_connection');
+	my $plugin_name = $self->{backend_plugin} || "''";
+	
+	croak "$plugin_name is not a valid backend plugin: cannot find method 'get_connection'\n"
+	    unless $self->{backend_plugin}->can('get_connection');
     }
     
     # Otherwise, if 'Dancer::Plugin::Database' is available then select the
@@ -318,7 +517,7 @@ before 'use Web::DataService' (and make sure that Dancer is installed)";
     # Otherwise, we get the stub backend plugin which will throw an exception
     # if called.  If you still wish to access a backend data system, then you
     # must either add code to the various operation methods to explicitly
-    # connect to it or write an 'init_request_hook'.
+    # connect to it use one of the available hooks.
     
     else
     {
@@ -333,17 +532,62 @@ before 'use Web::DataService' (and make sure that Dancer is installed)";
     
     my $title = $self->title;
     
-    croak "you must specify a title, either in the call to 'new' or in the configuration file"
+    croak "you must specify a title, either as a parameter to the data service definition or in the configuration file\n"
 	unless defined $title && $title ne '';
     
-    # If path_prefix has been set but not path_re, generate the latter from
-    # the former.
+    # If no path_re was set, generate it from the path prefix.
     
-    my $prefix = $self->path_prefix;
-    
-    if ( defined $prefix && $prefix ne '' && ! $self->path_re )
+    if ( ! $self->path_re )
     {
-	$self->{path_re} = qr{ ^ [/]? $prefix (?: [/] (.*) | $ ) }xs;
+	my $prefix = $self->path_prefix;
+	
+	# If the prefix ends in '/', then chop it off.  This is because a URL
+	# with just the prefix and no '/' is still valid.
+	
+	if ( $prefix =~ qr{ (.*) [/] $ }xs )
+	{
+	    $self->{path_re} = qr{ ^ [/] $1 (?: [/] (.*) | $ ) }xs;
+	}
+	
+	# Otherwise, generate a regexp that doesn't expect a / before the rest
+	# of the path.
+	
+	else
+	{
+	    $self->{path_re} = qr{ ^ [/] $prefix (.*) }xs;
+	}
+    }
+    
+    # Create a default vocabulary, to be used in case no others are defined.
+    
+    $self->{vocab} = { 'default' => 
+		       { name => 'default', use_field_names => 1, _default => 1, title => 'Default',
+			 doc_string => "The default vocabulary consists of the field names from the underlying data." } };
+    
+    $self->{vocab_list} = [ 'default' ];
+    
+    # We need to set defaults for 'doc_suffix' and 'index_name' so that we can
+    # handle 'doc_paths' if it is enabled.  Application authors can turn
+    # either of these off by setting the value to the empty string.
+    
+    $self->{doc_suffix} //= '_doc';
+    $self->{doc_index} //= 'index';
+    
+    # Compute regexes from these suffixes.
+    
+    if ( $self->{doc_suffix} && $self->{doc_index} )
+    {
+	$self->{doc_path_regex} = qr{ ^ ( .* [^/] ) (?: $self->{doc_suffix} | / $self->{doc_index} | / ) $ }xs;
+    }
+    
+    elsif ( $self->{doc_suffix} )
+    {
+	$self->{doc_path_regex} = qr{ ^ ( .* [^/] ) (?: $self->{doc_suffix} | / ) $ }xs;
+    }
+    
+    elsif ( $self->{doc_index} )
+    {
+	$self->{doc_path_regex} = qr{ ^ ( .* [^/] ) (?: / $self->{doc_index} | / $ }xs;
     }
     
     # Create a new HTTP::Validate object so that we can do parameter
@@ -352,19 +596,13 @@ before 'use Web::DataService' (and make sure that Dancer is installed)";
     $self->{validator} = HTTP::Validate->new();
     
     $self->{validator}->validation_settings(allow_unrecognized => 1)
-	if $self->allow_unrecognized;
-    
-    # Create a default vocabulary, to be used in case no others are defined.
-    
-    $self->{vocab} = { 'default' => 
-		       { name => 'default', use_field_names => 1, _default => 1,
-			 doc => "The default vocabulary consists of the underlying field names" } };
-    
-    $self->{vocab_list} = [ 'default' ];
+	unless $self->{feature}{strict_params};
     
     # Add a few other necessary fields.
     
-    $self->{path_attrs} = {};
+    $self->{path_defs} = {};
+    $self->{node_attrs} = {};
+    $self->{attr_cache} = {};
     $self->{format} = {};
     $self->{format_list} = [];
     $self->{subservice} = {};
@@ -396,11 +634,13 @@ sub _init_value {
     # if we have a parent then check its direct attributes and _config hash.
     # Otherwise, return undefined.
     
+    my $ds_name = $self->name;
+    
     return $self->{$param} if defined $self->{$param};
-    return $self->{_config}{$param} if defined $self->{_config}{$param};
-    return $self->{parent}{$param} if defined $self->{parent}{$param};
+    return $self->{_config}{$ds_name}{$param} if defined $self->{_config}{$ds_name}{$param};
     return $self->{parent}->_init_value($param) if defined $self->{parent};
-
+    return $self->{_config}{$param} if defined $self->{_config}{$param};
+    
     return;
 }
 
@@ -415,9 +655,19 @@ sub _plugin_init {
     my ($self, $plugin) = @_;
     
     return unless defined $self->{$plugin};
-    return unless $self->{$plugin}->can('initialize_service');
     
-    $self->{$plugin}->initialize_service($self);
+    no strict 'refs';
+    
+    if ( $self->{$plugin}->can('initialize_plugin') && ! ${"$self->{$plugin}::_INITIALIZED"} )
+    {
+	$self->{$plugin}->initialize_plugin($self);
+	${"$self->{$plugin}::_INITIALIZED"} = 1;
+    }
+    
+    if ( defined $self->{$plugin} && $self->{$plugin}->can('initialize_service') )
+    {    
+	$self->{$plugin}->initialize_service($self);
+    }
 }
 
 
@@ -438,10 +688,55 @@ sub config_value {
     # Otherwise, if we have a parent then check its _config hash.  Otherwise,
     # return undefined.
     
+    my $ds_name = $self->name;
+    
+    return $self->{_config}{$ds_name}{$param} if defined $self->{_config}{$ds_name}{$param};
+    return $self->{parent}->config_value($param) if defined $self->{parent};
     return $self->{_config}{$param} if defined $self->{_config}{$param};
-    return $self->{parent}->_init_value($param) if defined $self->{parent};
-
+    
     return;
+}
+
+
+# has_feature ( name )
+# 
+# Return true if the given feature is set for this data service, undefined
+# otherwise. 
+
+sub has_feature {
+    
+    my ($self, $name) = @_;
+    
+    croak "has_feature: unknown feature '$name'\n" unless $SPECIAL_FEATURE{$name};
+    return $self->{feature}{$name};
+}
+
+
+# special_param ( name )
+# 
+# If the given special parameter is enabled for this data service, return the
+# parameter name.  Otherwise, return the undefined value.
+
+sub special_param {
+    
+    my ($self, $name) = @_;
+    
+    croak "special_param: unknown special parameter '$name'\n" unless $SPECIAL_PARAM{$name};
+    return $self->{special}{$name};
+}
+
+
+# valid_name ( name )
+# 
+# Return true if the given name is valid according to the Web::DataService
+# specification, false otherwise.
+
+sub valid_name {
+    
+    my ($self, $name) = @_;
+    
+    return 1 if defined $name && !ref $name && $name =~ qr{ ^ [\w][\w.:-]* $ }xs;
+    return; # otherwise
 }
 
 
@@ -461,7 +756,7 @@ sub define_subservice {
     
     my $class = ref $self;
     
-    croak "define_subservice: must be called on an existing data service instance"
+    croak "define_subservice: must be called on an existing data service instance\n"
 	unless $class;
     
     # We go through the arguments one by one.  Hashrefs define new
@@ -487,11 +782,11 @@ sub define_subservice {
 	
 	else
 	{
-	    croak "define_subservice: arguments must be hashrefs and strings";
+	    croak "define_subservice: the arguments must be a list of hashrefs and strings\n";
 	}
     }
     
-    croak "define_subservice: arguments must include at least one hashref of attributes"
+    croak "define_subservice: arguments must include at least one hashref of attributes\n"
 	unless $last_node;
     
     return $last_node;
@@ -503,7 +798,7 @@ sub get_connection {
     
     my ($self) = @_;
     
-    croak "get_connection: no backend plugin was loaded"
+    croak "get_connection: no backend plugin was loaded\n"
 	unless defined $self->{backend_plugin};
     return $self->{backend_plugin}->get_connection($self);
 }
@@ -525,492 +820,525 @@ sub set_mode {
 	{
 	    $ONE_REQUEST = 1;
 	}
+	
+	elsif ( $mode eq 'late_path_check' )
+	{
+	    $CHECK_LATER = 1;
+	}
     }
 }
 
 
-# define_path ( path, attrs... )
+# generate_url ( attrs )
 # 
-# Set up a "path" entry, representing a complete or partial URL path.  This
-# path should have a documentation page, but if one is not defined a template
-# page will be used along with any documentation strings given in this call.
-# Any path which represents an operation must be given an 'op' attribute.
+# Generate a URL according to the specified attributes:
 # 
-# An error will be signalled unless the "parent" path is already defined.  In
-# other words, you cannot define 'a/b/c' unless 'a/b' is defined first.
+# path		Generates a URL for this exact path (with the proper prefix added)
+# 
+# operation	Generates an operation URL for the specified data service node
+# 
+# documentation	Generates a documentation URL for the specified data service node
+# 
+# format	Specifies the format to be included in the URL
+# 
+# params	Species the parameters, if any, to be included in the URL
+# 
+# absolute	If specified, generates an absolute URL rather than a site-relative
+#		one.  The value should be the hostname or hostname:port.
+# 
 
-sub define_path {
-    
+sub generate_url {
+
     my $self = shift;
     
-    my ($package, $filename, $line) = caller;
+    my $attrs = ref $_[0] eq 'HASH' ? $_[0] 
+	      : scalar(@_) % 2 == 0 ? { @_ }
+				    : croak "generate_url: odd number of arguments";
     
-    my ($last_node);
+    # If a custom routine was specified for this purpose, call it.
     
-    # Now we go through the rest of the arguments.  Hashrefs define new
-    # directories, while strings add to the documentation of the directory
-    # whose definition they follow.
-    
-    foreach my $item (@_)
+    if ( $self->{generate_url_hook} )
     {
-	# A hashref defines a new directory.
-	
-	if ( ref $item eq 'HASH' )
-	{
-	    croak "define_path: a path definition must include a non-empty value for 'path'"
-		unless defined $item->{path} && $item->{path} ne '';
-	    
-	    $last_node = $self->create_path_node($item, $filename, $line)
-		unless defined $item->{disabled};
-	}
-	
-	elsif ( not ref $item )
-	{
-	    $self->add_node_doc($last_node, $item);
-	}
-	
-	else
-	{
-	    croak "define_path: arguments must be hashrefs and strings";
-	}
+	return &{$self->{generate_url_hook}}($self, $attrs);
     }
     
-    croak "define_path: arguments must include at least one hashref of attributes"
-	unless $last_node;
-}
+    # Otherwise, construct the URL according to the feature set of this data
+    # service.
 
-
-our (%NODE_DEF) = ( path => 'ignore',
-		    collapse_path => 'single',
-		    send_files => 'single',
-		    file_dir => 'single',
-		    class => 'single',
-		    method => 'single',
-		    arg => 'single',
-		    ruleset => 'single',
-		    output => 'list',
-		    output_label => 'single',
-		    output_opt => 'single',
-		    uses_dbh => 'single',
-		    version => 'single',
-		    subvers => 'single',
-		    public_access => 'single',
-		    also_initialize => 'set',
-		    output_param => 'single',
-		    vocab_param => 'single',
-		    limit_param => 'single',
-		    offset_param => 'single',
-		    count_param => 'single',
-		    nohead_param => 'single',
-		    linebreak_param => 'single',
-		    showsource_param => 'single',
-		    textresult_param => 'single',
-		    default_limit => 'single',
-		    streaming_theshold => 'single',
-		    init_operation_hook => 'hook',
-		    post_params_hook => 'hook',
-		    post_configure_hook => 'hook',
-		    post_process_hook => 'hook',
-		    output_record_hook => 'hook',
-		    use_cache => 'single',
-		    allow_method => 'set',
-		    allow_format => 'set',
-		    allow_vocab => 'set',
-		    doc_template => 'single',
-		    doc_header => 'list',
-		    doc_footer => 'list',
-		    doc_layout => 'single',
-		    doc_title => 'single' );
-
-# create_path_node ( attrs, filename, line )
-# 
-# Create a new node representing the specified path.  Attributes are
-# inherited, as follows: 'a/b/c' inherits from 'a/b', while 'a' inherits the
-# defaults set for the data service as a whole.
-
-sub create_path_node {
-
-    my ($self, $new_attrs, $filename, $line) = @_;
+    my $path = $attrs->{documentation} || $attrs->{operation} || $attrs->{path};
+    my $format = $attrs->{format};
     
-    my $path = $new_attrs->{path};
+    croak "generate_url: you must specify a URL path\n" unless $path;
     
-    # Make sure this path was not already defined by a previous call.
+    $format ||= 'html' if $attrs->{documentation};
     
-    if ( defined $self->{path_attrs}{$path} )
+    my @params;
+    if ( defined $attrs->{documentation} && ref $attrs->{documentation} eq 'ARRAY' )
     {
-	my $filename = $self->{path_attrs}{$path}{_filename};
-	my $line = $self->{path_attrs}{$path}{_line};
-	croak "define_path: '$path' was already defined at line $line of $filename";
+	push @params, @{$attrs->{documentation}};
+	croak "generate_url: odd number of parameters is not allowed\n"
+	    if scalar(@_) % 2;
     }
     
-    # Create a new node to hold the path attributes.
+    # First, check if the 'fixed_paths' feature is on.  If so, then the given
+    # documentation or operation path is converted to a parameter and the appropriate
+    # fixed path is substituted.
     
-    my $path_attrs = { _filename => $filename, _line => $line };
-    
-    # If the path has a valid prefix, start with the prefix path's attributes
-    # as a base.  Assume the attribute values are all valid, since they were
-    # checked when the prefix path was defined (not sure if this is always
-    # going to be a correct assumption).  Throw an error if the prefix path is
-    # not already defined, except that we do not require the root '/' to be
-    # explicitly defined.
-    
-    my $parent_attrs;
-    
-    if ( $path =~ qr{ ^ (.+) / [^/]+ }x )
+    if ( $self->{feature}{fixed_paths} )
     {
-	$parent_attrs = $self->{path_attrs}{$1};
-	croak "define_path: '$path' is not a valid path because '$1' must be defined first"
-	    unless reftype $parent_attrs && reftype $parent_attrs eq 'HASH';
-    }
-    
-    elsif ( $path =~ qr{ ^ [^/]+ $ }x )
-    {
-	$parent_attrs = $self->{path_attrs}{'/'};
-    }
-    
-    elsif ( $path ne '/' )
-    {
-	croak "invalid path '$path'";
-    }
-    
-    # If no parent attributes are found we start with some defaults.
-    
-    $parent_attrs ||= { vocab_param => 'vocab', 
-			output_param => 'show',
-			limit_param => 'limit',
-			offset_param => 'offset',
-			count_param => 'count',
-			nohead_param => 'noheader',
-			linebreak_param => 'linebreak',
-			textresult_param => 'textresult',
-			showsource_param => 'showsource',
-		        allow_method => { GET => 1 } };
-    
-    # Now go through the parent attributes and copy into the new node.  We
-    # only need to copy one level down, since the attributes are not going to
-    # be any deeper than that (this may need to be revisited if the attribute
-    # system gets more complicated).
-    
-    foreach my $key ( keys %$parent_attrs )
-    {
-	next unless defined $NODE_DEF{$key};
-	
-	if ( $NODE_DEF{$key} eq 'single' or $NODE_DEF{$key} eq 'hook' )
+	if ( $attrs->{documentation} )
 	{
-	    $path_attrs->{$key} = $parent_attrs->{$key};
+	    push @params, $self->{special}{document}, $path unless $path eq '/';
+	    $path = $self->{doc_url_path};
 	}
 	
-	elsif ( $NODE_DEF{$key} eq 'set' and ref $parent_attrs->{$key} eq 'HASH' )
+	elsif ( $attrs->{operation} )
 	{
-	    $path_attrs->{$key} = { %{$parent_attrs->{$key}} };
-	}
-	
-	elsif ( $NODE_DEF{$key} eq 'list' and ref $parent_attrs->{$key} eq 'ARRAY' )
-	{
-	    $path_attrs->{$key} = [ @{$parent_attrs->{$key}} ];
+	    push @params, $self->{special}{operation}, $path;
+	    $path = $self->{operation_url_path};
 	}
     }
     
-    # Then apply the newly specified attributes, overriding or modifying any
-    # equivalent attributes inherited from the parent.
+    # Otherwise, we can assume that the URL paths will reflect the given path.
+    # So next, check if the 'format_suffix' feature is on.
     
-    foreach my $key ( keys %$new_attrs )
+    if ( $self->{feature}{format_suffix} )
     {
-	croak "define_path: unknown attribute '$key'"
-	    unless $NODE_DEF{$key};
+	# If this is a documentation URL, then add the documentation suffix if
+	# the "doc_paths" feature is on.  Also add the format.  But not if the
+	# path is '/'.
 	
-	my $value = $new_attrs->{$key};
+	if ( $attrs->{documentation} && $path ne '/' )
+	{
+	    $path .= $self->{doc_suffix} if $self->{feature}{doc_paths};
+	    $path .= ".$format";
+	}
 	
-	next unless defined $value;
-	
-	# If the attribute takes a single value, then set the value as
+	# If this is an operation URL, we just add the format if one was
 	# specified.
 	
-	if ( $NODE_DEF{$key} eq 'single' )
+	elsif ( $attrs->{operation} )
 	{
-	    $path_attrs->{$key} = $value;
+	    $path .= ".$format" if $format;
 	}
 	
-	# If it takes a hook value, then throw an error unless the value is a
-	# code reference.
-	
-	elsif ( $NODE_DEF{$key} eq 'hook' )
-	{
-	    croak "define_path: ($key) invalid value '$value', must be a code ref or string"
-		unless ref $value eq 'CODE' || ! ref $value;
-	    $path_attrs->{$key} = $value;
-	}
-	
-	# If the attribute takes a set value, then turn a string value
-	# into a hash whose keys are the individual values.  If the value
-	# begins with + or -, then add or delete values as indicated.
-	# Otherwise, substitute the given set.
-	
-	elsif ( $NODE_DEF{$key} eq 'set' )
-	{
-	    my @values = ref $value eq 'ARRAY' ? @$value : split( qr{\s*,\s*}, $value );
-	    
-	    if ( $value =~ qr{ ^ [+-] }x )
-	    {
-		foreach my $v (@values)
-		{
-		    next unless defined $v && $v ne '';
-		    
-		    croak "define_path: ($key) invalid value '$v', must start with + or -"
-			unless $v =~ qr{ ^ ([+-]) (.*) }x;
-		    
-		    if ( $1 eq '-' )
-		    {
-			delete $path_attrs->{$key}{$2};
-		    }
-		    
-		    else
-		    {
-			$path_attrs->{$key}{$2} = 1;
-		    }
-		}
-	    }
-	    
-	    else
-	    {
-		foreach my $v (@values)
-		{
-		    next unless defined $v && $v ne '';
-		    
-		    croak "define_path: ($key) invalid value '$v', cannot start with + or -"
-			if $v =~ qr{ ^\+ | ^\- }x;
-		    
-		    $path_attrs->{$key}{$v} = 1;
-		}
-	    }
-	}
-	
-	# If the attribute takes a list value, then turn a string value into a
-	# list.  If the value begins with + or -, then add or delete values as
-	# indicated.  Otherwise, substitute the given list.
-	
-	elsif ( $NODE_DEF{$key} eq 'list' )
-	{
-	    my @values = ref $value eq 'ARRAY' ? @$value : split( qr{\s*,\s*}, $value );
-	    
-	    if ( $value =~ qr{ ^ [+-] }x )
-	    {
-		foreach my $v (@values)
-		{
-		    next unless defined $v && $v ne '';
-		    
-		    croak "define_path: ($key) invalid value '$v', must start with + or -"
-			unless $v =~ qr{ ^ ([+-]) (.*) }x;
-		    
-		    if ( $1 eq '-' )
-		    {
-			$path_attrs->{$key} = [ grep { $_ ne $2 } @{$path_attrs->{$key}} ];
-		    }
-		    
-		    else
-		    {
-			push @{$path_attrs->{$key}}, $2
-			    unless grep { $_ eq $2 } @{$path_attrs->{$key}};
-		    }
-		}
-	    }
-	    
-	    else
-	    {
-		$path_attrs->{$key} = [];
-		
-		foreach my $v (@values)
-		{
-		    next unless defined $v && $v ne '';
-		    
-		    croak "define_path: ($key) invalid value '$v', cannot start with + or -"
-			if $v =~ qr{ ^\+ | ^\- }x;
-		    
-		    push @{$path_attrs->{$key}}, $v;
-		}
-	    }
-	}
+	# A path URL is not modified.
     }
     
-    # Now check the attributes to make sure they are consistent:
+    # Otherwise, if the feature 'doc_paths' is on then we still need to modify
+    # the paths.
     
-    # Throw an error if 'class' doesn't specify an existing subclass of
-    # Web::DataService::Request.
-    
-    my $class = $path_attrs->{class};
-    
-    croak "define_path: invalid class '$class', must be a subclass of 'Web::DataService::Request'"
-	if defined $class and not $class->isa('Web::DataService::Request');
-    
-    # Throw an error if 'method' doesn't specify an existing method of this class.
-    
-    my $method = $path_attrs->{method};
-    
-    croak "define_path: '$method' must be a method of class '$class'"
-	if defined $method and not $class->can($method);
-    
-    # Throw an error if any of the specified formats fails to match an
-    # existing format.  If any of the formats has a default vocabulary, add it
-    # to the vocabulary list.
-    
-    if ( ref $path_attrs->{allow_format} )
+    elsif ( $self->{feature}{doc_paths} )
     {
-	foreach my $f ( keys %{$path_attrs->{allow_format}} )
+	if ( $attrs->{documentation} && $path ne '/' )
 	{
-	    croak "define_path: invalid value '$f' for format, no such format has been defined for this data service"
-		unless ref $self->{format}{$f};
-
-	    my $dv = $self->{format}{$f}{default_vocab};
-	    $path_attrs->{allow_vocab}{$dv} = 1 if $dv;
+	    $path .= $self->{doc_suffix};
 	}
     }
     
-    # Throw an error if any of the specified vocabularies fails to match an
-    # existing vocabulary.
+    # If the special parameter 'format' is enabled, then we modify the parameters.
     
-    if ( ref $path_attrs->{allow_vocab} )
+    if ( $self->{special}{format} )
     {
-	foreach my $v ( keys %{$path_attrs->{vocab}} )
+	# If this is a documentation URL, then add a format parameter unless
+	# the format is either 'html' or empty.
+	
+	if ( $attrs->{documentation} && $format && $format ne 'html' )
 	{
-	    croak "define_path: invalid value '$v' for vocab, no such vocabulary has been defined for this data service"
-		unless ref $self->{vocab}{$v};
+	    push @params, $self->{special}{format}, $format;
+	}
+	
+	# Same if this is an operation URL.
+	
+	elsif ( $attrs->{operation} )
+	{
+	    push @params, $self->{special}{format} if $format;
+	}
+	
+	# A path URL is not modified.
+    }
+    
+    # If the path is '/', then turn it into the empty string.
+    
+    $path = '' if $path eq '/';
+    
+    # Now assemble the URL and return it.
+    
+    my $url = $attrs->{absolute} ? "http://$attrs->{absolute}/" : '/';
+    
+    $url .= $self->{path_prefix} if $self->{path_prefix};
+    $url .= $path;
+    
+    if ( @params )
+    {
+	$url .= '?';
+	
+	while ( @params )
+	{
+	    $url .= shift(@params) . '=' . shift(@params) . '&';
 	}
     }
     
-    # Install the node.
+    return $url;
+}
+
+
+# generate_relative_url ( path, params )
+# 
+# Using the URL prefix for this data service, generate a site-relative URL
+# starting with '/' for the given path and optional parameters.
+
+sub generate_relative_url {
     
-    $self->{path_attrs}{$path} = $path_attrs;
+    my ($self, $path, $params) = @_;
     
-    # If one of the attributes is 'class', make sure that the class is
-    # initialized unless we are in "one request" mode.
+    # If a custom routine was specified for this purpose, call it.
     
-    if ( $path_attrs->{class} and not $ONE_REQUEST )
+    if ( $self->{generate_url_hook} )
     {
-	$self->initialize_class($path_attrs->{class})
+	return &{$self->{generate_url_hook}}($self, 0, $path, $params);
     }
     
-    # Now return the new node.
+    # Otherwise, generate the URL.
     
-    return $path_attrs;
+    else
+    {
+	my $url = '/' . $self->{path_prefix} . $path;
+	$url .= '?' . $params if defined $params && $params ne '';
+	
+	return $url;
+    }
 }
 
 
-# path_defined ( path )
+# generate_absolute_url ( path, params )
 # 
-# Return true if the specified path has been defined, false otherwise.
+# Generate an absolute URL for the specified path and parameters, using the 
+# the 'path_prefix', 'hostname' and 'port' attributes of the data service.
 
-sub path_defined {
-
-    my ($self, $path) = @_;
+sub generate_absolute_url {
     
-    return unless defined $path;
-    $path = '/' if $path eq '';
+    my ($self, $path, $params) = @_;
     
-    return $self->{path_attrs}{$path};
+    # If a custom routine was specified for this purpose, call it.
+    
+    if ( $self->{generate_url_hook} )
+    {
+	return &{$self->{generate_url_hook}}($self, 1, $path, $params);
+    }
+    
+    # Otherwise, generate the URL.
+    
+    else
+    {
+	my $url = $self->url_base . $self->{path_prefix} . $path;
+	$url .= '?' . $params if defined $params && $params ne '';
+	
+	return $url;
+    }
 }
 
 
-
-# get_path_attr ( path, key )
+# node_link ( path, title )
 # 
-# Return the specified attribute for the given path.
+# Generate a link in POD format to the documentation for the given path.  If
+# $title is defined, use that as the link title.  Otherwise, if the path has a
+# 'doc_title' attribute, use that.
+# 
+# If something goes wrong, generate a warning and return the empty string.
 
-sub get_path_attr {
+sub node_link {
     
-    my ($self, $path, $key) = @_;
+    my ($self, $path, $title) = @_;
     
-    return unless defined $key;
+    return 'I<L<unknown link|node:/>>' unless defined $path;
     
-    # If the path is defined and has the specified key, return the
-    # corresponding value.
+    # Generate a "node:" link for this path, which will be translated into an
+    # actual URL later.
     
-    return $self->{path_attrs}{$path}{$key};
+    if ( defined $title && $title ne '' )
+    {
+	return "L<$title|node:$path>";
+    }
+    
+    elsif ( $title = $self->node_attr($path, 'title') )
+    {
+	return "L<$title|node:$path>";
+    }
+    
+    else
+    {
+	return "I<L<$path|node:$path>>";
+    }
 }
 
 
-# define_ruleset ( name, rule... )
+# base_url ( )
 # 
-# Define a ruleset under the given name.  This is just a wrapper around the
-# subroutine HTTP::Validate::ruleset.
+# Return the base URL for this data service, in the form "http://hostname/".
+# If the attribute 'port' was specified for this data service, include that
+# too.
 
-sub define_ruleset {
+sub base_url {
     
-    my $self = shift;
+    my ($self) = @_;
     
-    $self->{validator}->define_ruleset(@_);
+    my $hostname = $self->{hostname} // '';
+    my $port = $self->{port} ? ':' . $self->{port} : '';
+    
+    return "http://${hostname}${port}/";
 }
 
 
-# add_node_doc ( node, doc_string )
+# root_url ( )
 # 
-# Add the specified documentation string to the specified node.
+# Return the root URL for this data service, in the form
+# "http://hostname/prefix/".
 
-sub add_node_doc {
+sub root_url {
+
+    my ($self) = @_;
     
-    my ($self, $node, $doc) = @_;
+    my $hostname = $self->{hostname} // '';
+    my $port = $self->{port} ? ':' . $self->{port} : '';
     
-    return unless defined $doc and $doc ne '';
-    
-    croak "only strings may be added to documentation: '$doc' is not valid"
-	if ref $doc;
-    
-    $node->{doc} = '' unless defined $node->{doc};
-    $node->{doc} .= "\n" if $node->{doc} ne '';
-    $node->{doc} .= $doc;
+    return "http://${hostname}${port}/$self->{path_prefix}";
 }
 
 
-# initialize_class ( class )
+# execution_class ( primary_role )
 # 
-# If the specified class has an 'initialize' method, call it.  Recursively
-# initialize its parent class as well.  But make sure that the initialization
-# method is called only once for any particular class.
+# This method is called to create a class in which we can execute requests.
+# We need to create one of these for each primary role used in the
+# application.
+# 
+# This class needs to have two roles composed into it: the first is
+# Web::DataService::Request, which provides methods for retrieving the request
+# parameters, output fields, etc.; the second is the "primary role", written
+# by the application author, which provides methods to implement one or more
+# data service operations.  We cannot simply use Web::DataService::Request as
+# the base class, as different requests may require composing in different
+# primary roles.  We cannot use the primary role as the base class, because
+# then any method conflicts would be resolved in favor of the primary role.
+# This would compromise the functionality of Web::DataService::Request, which
+# needs to be able to call its own methods reliably.
+# 
+# The best way to handle this seems to be to create a new, empty class and
+# then compose in both the primary role and Web::DataService::Request using a
+# single 'with' request.  This way, an exception will be thrown if the two
+# sets of methods conflict.  This new class will be named using the prefix
+# 'REQ::', so that if the primary role is 'Example' then the new class will be
+# 'REQ::Example'.
+# 
+# Any other roles needed by the primary role must also be composed in.  We
+# also must check for an 'initialize' method in each of these roles, and call
+# it if present.  As a result, we cannot simply rely on transitive composition
+# by having the application author use 'with' to include one role inside
+# another.  Instead, the role author must indicate additional roles as
+# follows: 
+# 
+#     package MyRole;
+#     use Moo::Role;
+#     
+#     our(@REQUIRES_ROLE) = qw(SubRole1 SubRole2);
+# 
+# Both the primary role and all required roles will be properly initialized,
+# which includes calling their 'initialize' method if one exists.  This will
+# be done only once per role, no matter how many contexts it is used in.  Each
+# of the subsidiary roles will be composed one at a time into the request
+# execution class.
 
-sub initialize_class {
-    
-    my ($self, $class) = @_;
+sub execution_class {
+
+    my ($self, $primary_role) = @_;
     
     no strict 'refs';
     
-    # If we have already initialized this class, there is nothing else we need
+    croak "you must specify a non-empty primary role"
+	unless defined $primary_role && $primary_role ne '';
+    
+    croak "you must first load the module '$primary_role' before using it as a primary role"
+	unless $primary_role eq 'DOC' || %{ "${primary_role}::" };
+    
+    my $request_class = "REQ::$primary_role";
+    
+    # $DB::single = 1;
+    
+    # First check to see if this class has already been created.  Return
+    # immediately if so.
+    
+    return $request_class if exists ${ "${request_class}::" }{_CREATED};
+    
+    # Otherwise create the new class and compose in Web::DataService::Request
+    # and the primary role.  Then compose in any secondary roles, one at a time.
+    
+    my $secondary_roles = "";
+    
+    foreach my $role ( @{ "${primary_role}::REQUIRES_ROLE" } )
+    {
+	croak "create_request_class: you must first load the module '$role' \
+before using it as a secondary role for '$primary_role'"
+	    unless %{ "${role}::" };
+	
+	$secondary_roles .= "with '$role';\n";
+    }
+    
+    my $string =  " package $request_class;
+			use Try::Tiny;
+			use Scalar::Util qw(reftype);
+			use Carp qw(carp croak);
+			use Moo;
+			use namespace::clean;
+			
+			use base 'Web::DataService::Request';
+			with 'Web::DataService::IRequest', '$primary_role';
+			$secondary_roles
+			
+			our(\$_CREATED) = 1";
+    
+    my $result = eval $string;
+    
+    # Now initialize the primary role, unless of course it has already been
+    # initialized.  This will also cause any uninitialized secondary roles to
+    # be initialized.
+    
+    $self->initialize_role($primary_role) unless $primary_role eq 'DOC';
+    
+    return $request_class;
+}
+
+
+# documentation_class ( primary_role )
+# 
+# This method is called to create a class in which we can process
+# documentation requests.  We need to create one of these for each primary
+# role used in the application.
+# 
+# The reason we need these classes is so that the documentation can call
+# methods from the primary role if necessary.
+
+sub documentation_class {
+
+    my ($self, $primary_role) = @_;
+    
+    no strict 'refs';
+    
+    croak "you must first load the module '$primary_role' before using it as a primary role"
+	if $primary_role && ! %{ "${primary_role}::" };
+    
+    my $request_class = $primary_role ? "DOC::$primary_role" : "DOC";
+    
+    # First check to see if this class has already been created.  Return
+    # immediately if so.
+    
+    return $request_class if exists ${ "${request_class}::" }{_CREATED};
+    
+    # Otherwise create the new class and compose in Web::DataService::Request
+    # and the primary role.  Then compose in any secondary roles, one at a time.
+    
+    my $secondary_roles = "";
+    
+    foreach my $role ( @{ "${primary_role}::REQUIRES_ROLE" } )
+    {
+	croak "create_request_class: you must first load the module '$role' \
+before using it as a secondary role for '$primary_role'"
+	    unless %{ "${role}::" };
+	
+	$secondary_roles .= "with '$role';\n";
+    }
+    
+    my $string =  " package $request_class;
+			use Carp qw(carp croak);
+			use Moo;
+			use namespace::clean;
+			
+			use base 'Web::DataService::Request';
+			with 'Web::DataService::IDocument', '$primary_role';
+			$secondary_roles
+			
+			our(\$_CREATED) = 1";
+    
+    my $result = eval $string;
+    
+    # Now initialize the primary role, unless of course it has already been
+    # initialized.  This will also cause any uninitialized secondary roles to
+    # be initialized.
+    
+    $self->initialize_role($primary_role);
+    
+    return $request_class;
+}
+
+
+# initialize_role ( role )
+# 
+# This method calls the 'initialize' method of the indicated role, but first
+# it recursively processes every role required by that role.  The intialize
+# method is only called once per role per execution of this program, no matter
+# how many contexts it is used in.
+
+sub initialize_role {
+    
+    my ($self, $role) = @_;
+    
+    no strict 'refs';
+    
+    # If we have already initialized this role, there is nothing else we need
     # to do.
     
-    return if ${"${class}::_INITIALIZED"};
-    ${"${class}::_INITIALIZED"} = 1;
+    return if ${ "${role}::_INITIALIZED" };
+    ${ "${role}::_INITIALIZED" } = 1;
     
-    # If this class has an immediate parent which is a subclass of
-    # Web::DataService::Request, initialize it first (unless, of course, it
-    # has already been initialized).
+    # If this role requires one or more secondary roles, then initialize them
+    # first (unless they have already been initialized).
     
-    foreach my $super ( @{"${class}::ISA"} )
+    foreach my $required ( @{ "${role}::REQUIRES_ROLE" } )
     {
-	if ( $super->isa('Web::DataService::Request') && $super ne 'Web::DataService::Request' )
-	{
-	    $self->initialize_class($super);
-	}
+	$self->initialize_role($required);
     }
     
-    # If this class requires that one or more other classes be initialized
-    # first, then do so (unless they have already been initialized).
+    # Now, if the role has an initialization routine, call it.  We need to do
+    # this after the previous step because this role's initialization routine
+    # may depend upon side effects of the required roles' initialization routines.
     
-    if ( defined @{"${class}::REQUIRES_CLASS"} )
+    if ( $role->can('initialize') )
     {
-	foreach my $required ( @{"${class}::REQUIRES_CLASS"} )
-	{
-	    $self->initialize_class($required);
-	}
-    }
-    
-    # If the class has an initialization routine, call it.
-    
-    if ( $class->can('initialize') )
-    {
-	print STDERR "Initializing $class for data service $self->{name}\n" if $DEBUG || $self->{DEBUG};
-	eval { &{"${class}::initialize"}($class, $self) };
-	die $@ if $@ && $@ !~ /^Can't locate object method "initialize_class"/;
+	print STDERR "Initializing $role for data service $self->{name}\n" if $DEBUG || $self->{DEBUG};
+	$role->initialize($self);
     }
     
     my $a = 1; # we can stop here when debugging
+}
+
+
+# set_scratch ( key, value )
+# 
+# Store the specified value in the "scratchpad" for this data service, under
+# the specified key.  This can be used to store data, configuration
+# information, etc. for later use by data operation methods.
+
+sub set_scratch {
+    
+    my ($self, $key, $value) = @_;
+    
+    return unless defined $key && $key ne '';
+    
+    $self->{scratch}{$key} = $value;
+}
+
+
+# get_scratch ( key, value )
+# 
+# Retrieve the value corresponding to the specified key from the "scratchpad" for
+# this data service.
+
+sub get_scratch {
+    
+    my ($self, $key, $value) = @_;
+    
+    return unless defined $key && $key ne '';
+    
+    return $self->{scratch}{$key};
 }
 
 
@@ -1020,98 +1348,43 @@ sub initialize_class {
 # - The name of the data source
 # - The license under which the data is made available
 
-sub get_data_source {
+# sub get_data_source {
     
-    my ($self) = @_;
+#     my ($self) = @_;
     
-    my $root_config = $self->get_config;
-    my $access_time = strftime("%a %F %T GMT", gmtime);
+#     my $root_config = $self->get_config;
+#     my $access_time = strftime("%a %F %T GMT", gmtime);
     
-    my $ds_name = $self->{name};
-    my $ds_config = undef;#$config->{$name};
-    $ds_config = {} unless ref $ds_config && reftype $ds_config eq 'HASH';
+#     my $ds_name = $self->{name};
+#     my $ds_config = undef;#$config->{$name};
+#     $ds_config = {} unless ref $ds_config && reftype $ds_config eq 'HASH';
     
-    my $result = { 
-	data_provider => $ds_config->{data_provider} // $root_config->{data_provider},
-	data_source => $ds_config->{data_source} // $root_config->{data_source},
-	base_url => $self->get_base_url,
-	access_time => $access_time };
+#     my $result = { 
+# 	data_provider => $ds_config->{data_provider} // $root_config->{data_provider},
+# 	data_source => $ds_config->{data_source} // $root_config->{data_source},
+# 	#base_url => $self->get_base_url,
+# 	access_time => $access_time };
     
-    if ( defined $ds_config->{data_license} )
-    {
-	$result->{data_license} = $ds_config->{data_license};
-	$result->{data_license_url} = $ds_config->{data_license_url};
-    }
+#     if ( defined $ds_config->{data_license} )
+#     {
+# 	$result->{data_license} = $ds_config->{data_license};
+# 	$result->{data_license_url} = $ds_config->{data_license_url};
+#     }
     
-    elsif ( defined $root_config->{data_license} )
-    {
-	$result->{data_license} = $root_config->{data_license};
-	$result->{data_license_url} = $root_config->{data_license_url};
-    }
+#     elsif ( defined $root_config->{data_license} )
+#     {
+# 	$result->{data_license} = $root_config->{data_license};
+# 	$result->{data_license_url} = $root_config->{data_license_url};
+#     }
     
-    $result->{data_provider} //= $result->{data_source};
-    $result->{data_source} //= $result->{data_provider};
+#     $result->{data_provider} //= $result->{data_source};
+#     $result->{data_source} //= $result->{data_provider};
     
-    $result->{data_provider} //= '';
-    $result->{data_source} //= '';
+#     $result->{data_provider} //= '';
+#     $result->{data_source} //= '';
     
-    return $result;
-}
-
-
-# call_hook ( hook, request, arg... )
-# 
-# Call the specified hook.  If it is specified as a code reference, call it
-# with the request as the first parameter followed by any subsequent
-# arguments.  If it is a string, call it as a method of the request object. 
-
-sub call_hook {
-    
-    my ($self, $hook, $request, @args) = @_;
-    
-    if ( ref $hook eq 'CODE' )
-    {
-	return &$hook($request, $self, @args);
-    }
-    
-    else
-    {
-	return $request->$hook($self, @args);
-    }
-}
-
-
-
-# new_request ( outer, path )
-# 
-# Generate a new request object, using the given parameters.  $outer should be
-# a reference to an "outer" request object that was generated by the
-# underlying framework (i.e. Dancer or Mojolicious) or undef if there is
-# none.  $path should be the path which is being requested.
-
-sub new_request {
-
-    my ($self, $outer, $path) = @_;
-    
-    # A valid path must be given.
-    
-    croak "a valid path must be provided" unless defined $path && !ref $path;
-    
-    # First, check to see whether this path should be handled by one of the
-    # subservices or by the main data service.  At the same time, extract the
-    # sub-path (typically by removing the prefix corresponding to the selected
-    # sub-service) so that we will be able to properly process the request.
-    
-    my ($ds, $sub_path) = $self->select_service($path);
-    
-    # Then generate a new request using this path.
-    
-    my $request = Web::DataService::Request->new($ds, $outer, $sub_path);
-    
-    # Return the new request object.
-    
-    return $request;
-}
+#     Return $result;
+# }
 
 
 # get_base_path ( )
@@ -1120,195 +1393,16 @@ sub new_request {
 # prefix.  For example, if the path prefix is 'data', the base path is
 # '/data/'. 
 
-sub get_base_path {
+# sub get_base_path {
     
-    my ($self) = @_;
+#     my ($self) = @_;
     
-    my $base = '/';
-    $base .= $self->{path_prefix} . '/'
-	if defined $self->{path_prefix} && $self->{path_prefix} ne '';
+#     my $base = '/';
+#     $base .= $self->{path_prefix} . '/'
+# 	if defined $self->{path_prefix} && $self->{path_prefix} ne '';
     
-    return $base;
-}
-
-
-# select_service ( path )
-# 
-# Returns the data service instance for this path, followed by the processed
-# path (i.e. with the prefix removed).
-
-sub select_service {
-    
-    my ($self, $path) = @_;
-    
-    # If there are any subservices, check them first.
-    
-    foreach my $ss ( @{$self->{subservice_list}} )
-    {
-	if ( defined $ss->{path_re} && $path =~ $ss->{path_re} )
-	{
-	    return ($ss, $1);
-	}
-    }
-    
-    # Otherwise, try the main service.
-    
-    if ( $path =~ $self->{path_re} )
-    {
-	return ($self, $1);
-    }
-    
-    # Otherwise, return the path unchanged.
-    
-    return ($self, $path);
-}
-
-
-my %CODE_STRING = ( 400 => "Bad Request", 
-		    404 => "Not Found", 
-		    415 => "Invalid Media Type",
-		    500 => "Server Error" );
-
-# error_result ( request, error )
-# 
-# Send an error response back to the client.
-
-sub error_result {
-
-    my ($ds, $request, $error) = @_;
-    
-    my $format = $request->{format};
-    
-    my ($code);
-    my (@errors, @warnings);
-    
-    # If the error is actually a response object from HTTP::Validate, then
-    # extract the error and warning messages.  In this case, the error code
-    # should be "400 bad request".
-    
-    if ( ref $error eq 'HTTP::Validate::Result' )
-    {
-	@errors = $error->errors;
-	@warnings = $error->warnings;
-	$code = "400";
-    }
-    
-    # If the error message begins with a 3-digit number, then that should be
-    # used as the code and the rest of the message as the error text.
-    
-    elsif ( $error =~ qr{ ^ (\d\d\d) \s+ (.*) }xs )
-    {
-	$code = $1;
-	@errors = $2;
-    }
-    
-    # Otherwise, this is an internal error and all that we should report to
-    # the user (for security reasons) is that an error occurred.  The actual
-    # message is written to the server error log.
-    
-    else
-    {
-	$code = 500;
-	warn $error;
-	@errors = "A server error occurred.  Please contact the server administrator.";
-    }
-    
-    # If the format is 'json', render the response as a JSON object.
-    
-    if ( defined $format && $format eq 'json' )
-    {
-	$error = '"status_code": ' . $code;
-	$error .= ",\n" . json_list_value("errors", @errors);
-	$error .= ",\n" . json_list_value("warnings", @warnings) if @warnings;
-	
-	$ds->{foundation_plugin}->set_content_type($request, 'application/json');
-	$ds->{foundation_plugin}->set_cors_header($request, "*");
-	$ds->{foundation_plugin}->set_status($request, $code);
-	return "{ $error }";
-    }
-    
-    # Otherwise, generate a generic HTML response (we'll add template
-    # capability later...)
-    
-    else
-    {
-	my $text = $CODE_STRING{$code};
-	my $error = "<ul>\n";
-	my $warning = '';
-	
-	$error .= "<li>$_</li>\n" foreach @errors;
-	$error .= "</ul>\n";
-	
-	if ( @warnings )
-	{
-	    $warning .= "<h2>Warnings:</h2>\n<ul>\n";
-	    $warning .= "<li>$_</li>\n" foreach @warnings;
-	    $warning .= "</ul>\n";
-	}
-	
-	my $body = <<END_BODY;
-<html><head><title>$code $text</title></head>
-<body><h1>$code $text</h1>
-$error
-$warning
-</body></html>
-END_BODY
-    
-	$ds->{foundation_plugin}->set_content_type($request, 'text/html');
-	$ds->{foundation_plugin}->set_cors_header($request, "*");
-	$ds->{foundation_plugin}->set_status($request, $code);
-	return $body;
-    }
-}
-
-
-# generate_path_link ( path, title )
-# 
-# Generate a link in Pod format to the documentation for the given path.  If
-# $title is defined, use that as the link title.  Otherwise, if the path has a
-# 'doc_title' attribute, use that.
-# 
-# If something goes wrong, generate a warning and return the empty string.
-
-sub generate_path_link {
-    
-    my ($self, $path, $title) = @_;
-    
-    return '' unless defined $path && $path ne '';
-    
-    # Make sure this path is defined.
-    
-    my $path_attrs = $self->{path_attrs}{$path};
-    
-    unless ( $path_attrs )
-    {
-	warn "cannot generate link to unknown path '$path'";
-	return '';
-    }
-    
-    # Get the correct title for the link.
-    
-    $title //= $path_attrs->{doc_title};
-    
-    # Transform the path into a valid URL.
-    
-    $path = $self->get_base_path . $path;
-    
-    unless ( $path =~ qr{/$}x )
-    {
-	$path .= "_doc.html";
-    }
-    
-    if ( defined $title && $title ne '' )
-    {
-	return "L<$title|$path>";
-    }
-    
-    else
-    {
-	return "L<$path>";
-    }
-}
+#     return $base;
+# }
 
 
 sub debug {
@@ -1419,7 +1513,7 @@ generally used for testing purposes.
 
 Returns the value of the specified data service attribute.
 
-=head3 get_path_attr ( path, attribute )
+=head3 node_attr ( path, attribute )
 
 Returns the specified attribute of the specified path, if the specified path
 and attribute are both defined.  Return undefined otherwise.  You can use this
@@ -1497,8 +1591,6 @@ under the same terms as Perl itself.
 
 package Web::DataService::Plugin::Foundation;
 
-use Moo::Role ();
-
 sub _read_config { die "no foundation plugin was specified"; }
 
 sub get_request_url { die "no foundation plugin was specified"; }
@@ -1514,8 +1606,6 @@ sub set_content_type { die "no foundation plugin was specified"; }
 
 package Web::DataService::Plugin::Templating;
 
-use Moo::Role ();
-
 sub intialize_service { die "no templating plugin was specified"; }
 
 sub intialize_engine { die "no templating plugin was specified"; }
@@ -1524,8 +1614,6 @@ sub render_template { die "no templating plugin was specified"; }
 
 
 package Web::DataService::Plugin::Backend;
-
-use Moo::Role ();
 
 sub get_connection { die "get_connection: no backend plugin was specified"; }
 

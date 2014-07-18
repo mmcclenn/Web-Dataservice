@@ -123,6 +123,30 @@ sub parse_pod {
 	    my $cmd = $1;
 	    my $content = $2;
 	    
+	    # If the line starts with "=for wds_nav", then just pass the
+	    # remainder of the line through.  This command indicates content
+	    # that should be ignored for POD output, because its purpose is
+	    # web-page navigation.
+	    
+	    if ( $cmd eq 'for' && $content =~ qr{ ^ wds_nav \s+ (.*) }xs )
+	    {
+		my $rest = $1;
+		
+		if ( $rest =~ qr{ ^ = (\w+) \s* (.*) }xs )
+		{
+		    $cmd = $1;
+		    $content = $2;
+		}
+		
+		else
+		{
+		    $self->add_content($rest);
+		    next;
+		}
+	    }
+	    
+	    # Otherwise, process the commands as we find them.
+	    
 	    if ( $cmd =~ /head([1-9])/ )
 	    {
 		$self->add_heading($1, $content);
@@ -157,7 +181,7 @@ sub parse_pod {
 	    
 	    elsif ( $cmd eq 'for' )
 	    {
-		if ( $content =~ qr{ ^ pp_ }x )
+		if ( $content =~ qr{ ^ wds_ }x )
 		{
 		    $self->add_directive($content);
 		}
@@ -415,7 +439,7 @@ sub add_directive {
 
     my ($self, $directive) = @_;
     
-    if ( $directive =~ /^(pp_table_(?:no_)?header)\s+(.*)/ )
+    if ( $directive =~ /^(wds_table_(?:no_)?header)\s+(.*)/ )
     {
 	my $cmd = $1;
 	my $column_spec = $2;
@@ -423,7 +447,13 @@ sub add_directive {
 	
 	return unless $self->{list_level};
 	$self->{stack}[-1]{column_spec} = \@columns;
-	$self->{stack}[-1]{no_header} = 1 if $cmd eq 'pp_table_no_header';
+	$self->{stack}[-1]{no_header} = 1 if $cmd eq 'wds_table_no_header';
+    }
+    
+    elsif ( $directive =~ qr{ ^ wds_nav }xs )
+    {
+	# ignore this, as it would have been processed above had it had an
+	# argument.
     }
     
     else
@@ -537,6 +567,7 @@ sub generate_html {
     my $css = $attrs->{css};
     
     $self->{generate_tables} = $attrs->{tables};
+    $self->{url_generator} = $attrs->{url_generator};
     $self->{html_list_level} = 0;
     $self->{html_expect_subhead} = 0;
     $self->{html_stack} = ["<body>"];
@@ -977,34 +1008,47 @@ sub generate_html_content {
     elsif ( ref $content eq 'HASH' )
     {
 	my $code = $content->{code};
-	my $subcont = $content->{content} || '';
+	my $subcontent = $self->generate_html_content($content->{content}) || '';
 	my $href = $content->{target} || $content->{content} || '';
 	
 	if ( $code eq 'L' )
 	{
-	    my $target = $href =~ qr{ ^ \w+ : }xs ? 'target="_blank"' : '';
+	    # URIs of the form "node:..." or "path:..." are turned into site-relative
+	    # URLs.
 	    
-	    return "<a class=\"pod_link\" $target href=\"$href\">$subcont</a>";
+	    if ( $href =~ qr{ ^ node: | ^ path: }xs )
+	    {
+		my $target = $self->{url_generator}->($href) // '';
+		
+		return qq{<a class="pod_link" href="$target">$subcontent</a>};
+	    }
+	    
+	    else
+	    {
+		my $window = $href =~ qr{ ^ \w+ : }xs ? 'target="_blank"' : '';
+		
+		return qq{<a class="pod_link" $window href="$href">$subcontent</a>};
+	    }
 	}
 	
 	elsif ( $code eq 'I' or $code eq 'F' )
 	{
-	    return "<em>" . $self->generate_html_content($subcont) . "</em>";
+	    return "<em>" . $subcontent . "</em>";
 	}
 	
 	elsif ( $code eq 'B' )
 	{
-	    return "<strong>" . $self->generate_html_content($subcont) . "</strong>";
+	    return "<strong>" . $subcontent . "</strong>";
 	}
 	
 	elsif ( $code eq 'C' )
 	{
-	    return "<tt>" . $self->generate_html_content($subcont) . "</tt>";
+	    return "<tt>" . $subcontent . "</tt>";
 	}
 	
 	elsif ( $code eq 'E' )
 	{
-	    return "&$subcont;";
+	    return "&$subcontent;";
 	}
     }
 }

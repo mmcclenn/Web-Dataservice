@@ -1,26 +1,33 @@
 #
 # Web::DataService::Format
 # 
-# This module is responsible for the definition of output formats.
+# This module provides a role that is used by 'Web::DataService'.  It implements
+# routines for defining and documenting output formats.
 # 
 # Author: Michael McClennen
 
 use strict;
 
-package Web::DataService;
+package Web::DataService::Format;
 
-use Carp qw(carp croak);
+use Carp 'croak';
+use Data::Dumper;
+
+use Moo::Role;
+
 
 our (%FORMAT_DEF) = (name => 'ignore',
 		     default_vocab => 'single',
 		     content_type => 'single',
 		     disposition => 'single',
+		     uses_header => 'single',
 		     title => 'single',
 		     doc_path => 'single',
 		     class => 'single',
 		     module => 'single',
 		     no_module => 'single',
 		     doc => 'single',
+		     undocumented => 'single',
 		     disabled => 'single');
 
 our (%FORMAT_CT) = (json => 'application/json',
@@ -35,7 +42,6 @@ our (%FORMAT_CLASS) = (json => 'Web::DataService::Plugin::JSON',
 		       csv => 'Web::DataService::Plugin::Text',
 		       xml => 'Web::DataService::Plugin::XML');
 
-our ($DEFAULT_INSTANCE);
 
 # define_format ( attrs... )
 # 
@@ -43,10 +49,7 @@ our ($DEFAULT_INSTANCE);
 
 sub define_format {
 
-    # If we were called as a method, use the object on which we were called.
-    # Otherwise, use the globally defined one.
-    
-    my $self = $_[0]->isa('Web::DataService') ? shift : $DEFAULT_INSTANCE;
+    my $ds = shift;
     
     my ($last_node);
     
@@ -68,7 +71,7 @@ sub define_format {
 	    
 	    # Make sure this format was not already defined by a previous call.
 	    
-	    croak "define_format: '$name' was already defined" if defined $self->{format}{$name};
+	    croak "define_format: '$name' was already defined" if defined $ds->{format}{$name};
 	    
 	    # Create a new record to represent this format and check the attributes.
 	    
@@ -83,14 +86,18 @@ sub define_format {
 		if ( $k eq 'default_vocab' )
 		{
 		    croak "define_format: unknown vocabulary '$v'"
-			unless ref $self->{vocab}{$v};
+			unless ref $ds->{vocab}{$v};
 		    
 		    croak "define_format: cannot default to disabled vocabulary '$v'"
-			if $self->{vocab}{$v}{disabled} and not $item->{disabled};
+			if $ds->{vocab}{$v}{disabled} and not $item->{disabled};
 		}
 		
 		$record->{$k} = $item->{$k};
 	    }
+	    
+	    # Set defaults and check values.
+	    
+	    $record->{uses_header} = 1 if $name eq 'txt' || $name eq 'tsv' || $name eq 'csv';
 	    
 	    $record->{content_type} ||= $FORMAT_CT{$name};
 	    
@@ -117,8 +124,8 @@ sub define_format {
 	    
 	    # Now store the record as a response format for this data service.
 	    
-	    $self->{format}{$name} = $record;
-	    push @{$self->{format_list}}, $name unless $record->{disabled};
+	    $ds->{format}{$name} = $record;
+	    push @{$ds->{format_list}}, $name unless $record->{disabled};
 	    $last_node = $record;
 	}
 	
@@ -126,7 +133,7 @@ sub define_format {
 	
 	elsif ( not ref $item )
 	{
-	    $self->add_node_doc($last_node, $item);
+	    $ds->add_node_doc($last_node, $item);
 	}
 	
 	else
@@ -140,57 +147,96 @@ sub define_format {
 }
 
 
+# valid_format ( )
+# 
+# Return a code reference (actually a reference to a closure) that can be used
+# in a parameter rule to validate a format-selecting parameter.  All
+# non-disabled formats are included.
+
+sub valid_format {
+    
+    my ($self) = @_;
+    
+    # The ENUM_VALUE subroutine is defined by HTTP::Validate.pm.
+    
+    return ENUM_VALUE(@{$self->{format_list}});
+}
+
 
 # document_formats ( path, options )
 # 
 # Return a string containing POD documentation of the response formats that
-# are allowed for the request path.  If the option 'all' is specified, then
+# are allowed for the request path.  If the root path '/' is specified, then
 # document all of the formats enabled for this data service regardless of
-# whether they are actually allowed for that path.  If the option 'extended'
-# is specified, then include the text description of each format.
+# whether they are actually allowed for that path.  But formats marked as
+# undocumented are never shown.  If the option 'extended' is specified, then
+# include the text description of each format.
 
 sub document_formats {
 
-    my ($self, $path, $options) = @_;
+    my ($ds, $path, $options) = @_;
     
     $options ||= {};
     $path ||= '/';
     
-    # Go through the list of defined formats in order, filtering out those
-    # which are not allowed for this path.  The reason for doing it this way
-    # is so that the formats will always be listed in the order defined,
-    # instead of the arbitrary hash order.
+    # If no formats have been defined, return a note to that effect.
     
-    my $list = $self->{format_list};
-    my $allowed = $options->{all} ? $self->{format}
-	: $self->{path_attrs}{$path}{allow_format};
+    return "MSG_FORMAT_NONE_DEFINED"
+	unless ref $ds->{format_list} eq 'ARRAY';
     
-    return '' unless ref $allowed eq 'HASH' && ref $list eq 'ARRAY';
+    # Now figure out which formats to document.  If the path is '/', then
+    # document all of them.  Otherwise, go thorugh the list of defined formats
+    # in order, filtering out those which are not allowed for this path.  The
+    # reason for doing it this way is so that the formats will always be
+    # listed in the order defined, instead of the arbitrary hash order.
     
-    my @names = grep { $allowed->{$_} && ! $self->{format}{$_}{disabled} } @$list;
+    my @formats;
     
-    return '' unless @names;
+    if ( $path eq '/' )
+    {
+	@formats = grep { ! $ds->{format}{$_}{undocumented} } @{$ds->{format_list}};
+	return "MSG_FORMAT_NONE_DEFINED" unless @formats;
+    }
     
-    my @paths = grep { $self->{format}{$_}{doc_path} } @names;
+    else
+    {
+	my $allowed = $ds->node_attr($path, 'allow_format');
+	
+	return "MSG_FORMAT_NONE_ALLOWED"
+	    unless ref $allowed eq 'HASH';
+	
+	@formats = grep { $allowed->{$_} && ! $ds->{format}{$_}{undocumented} } @{$ds->{format_list}};
+	return "MSG_FORMAT_NONE_ALLOWED" unless @formats;
+    }
+    
+    # Go through the list of defined formats in order, 
+    
+    my @paths = grep { $ds->{format}{$_}{doc_path} } @formats;
     
     my $doc = "=over 4\n\n";
-    my $ext_header = $options->{extended} ? " | Description" : '';
-    my $doc_header = @paths ? " | Documentation" : '';
+    my $name_header = $ds->has_feature('format_suffix') ? 'Suffix' : 'Name';
+    my $ext_header = $options->{extended} || ! @paths ? "| Description" : '';
+    my $doc_header = @paths ? "| Documentation" : '';
     
-    $doc .= "=for pp_table_header Format* | Suffix$doc_header$ext_header\n\n";
+    $doc .= "=for wds_table_header Format* | $name_header $doc_header $ext_header\n\n";
     
-    foreach my $name (@names)
+ FORMAT:
+    foreach my $name (@formats)
     {
-	my $frec = $self->{format}{$name};
-	my $doc_link = $self->generate_path_link($frec->{doc_path}) if $frec->{doc_path};
+	my $frec = $ds->{format}{$name};
+	my $title = $frec->{title} || $frec->{name};
+	my $doc_link = $ds->node_link($frec->{doc_path}) if $frec->{doc_path};
+	my $name_or_suffix = $ds->has_feature('format_suffix') ? ".$frec->{name}" : $frec->{name};
 	
-	$doc .= "=item $frec->{title} | C<.$frec->{name}>";
+	next FORMAT if $frec->{undocumented};
+	
+	$doc .= "=item $title | C<$name_or_suffix>";
 	$doc .= " | $doc_link" if $doc_link && @paths && $options->{extended};
 	$doc .= "\n\n";
 	
 	if ( $options->{extended} || ! @paths )
 	{
-	    $doc .= "$frec->{doc}\n\n" if $frec->{doc};
+	    $doc .= "$frec->{doc_string}\n\n" if $frec->{doc_string};
 	}
 	
 	elsif ( $doc_link )
@@ -200,48 +246,6 @@ sub document_formats {
     }
     
     $doc .= "=back";
-    
-    return $doc;
-}
-
-
-# document_format ( name, formats )
-# 
-# Return a string containing POD documentation of the response formats that
-# have been defined for this data service.  If a format name is given, return
-# just the documentation for that format.
-
-sub document_format {
-    
-    my ($self, $name) = @_;
-    
-    # If no formats have been defined, return undef.
-    
-    return unless ref $self->{format_list} eq 'ARRAY';
-    
-    # Otherwise, if a single format name was given, return its
-    # documentation string if any.
-    
-    if ( $name )
-    {
-	return $self->{format}{$name}{doc};
-    }
-    
-    # Otherwise, document the entire list of formats in POD format.
-    
-    my $doc = "=over 4\n\n";
-    
-    $doc .= "=for pp_table_no_header Name* | Documentation\n\n";
-    
-    foreach my $f (@{$self->{format_list}})
-    {
-	my $frec = $self->{format}{$f};
-	
-	$doc .= "=item $frec->{name}\n\n";
-	$doc .= "fvrec->{doc}\n\n" if $frec->{doc};
-    }
-    
-    $doc .= "=back\n\n";
     
     return $doc;
 }
