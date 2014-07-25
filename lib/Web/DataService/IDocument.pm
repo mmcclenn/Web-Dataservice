@@ -35,7 +35,7 @@ sub list_navtrail {
     my $path = $request->node_path || '/';
     my $ds = $request->ds;
     
-    $base_label ||= $ds->node_attr($path, 'doc_title') || '';
+    $base_label ||= $ds->node_attr($path, 'title') || '';
     
     # If there are no path components, return just the base label.
     
@@ -55,7 +55,7 @@ sub list_navtrail {
 
 	if ( $count-- == 0 )
 	{
-	    push @trail, $ds->node_attr($node, 'doc_title') || $component;
+	    push @trail, $ds->node_attr($node, 'title') || $component;
 	}
 	
 	else
@@ -103,19 +103,42 @@ sub document_http_methods {
 
 sub document_params {
     
-    my ($request) = @_;
+    my ($request, $ruleset_name) = @_;
     
     my $ds = $request->{ds};
     my $validator = $ds->validator;
-    my $ruleset_name = $ds->determine_ruleset($request->node_path);
+    
+    $ruleset_name ||= $ds->determine_ruleset($request->node_path);
     
     # Generate documentation about the parameters, using the appropriate
     # method from the validator class (HTTP::Validate).  If no ruleset
     # is selected for this request, then state that no parameters are accepted.
     
-    return $ruleset_name ? 
-	$validator->document_params($ruleset_name) :
-	    "I<This path does not take any parameters>";
+    return $ruleset_name ? $validator->document_params($ruleset_name) : '';
+}
+
+
+# output_label ( )
+# 
+# Return the output label for the node corresponding to this request.
+
+sub output_label {
+    
+    my ($request) = @_;
+    
+    return $request->{ds}->node_attr($request, 'output_label') || 'basic';
+}
+
+
+# optional_output ( )
+# 
+# Return the name of the optional output map, if any.
+
+sub optional_output {
+    
+    my ($request) = @_;
+    
+    return $request->{ds}->node_attr($request, 'optional_output');
 }
 
 
@@ -128,7 +151,9 @@ sub document_response {
     
     my ($request, $options) = @_;
     
-    return $request->ds->document_response($request->node_path, $options);
+    my $ds = $request->{ds};
+    
+    return $ds->document_response($request->node_path, $options);
 }
 
 
@@ -169,7 +194,7 @@ sub document_vocabs {
     
     my ($request, $options) = @_;
     
-    $options //= {};
+    $options = {} unless ref $options;
     my $path = $options->{all} ? '/' : $request->node_path;
     
     return $request->ds->document_vocabs($path, $options);

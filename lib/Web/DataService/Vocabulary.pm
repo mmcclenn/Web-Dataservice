@@ -149,11 +149,10 @@ sub document_vocabs {
     {
 	my $allowed = $ds->node_attr($path, 'allow_vocab');
 	
-	return "MSG_VOCAB_NONE_ALLOWED"
-	    unless ref $allowed eq 'HASH';
+	return '' unless ref $allowed eq 'HASH';
 	
 	@vocabs = grep { $allowed->{$_} && ! $ds->{vocab}{$_}{undocumented} } @{$ds->{vocab_list}};
-	return "MSG_VOCAB_NONE_ALLOWED" unless @vocabs;    
+	return '' unless @vocabs;    
     }
     
     # Figure out the default formats for each vocabulary.

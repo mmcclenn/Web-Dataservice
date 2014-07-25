@@ -553,7 +553,7 @@ sub add_error {
     
     push @{$self->{errors}}, { line_no => $self->{line_no}, msg => $errmsg };
     
-    $self->add_node({ type => 'error', content => $errmsg });
+    $self->add_node({ type => 'error', line_no => $self->{line_no}, content => $errmsg });
 }
 
 
@@ -709,6 +709,11 @@ sub generate_html_list {
 	elsif ( $subnode->{type} eq 'list' )
 	{
 	    $output .= $self->generate_html_list($subnode);
+	}
+	
+	elsif ( $subnode->{type} eq 'error' )
+	{
+	    $output .= $self->generate_html_error($subnode);
 	}
     }
     
@@ -1131,5 +1136,7 @@ sub generate_html_error {
 
     my ($self, $node) = @_;
     
-    return "\n<!-- ERROR: $node->{content} -->\n";
+    my $line = $node->{line_no} ? " at line $node->{line_no}" : "";
+    
+    return "\n<!-- ERROR$line: $node->{content} -->\n\n";
 }

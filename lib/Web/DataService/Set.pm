@@ -49,8 +49,7 @@ sub define_set {
     my $vs = { name => $name,
 	       defined_at => "line $line of $filename",
 	       value => {},
-	       enabled => [],
-	       documented => [] };
+	       value_list => [] };
     
     bless $vs, 'Web::DataService::Set';
     
@@ -105,7 +104,7 @@ sub define_set {
 	# Add the value to the various lists it belongs to, and to the hash
 	# containing all defined values.
 	
-	push @{$vs->{enabled}}, $value unless $item->{disabled};
+	push @{$vs->{value_list}}, $value unless $item->{disabled};
 	$vs->{value}{$value} = $item;
     }
     
@@ -152,9 +151,9 @@ sub valid_set {
     # If there is at least one enabled value for this set, return the
     # appropriate closure.
     
-    if ( ref $vs->{enabled} eq 'ARRAY' && @{$vs->{enabled}} )
+    if ( ref $vs->{value_list} eq 'ARRAY' && @{$vs->{value_list}} )
     {
-	return HTTP::Validate::ENUM_VALUE( @{$vs->{enabled}} );
+	return HTTP::Validate::ENUM_VALUE( @{$vs->{value_list}} );
     }
     
     # Otherwise, return a reference to a routine which will always return an
@@ -187,17 +186,19 @@ sub document_set {
     return "=over\n\n=item I<Could not find the specified set>\n\n=back"
 	unless ref $vs eq 'Web::DataService::Set';
     
-    return "=over\n\n=item I<The specified set does not contain any documented items>\n\n=back"
-	unless ref $vs->{documented} eq 'ARRAY' && @{$vs->{documented}};
+    my @values; @values = grep { ! $vs->{value}{$_}{undocumented} } @{$vs->{value_list}}
+	if ref $vs->{value_list} eq 'ARRAY';
+    
+    return "=over\n\n=item I<The specified set is empty>\n\n=back"
+	unless @values;
     
     # Now return the documentation in Pod format.
     
     my $doc = "=over\n\n";
     
-    foreach my $name (@{$vs->{documented}})
+    foreach my $name ( @values )
     {
 	my $rec = $vs->{value}{$name};
-	next if $rec->{undocumented};
 	
 	$doc .= "=item $rec->{value}\n\n";
 	$doc .= "$rec->{doc}\n\n" if defined $rec->{doc} && $rec->{doc} ne '';

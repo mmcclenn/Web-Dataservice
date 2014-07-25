@@ -134,9 +134,36 @@ sub emit_footer {
 }
 
 
-# emit_record ( )
+# emit_error ( code, errors, warnings )
 # 
-# Return the formatted output for a single record in JSON.
+# Return the formatted output for an error message body in JSON.
+
+sub emit_error {
+    
+    my ($class, $code, $errors, $warnings) = @_;
+    
+    unless ( ref $errors eq 'ARRAY' )
+    {
+	$errors = [ "bad call to 'emit_error'" ];
+    }
+    
+    if ( defined $warnings && ! ref $warnings eq 'ARRAY' )
+    {
+	$warnings = [ "bad call to 'emit_error'" ];
+    }
+    
+    my $error = '"status_code": ' . $code;
+    $error .= ",\n" . json_list_value("errors", @$errors);
+    $error .= ",\n" . json_list_value("warnings", @$warnings) if ref $warnings eq 'ARRAY' && @$warnings;
+    
+    return "{ $error }\n";
+}
+
+
+# emit_record ( request, record, field_list )
+# 
+# Return the formatted output for a single record in JSON according to the
+# specified field list.
 
 sub emit_record {
     

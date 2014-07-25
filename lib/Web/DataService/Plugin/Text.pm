@@ -213,16 +213,16 @@ sub emit_line {
     my $class = shift;
     my $request = shift;
     
-    my $term = $request->linebreak_cr ? "\n" : "\r\n";
+    my $linebreak = $request->linebreak;
     
     if ( $request->output_format eq 'tsv' )
     {
-	return join("\t", map { tsv_clean($_) } @_) . $term;
+	return join("\t", map { tsv_clean($_) } @_) . $linebreak;
     }
     
     else
     {
-	return join(',', map { csv_clean($_) } @_) . $term;
+	return join(',', map { csv_clean($_) } @_) . $linebreak;
     }
 }
 

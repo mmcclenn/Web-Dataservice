@@ -15,13 +15,15 @@ use Scalar::Util 'reftype';
 use Moo::Role;
 
 
-# output_key ( key )
+# has_output_block ( block_key_or_name )
 # 
-# Return true if the specified output key was selected for this request.
+# Return true if the specified block was selected for this request.
 
-sub output_key {
-
-    return $_[0]->{block_keys}{$_[1]};
+sub has_output_block {
+    
+    my ($request, $key_or_name) = @_;
+    
+    return 1 if $request->{block_hash}{$key_or_name};
 }
 
 
@@ -211,7 +213,7 @@ sub debug {
     
     my ($self) = @_;
     
-    return $Web::DataService::DEBUG || $self->{DEBUG};
+    return $self->{ds}->debug;
 }
 
 
@@ -536,14 +538,13 @@ sub result_counts {
 }
 
 
-# linebreak_cr
+# linebreak
 # 
-# Return true if the linebreak sequence should be a single carriage return
-# instead of the usual carriage return/linefeed combination.
+# Return the linebreak sequence that should be used for the output of this request.
 
-sub linebreak_cr {
+sub linebreak {
 
-    return $_[0]->{linebreak_cr};
+    return $_[0]->{linebreak_cr} ? "\n" : "\r\n";
 }
 
 
@@ -600,5 +601,143 @@ sub set_content_type {
     
     $self->{ds}{foundation_plugin}->set_content_type($self, $type);
 }
+
+
+# single_result ( record )
+# 
+# Set the result of this operation to the single specified record.  Any
+# previously specified results will be removed.
+
+sub single_result {
+
+    my ($self, $record) = @_;
+    
+    $self->clear_result;
+    return unless defined $record;
+    
+    croak "single_result: the argument must be a hashref\n"
+	unless ref $record && reftype $record eq 'HASH';
+    
+    $self->{main_record} = $record;
+}
+
+
+# list_result ( record )
+# 
+# Set the result of this operation to the specified list of results.  Any
+# previously specified results will be removed.
+
+sub list_result {
+    
+    my $self = shift;
+    
+    $self->clear_result;
+    return unless @_;
+    
+    # If we were given a single listref, just use that.
+    
+    if ( scalar(@_) == 1 && ref $_[0] && reftype $_[0] eq 'ARRAY' )
+    {
+	$self->{main_result} = $_[0];
+	return;
+    }
+    
+    # Otherwise, go through the arguments one by one.
+    
+    my @result;
+    
+    while ( my $item = shift )
+    {
+	next unless defined $item;
+	croak "list_result: arguments must be hashrefs or listrefs\n"
+	    unless ref $item && (reftype $item eq 'ARRAY' or reftype $item eq 'HASH');
+	
+	if ( reftype $item eq 'ARRAY' )
+	{
+	    push @result, @$item;
+	}
+	
+	else
+	{
+	    push @result, $item;
+	}
+    }
+    
+    $self->{main_result} = \@result;
+}
+
+
+# data_result ( data )
+# 
+# Set the result of this operation to the value of the specified scalar.  Any
+# previously specified results will be removed.
+
+sub data_result {
+    
+    my ($self, $data) = @_;
+    
+    $self->clear_result;
+    return unless defined $data;
+    
+    croak "data_result: the argument must be either a scalar or a scalar ref\n"
+	if ref $data && reftype $data ne 'SCALAR';
+    
+    $self->{main_data} = ref $data ? $$data : $data;
+}
+
+
+# sth_result ( data )
+# 
+# Set the result of this operation to the specified DBI statement handle.  Any
+# previously specified results will be removed.
+
+sub sth_result {
+    
+    my ($self, $sth) = @_;
+    
+    $self->clear_result;
+    return unless defined $sth;
+    
+    croak "sth_result: the argument must be an object that implements 'fetchrow_hashref'\n"
+	unless ref $sth && $sth->can('fetchrow_hashref');
+    
+    $self->{main_sth} = $sth;
+}
+
+
+# add_result ( record... )
+# 
+# Add the specified record(s) to the list of result records for this operation.
+# Any result previously specified by any method other than 'add_result' or
+# 'list_result' will be cleared.
+
+sub add_result {
+    
+    my $self = shift;
+    
+    $self->clear_result unless ref $self->{main_result} eq 'ARRAY';
+    return unless @_;
+    
+    croak "add_result: arguments must be hashrefs\n"
+	unless ref $_[0] && reftype $_[0] eq 'HASH';
+    
+    push @{$self->{main_result}}, @_;
+}
+
+
+# clear_result
+# 
+# Clear all results that have been specified for this operation.
+
+sub clear_result {
+    
+    my ($self) = @_;
+    
+    delete $self->{main_result};
+    delete $self->{main_record};
+    delete $self->{main_data};
+    delete $self->{main_sth};
+}
+
 
 1;

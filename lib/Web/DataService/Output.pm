@@ -29,7 +29,7 @@ sub define_output_map {
 
 sub define_block {
     
-    my $self = shift;
+    my $ds = shift;
     my $name = shift;
     
     # Check to make sure that we were given a valid name.
@@ -39,7 +39,7 @@ sub define_block {
 	croak "define_block: the first argument must be an output block name";
     }
     
-    elsif ( not $self->valid_name($name) )
+    elsif ( not $ds->valid_name($name) )
     {
 	croak "define_block: invalid block name '$name'";
     }
@@ -50,7 +50,7 @@ sub define_block {
 		  include_list => [],
 		  output_list => [] };
     
-    $self->{block}{$name} = bless $block, 'Web::DataService::Block';
+    $ds->{block}{$name} = bless $block, 'Web::DataService::Block';
     
     # Then process the records one by one.  Make sure to throw an error if we
     # find a record whose type is ambiguous or that is otherwise invalid.  Each
@@ -62,7 +62,7 @@ sub define_block {
 	
 	unless ( ref $item )
 	{
-	    $self->add_doc($block, $item);
+	    $ds->add_doc($block, $item);
 	    next;
 	}
 	
@@ -75,27 +75,27 @@ sub define_block {
 	
 	# Check the output record to make sure it was specified correctly.
 	
-	my ($type) = $self->check_output_record($item);
+	my ($type) = $ds->check_output_record($item);
 	
 	# If the type is 'field', then any subsequent documentation strings
 	# will be added to that record.
 	
-	$self->add_doc($block, $item) if $type eq 'output';
+	$ds->add_doc($block, $item) if $type eq 'output';
 	
 	# Add the record to the appropriate list.
 	
 	if ( $type eq 'include' )
 	{
-	    push @{$self->{block}{$name}{include_list}}, $item;
+	    push @{$ds->{block}{$name}{include_list}}, $item;
 	}
 	
 	else
 	{
-	    push @{$self->{block}{$name}{output_list}}, $item;
+	    push @{$ds->{block}{$name}{output_list}}, $item;
 	}
     }
     
-    $self->process_doc($block);
+    $ds->process_doc($block);
 }
 
 
@@ -139,7 +139,7 @@ our %SELECT_KEY = (select => 1, tables => 1);
 
 our %FIELD_KEY = (dedup => 1, value => 1, always => 1, rule => 1, if_field => 1, 
 		  not_field => 1, if_block => 1, not_block => 1, if_format => 1, not_format => 1,
-		  text_join => 1, xml_join => 1, dtype => 1, doc => 1, show_as_list => 1, undoc => 1);
+		  text_join => 1, xml_join => 1, dtype => 1, doc => 1, show_as_list => 1, undocumented => 1);
 
 our %PROC_KEY = (set => 1, append => 1, from => 1, from_each => 1, from_record => 1,
 		 if_vocab => 1, not_vocab => 1, if_block => 1, not_block => 1,
@@ -148,7 +148,7 @@ our %PROC_KEY = (set => 1, append => 1, from => 1, from_each => 1, from_record =
 
 sub check_output_record {
     
-    my ($self, $record) = @_;
+    my ($ds, $record) = @_;
     
     my $type = '';
     
@@ -159,7 +159,7 @@ sub check_output_record {
 	if ( $k =~ qr{ ^ (\w+) _ (name|value) $ }x )
 	{
 	    croak "define_output: unknown format or vocab '$1' in '$k'"
-		unless defined $self->{vocab}{$1} || defined $self->{format}{$1};
+		unless defined $ds->{vocab}{$1} || defined $ds->{format}{$1};
 	}
 	
 	elsif ( ! defined $OUTPUT_DEF{$k} )
@@ -235,16 +235,15 @@ following list: 'include', 'output', 'set', 'select', 'filter'"
 
 sub _setup_output {
 
-    my ($self, $request) = @_;
+    my ($ds, $request) = @_;
     
     # Extract the relevant attributes of the request
     
-    my $class = ref $request;
-    my $format = $request->{format};
-    my $vocab = $request->{vocab};
-    my $attrs = $request->{attrs};
-    my $ds = $request->{ds};
-    my $require_vocab = 1 if $vocab and not $self->{vocab}{$vocab}{use_field_names};
+    my $path = $request->node_path;
+    my $format = $request->output_format;
+    my $vocab = $request->output_vocab;
+    
+    my $require_vocab; $require_vocab = 1 if $vocab and not $ds->{vocab}{$vocab}{use_field_names};
     
     # Add fields to the request object to hold the output configuration.
     
@@ -263,13 +262,13 @@ sub _setup_output {
     # We start with 'output', which specifies a list of blocks that are always
     # included.
     
-    my @output_list = @{$attrs->{output}} if ref $attrs->{output} eq 'ARRAY';
+    my @output_list; @output_list = $ds->node_attr($path, 'output');
     
     my @blocks;
     
     foreach my $block_name ( @output_list )
     {
-	if ( ref $self->{block}{$block_name} eq 'Web::DataService::Block' )
+	if ( ref $ds->{block}{$block_name} eq 'Web::DataService::Block' )
 	{
 	    push @blocks, $block_name;
 	}
@@ -280,40 +279,43 @@ sub _setup_output {
 	}
     }
     
-    # The attribute 'output_param' gives the name of the parameter used to
-    # select optional blocks.
-
-    my $output_param = $attrs->{output_param};
+    # The special parameter 'show' is used to select optional output blocks.
     
-    my @keys = @{$request->{params}{$output_param}}
-	if defined $output_param and ref $request->{params}{$output_param} eq 'ARRAY';
+    my @optional_keys = $request->special_value('show');
     
-    # The attribute 'output_opt' specifies a map which maps the keys from the
+    # The attribute 'optional_output' specifies a map which maps the keys from the
     # output_param value to block names.  We go through the keys one by one
     # and add each key and the name of the associated block to the relevant hash.
     
-    my $output_opt = $attrs->{output_opt};
-    my $output_map = $ds->{set}{$output_opt} if defined $output_opt && 
-	ref $ds->{set}{$output_opt} eq 'Web::DataService::Set';
+    my $optional_output = $ds->node_attr($path, 'optional_output');
+    my $output_map; $output_map = $ds->{set}{$optional_output} if defined $optional_output && 
+	ref $ds->{set}{$optional_output} eq 'Web::DataService::Set';
     
     if ( $output_map )
     {
-	foreach my $key ( @keys )
+	foreach my $key ( @optional_keys )
 	{
+	    next unless defined $key;
 	    my $block = $output_map->{value}{$key}{maps_to};
 	    $request->{block_keys}{$key} = 1;
 	    $request->{block_hash}{$key} = 1;
-	    $request->{block_hash}{$block} = 1 if $block;
-	    push @blocks, $block if $block;
 	    
-	    $request->add_warning("Output block '$block' not found")
-		unless ref $ds->{block}{$block} eq 'Web::DataService::Block';
+	    if ( $block && ref $ds->{block}{$block} eq 'Web::DataService::Block' )
+	    {
+		$request->{block_hash}{$block} = 1;
+		push @blocks, $block;
+	    }
+	    
+	    elsif ( $block )
+	    {
+		$request->add_warning("Output block '$block' not found");
+	    }
 	}
     }
     
-    elsif ( $output_opt )
+    elsif ( $optional_output )
     {
-	$request->add_warning("Output map '$output_opt' not found");
+	$request->add_warning("Output map '$optional_output' not found");
     }
     
     # Now warn the user if no output blocks were specified for this request,
@@ -339,7 +341,7 @@ sub _setup_output {
 	
 	next if $uniq_block{$block}; $uniq_block{$block} = 1;
 	
-	my $include_list = $self->{block}{$block}{include_list};
+	my $include_list = $ds->{block}{$block}{include_list};
 	next unless ref $include_list eq 'ARRAY';
 	
       INCLUDE_RECORD:
@@ -414,7 +416,7 @@ sub _setup_output {
 	
 	# Add this block to the output configuration.
 	
-	$self->add_output_block($request, $block);
+	$ds->add_output_block($request, $block);
     }
     
     my $a = 1;	# We can stop here when debugging
@@ -428,12 +430,12 @@ sub _setup_output {
 
 sub add_output_block {
 
-    my ($self, $request, $block_name) = @_;
+    my ($ds, $request, $block_name) = @_;
     
     # Generate a warning if the specified block does not exist, but do
     # not abort the request.
     
-    my $block_list = $self->{block}{$block_name}{output_list};
+    my $block_list = $ds->{block}{$block_name}{output_list};
     
     unless ( ref $block_list eq 'ARRAY' )
     {
@@ -445,9 +447,9 @@ sub add_output_block {
     # Extract the relevant request attributes.
     
     my $class = ref $request;
-    my $format = $request->{format};
-    my $vocab = $request->{vocab};
-    my $require_vocab = 1 if $vocab and not $self->{vocab}{$vocab}{use_field_names};
+    my $format = $request->output_format;
+    my $vocab = $request->output_vocab;
+    my $require_vocab; $require_vocab = 1 if $vocab and not $ds->{vocab}{$vocab}{use_field_names};
     
     # Now go through the output list for this block and collect up
     # all records that are selected for this query.
@@ -616,7 +618,7 @@ sub add_output_block {
 	    # Get the list of block records, or add a warning if no block
 	    # was defined under that name.
 	    
-	    my $add_list = $self->{block}{$include_block}{output_list};
+	    my $add_list = $ds->{block}{$include_block}{output_list};
 	    
 	    unless ( ref $add_list eq 'ARRAY' )
 	    {
@@ -643,11 +645,11 @@ sub add_output_block {
 
 sub get_output_map {
     
-    my ($self, $output_name) = @_;
+    my ($ds, $output_name) = @_;
     
-    if ( ref $self->{set}{$output_name} eq 'Web::DataService::Set' )
+    if ( ref $ds->{set}{$output_name} eq 'Web::DataService::Set' )
     {
-	return $self->{set}{$output_name};
+	return $ds->{set}{$output_name};
     }
     
     return;
@@ -661,11 +663,11 @@ sub get_output_map {
 
 sub get_output_block {
 
-    my ($self, $output_name) = @_;
+    my ($ds, $output_name) = @_;
     
-    if ( ref $self->{block}{$output_name} eq 'Web::DataService::Block' )
+    if ( ref $ds->{block}{$output_name} eq 'Web::DataService::Block' )
     {
-	return $self->{block}{$output_name};
+	return $ds->{block}{$output_name};
     }
     
     return;
@@ -679,7 +681,7 @@ sub get_output_block {
 
 sub get_output_keys {
     
-    my ($self, $request, $output_map) = @_;
+    my ($ds, $request, $output_map) = @_;
     
     my $path = $request->{path};
     
@@ -689,11 +691,11 @@ sub get_output_keys {
     
     # Start with the fixed blocks.
     
-    my @keys = @{$output_map->{fixed}} if ref $output_map->{fixed} eq 'ARRAY';
+    my @keys; @keys = @{$output_map->{fixed}} if ref $output_map->{fixed} eq 'ARRAY';
     
     # Then add the optional blocks.
     
-    my $output_param = $self->{node_attrs}{$path}{output_param};   # re-do
+    my $output_param = $ds->{node_attrs}{$path}{output_param};   # re-do
                                                                    # with ->node_attrs
     
     push @keys, @{$request->{params}{$output_param}}
@@ -715,7 +717,7 @@ sub get_output_keys {
 
 sub configure_block {
 
-    my ($self, $request, $block_name) = @_;
+    my ($ds, $request, $block_name) = @_;
     
     # Return immediately if the relevant lists have already been computed
     # and cached (even if they are empty).
@@ -726,10 +728,11 @@ sub configure_block {
     # relevant attributes of the request and looking up the output list
     # for this block.
     
-    my $vocab = $request->{vocab};
-    my $require_vocab = 1 if $vocab and not $self->{vocab}{$vocab}{use_field_names};
+    my $format = $request->output_format;
+    my $vocab = $request->output_vocab;
+    my $require_vocab; $require_vocab = 1 if $vocab and not $ds->{vocab}{$vocab}{use_field_names};
     
-    my $block_list = $self->{block}{$block_name}{output_list};
+    my $block_list = $ds->{block}{$block_name}{output_list};
     
     # If no list is available, indicate this to the request object and return
     # false.  Whichever routine called us will be responsible for generating an
@@ -761,10 +764,10 @@ sub configure_block {
 	# Evaluate dependency on the output format
 	
 	next RECORD if $r->{if_format}
-	    and not check_value($r->{if_format}, $request->{format});
+	    and not check_value($r->{if_format}, $format);
 	
 	next RECORD if $r->{not_format}
-	    and check_value($r->{not_format}, $request->{format});
+	    and check_value($r->{not_format}, $format);
 	
 	# Evaluate dependency on the vocabulary
 	
@@ -887,7 +890,7 @@ sub check_set {
 
 sub add_doc {
 
-    my ($self, $node, $item) = @_;
+    my ($ds, $node, $item) = @_;
     
     # If the item is a record, close any currently pending documentation and
     # start a new "pending" list.  We need to do this because subsequent items
@@ -898,7 +901,7 @@ sub add_doc {
 	croak "cannot add non-hash object to documentation"
 	    unless reftype $item eq 'HASH';
 	
-	$self->process_doc($node);
+	$ds->process_doc($node);
 	push @{$node->{doc_pending}}, $item;
     }
     
@@ -913,7 +916,7 @@ sub add_doc {
 		
 	if ( $1 eq '>>' )
 	{
-	    $self->process_doc($node);
+	    $ds->process_doc($node);
 	    push @{$node->{doc_pending}}, $2 if $2 ne '';
 	}
 	
@@ -927,11 +930,11 @@ sub add_doc {
 	}
 	
 	# If !, then discard all pending documentation and mark the node as
-	# 'undoc'.  This will cause it to be elided from the documentation.
+	# 'undocumented'.  This will cause it to be elided from the documentation.
 	
 	elsif ( $1 eq '!' )
 	{
-	    $self->process_doc($node, 'undoc');
+	    $ds->process_doc($node, 'undocumented');
 	}
 	
 	# If ?, then add the remainder of the line to the documentation.
@@ -958,7 +961,7 @@ sub add_doc {
 
 sub process_doc {
 
-    my ($self, $node, $disposition) = @_;
+    my ($ds, $node, $disposition) = @_;
     
     # Return immediately unless we have something pending.
     
@@ -967,18 +970,19 @@ sub process_doc {
     # If the "pending" list starts with an item record, take that off first.
     # Everything else on the list should be a string.
     
-    my $primary_item = shift @{$node->{doc_pending}} if ref $node->{doc_pending}[0];
+    my $primary_item = shift @{$node->{doc_pending}};
+    return unless ref $primary_item;
     
     # Discard all pending documentation if the primary item is disabled or
-    # marked with a '#'.  In the latter case, note this in the item record.
+    # marked with a '!'.  In the latter case, note this in the item record.
     
     $disposition //= '';
     
-    if ( $primary_item->{disabled} or $primary_item->{undoc} or
-	 $disposition eq 'undoc' )
+    if ( $primary_item->{disabled} or $primary_item->{undocumented} or
+	 $disposition eq 'undocumented' )
     {
 	@{$node->{doc_pending}} = ();
-	$primary_item->{undoc} = 1 if $disposition eq 'undoc';
+	$primary_item->{undocumented} = 1 if $disposition eq 'undocumented';
 	return;
     }
     
@@ -1090,7 +1094,7 @@ sub clean_doc {
 
 sub document_node {
     
-    my ($self, $node, $state) = @_;
+    my ($ds, $node, $state) = @_;
     
     # Return the empty string unless documentation has been added to this
     # node. 
@@ -1164,7 +1168,7 @@ sub document_node {
 	    
 	    next unless ref $included_node && reftype $included_node eq 'HASH';
 	    
-	    my $subdoc = $self->document_node($included_node, $state);
+	    my $subdoc = $ds->document_node($included_node, $state);
 	    
 	    $doc .= "\n\n" if $doc ne '' && $subdoc ne '';
 	    $doc .= $subdoc;
@@ -1215,9 +1219,7 @@ sub document_node {
 
 sub document_response {
     
-    my ($self, $path) = @_;
-    
-    my $attrs = $self->{path_attrs}{$path};  # re-do with ->node_attr
+    my ($ds, $path) = @_;
     
     my @blocks;
     my @labels;
@@ -1226,18 +1228,18 @@ sub document_response {
     # Block names that do not correspond to any defined block are ignored,
     # with a warning.
     
-    my @output_list = @{$attrs->{output}} if ref $attrs->{output} eq 'ARRAY';
-    my $fixed_label = $attrs->{output_label} // 'basic';
+    my $output_list = $ds->node_attr($path, 'output') // [];
+    my $fixed_label = $ds->node_attr($path, 'output_label') // 'basic';
     
-    foreach my $block_name ( @output_list )
+    foreach my $block_name ( @$output_list )
     {
-	if ( ref $self->{block}{$block_name} eq 'Web::DataService::Block' )
+	if ( ref $ds->{block}{$block_name} eq 'Web::DataService::Block' )
 	{
 	    push @blocks, $block_name;
 	    push @labels, $fixed_label;
 	}
 	
-	elsif ( $self->debug )
+	elsif ( $ds->debug )
 	{
 	    warn "WARNING: block '$block_name' not found";
 	}
@@ -1246,19 +1248,22 @@ sub document_response {
     # Then add all of the optional blocks, if an output_opt map was
     # specified.
     
-    my $output_opt = $attrs->{output_opt};
+    my $optional_output = $ds->node_attr($path, 'optional_output');
     
-    if ( $output_opt && ref $self->{set}{$output_opt} eq 'Web::DataService::Set' )
+    if ( $optional_output && ref $ds->{set}{$optional_output} eq 'Web::DataService::Set' )
     {
-	my $output_map = $self->{set}{$output_opt};
-	my @keys = @{$output_map->{documented}} if ref $output_map->{documented} eq 'ARRAY';
+	my $output_map = $ds->{set}{$optional_output};
+	my @keys; @keys = @{$output_map->{value_list}} if ref $output_map->{value_list} eq 'ARRAY';
 	
+    VALUE:
 	foreach my $label ( @keys )
 	{
 	    my $block_name = $output_map->{value}{$label}{maps_to};
-	    next unless defined $block_name;
+	    next VALUE unless defined $block_name;
+	    next VALUE if $output_map->{value}{$label}{disabled} || 
+		$output_map->{value}{$label}{undocumented};
 	    
-	    if ( ref $self->{block}{$block_name} eq 'Web::DataService::Block' )
+	    if ( ref $ds->{block}{$block_name} eq 'Web::DataService::Block' )
 	    {
 		push @blocks, $block_name;
 		push @labels, $label;
@@ -1266,36 +1271,35 @@ sub document_response {
 	}
     }
     
-    elsif ( $output_opt && $self->debug )
+    elsif ( $optional_output && $ds->debug )
     {
-	warn "WARNING: output map '$output_opt' not found";
+	warn "WARNING: output map '$optional_output' not found";
     }
     
     # If there are no output blocks specified for this path, return an empty
     # string.
     
     return '' unless @blocks;
-    
+			     
     # Otherwise, determine the set of vocabularies that are allowed for this
     # path.  If none are specifically selected for this path, then all of the
     # vocabularies defined for this data service are allowed.
-    
-    my $vocabularies = $self->{node_attrs}{$path}{allow_vocab} || $self->{vocab};	
-    # $$$ re-do with ->node_attr
+			     
+    my $vocabularies; $vocabularies = $ds->node_attr($path, 'allow_vocab') || $ds->{vocab};	
     
     unless ( ref $vocabularies eq 'HASH' && keys %$vocabularies )
     {
-	warn "No output vocabularies were selected for path '$path'" if $self->debug;
+	warn "No output vocabularies were selected for path '$path'" if $ds->debug;
 	return '';
     }
     
     my @vocab_list = grep { $vocabularies->{$_} && 
-			    ref $self->{vocab}{$_} &&
-			    ! $self->{vocab}{$_}{disabled} } @{$self->{vocab_list}};
+			    ref $ds->{vocab}{$_} &&
+			    ! $ds->{vocab}{$_}{disabled} } @{$ds->{vocab_list}};
     
     unless ( @vocab_list )
     {
-	warn "No output vocabularies were selected for path '$path'" if $self->debug;
+	warn "No output vocabularies were selected for path '$path'" if $ds->debug;
 	return "";
     }
     
@@ -1317,7 +1321,7 @@ sub document_response {
     else
     {
 	$doc_string .= "=over 4\n\n";
-	$doc_string .= "=for wds_table_header Field name / Block / Description\n\n";
+	$doc_string .= "=for wds_table_header Field name* | Block | Description\n\n";
     }
     
     # Run through each block one at a time, documenting all of the fields in
@@ -1335,14 +1339,14 @@ sub document_response {
 	
 	next if $uniq_block{$block_name}; $uniq_block{$block_name} = 1;
 	
-	my $output_list = $self->{block}{$block_name}{output_list};
+	my $output_list = $ds->{block}{$block_name}{output_list};
 	next unless ref $output_list eq 'ARRAY';
 	
 	foreach my $r (@$output_list)
 	{
 	    next unless defined $r->{output};
-	    $doc_string .= $self->document_field($block_label, \@vocab_list, $r)
-		unless $r->{undoc};
+	    $doc_string .= $ds->document_field($block_label, \@vocab_list, $r)
+		unless $r->{undocumented};
 	}
     }
     
@@ -1354,14 +1358,14 @@ sub document_response {
 
 sub document_field {
     
-    my ($self, $block_key, $vocab_list, $r) = @_;
+    my ($ds, $block_key, $vocab_list, $r) = @_;
     
     my @names;
     
     foreach my $v ( @$vocab_list )
     {
 	my $n = defined $r->{"${v}_name"}	    ? $r->{"${v}_name"}
-	      : $self->{vocab}{$v}{use_field_names} ? $r->{output}
+	      : $ds->{vocab}{$v}{use_field_names} ? $r->{output}
 	      :					      '';
 	
 	push @names, $n
@@ -1396,7 +1400,7 @@ sub document_field {
 
 sub process_record {
     
-    my ($self, $request, $record, $steps) = @_;
+    my ($ds, $request, $record, $steps) = @_;
     
     # If there are no processing steps to do, return immediately.
     
@@ -1410,7 +1414,7 @@ sub process_record {
 	
 	if ( exists $p->{check} )
 	{
-	    $self->check_field_type($record, $p->{check}, $p->{type}, $p->{subst});
+	    $ds->check_field_type($record, $p->{check}, $p->{type}, $p->{subst});
 	    next;
 	}
 	
@@ -1606,7 +1610,7 @@ sub process_record {
 
 sub check_field_type {
 
-    my ($self, $record, $field, $type, $subst) = @_;
+    my ($ds, $record, $field, $type, $subst) = @_;
     
     if ( $type eq 'int' )
     {
@@ -1658,12 +1662,12 @@ sub check_field_type {
 
 sub _generate_single_result {
 
-    my ($self, $request) = @_;
+    my ($ds, $request) = @_;
     
     # Determine the output format and figure out which class implements it.
     
-    my $format = $request->{format};
-    my $format_class = $self->{format}{$format}{class};
+    my $format = $request->output_format;
+    my $format_class = $ds->{format}{$format}{class};
     
     die "could not generate a result in format '$format': no implementing module was found"
 	unless $format_class;
@@ -1684,14 +1688,14 @@ sub _generate_single_result {
     
     # If there are any processing steps to do, then do them.
     
-    $self->process_record($request, $request->{main_record}, $proc_list);
+    $ds->process_record($request, $request->{main_record}, $proc_list);
     
     # If there is an output_record_hook defined for this path, call it now.
     # If it returns false, do not output the record.
     
     if ( $request->{output_record_hook} )
     {
-	$self->call_hook($request->{output_record_hook}, $request, $request->{main_record})
+	$ds->call_hook($request->{output_record_hook}, $request, $request->{main_record})
 	    or return;
     }
     
@@ -1717,7 +1721,7 @@ sub _generate_single_result {
 
 sub _generate_compound_result {
 
-    my ($self, $request, $streaming_threshold) = @_;
+    my ($ds, $request, $streaming_threshold) = @_;
     
     # $$$ init output...
     
@@ -1727,8 +1731,8 @@ sub _generate_compound_result {
 
     # Determine the output format and figure out which class implements it.
     
-    my $format = $request->{format};
-    my $format_class = $self->{format}{$format}{class};
+    my $format = $request->output_format;
+    my $format_class = $ds->{format}{$format}{class};
     
     die "could not generate a result in format '$format': no implementing module was found"
 	unless $format_class;
@@ -1765,25 +1769,25 @@ sub _generate_compound_result {
     if ( defined $request->{result_offset} && $request->{result_offset} > 0
 	 && ! $request->{offset_handled} )
     {
-	$self->_next_record($request) foreach 1..$request->{result_offset};
+	$ds->_next_record($request) foreach 1..$request->{result_offset};
     }
     
     # Now fetch and process each output record in turn.  If output streaming is
     # available and our total output size exceeds the threshold, switch over
     # to streaming.
     
-    while ( my $record = $self->_next_record($request) )
+    while ( my $record = $ds->_next_record($request) )
     {
 	# If there are any processing steps to do, then process this record.
 	
-	$self->process_record($request, $record, $proc_list);
+	$ds->process_record($request, $record, $proc_list);
 	
 	# If there is an output_record_hook defined for this path, call it now.
 	# If it returns false, do not output the record.
 	
 	if ( $request->{output_record_hook} )
 	{
-	    $self->call_hook($request->{output_record_hook}, $request, $request->{main_record})
+	    $ds->call_hook($request->{output_record_hook}, $request, $request->{main_record})
 		or return;
 	}
 	
@@ -1827,13 +1831,13 @@ sub _generate_compound_result {
     # process the entire result set before generating output.  Obviously,
     # streaming is not a possibility in this case.
     
-    # if ( $self->{process_resultset} )
+    # if ( $ds->{process_resultset} )
     # {
     # 	my @rows;
 	
-    # 	if ( $self->{main_sth} )
+    # 	if ( $ds->{main_sth} )
     # 	{
-    # 	    while ( $record = $self->{main_sth}->fetchrow_hashref )
+    # 	    while ( $record = $ds->{main_sth}->fetchrow_hashref )
     # 	    {
     # 		push @rows, $record;
     # 	    }
@@ -1841,21 +1845,21 @@ sub _generate_compound_result {
 	
     # 	else
     # 	{
-    # 	    @rows = @{$self->{main_result}}
+    # 	    @rows = @{$ds->{main_result}}
     # 	}
 	
-    # 	my $newrows = $self->{process_resultset}(\@rows);
+    # 	my $newrows = $ds->{process_resultset}(\@rows);
 	
     # 	if ( ref $newrows eq 'ARRAY' )
     # 	{
     # 	    foreach my $record (@$newrows)
     # 	    {
-    # 		$self->processRecord($record, $self->{proc_list});
-    # 		my $record_output = $self->emitRecord($record, is_first => $first_row);
+    # 		$ds->processRecord($record, $ds->{proc_list});
+    # 		my $record_output = $ds->emitRecord($record, is_first => $first_row);
     # 		$output .= $record_output;
 		
     # 		$first_row = 0;
-    # 		$self->{row_count}++;
+    # 		$ds->{row_count}++;
     # 	    }
     # 	}
     # }
@@ -1878,12 +1882,12 @@ sub _stream_compound_result {
     
     my ($request, $writer) = @_;
     
-    my $self = $request->{ds};
+    my $ds = $request->{ds};
     
     # Determine the output format and figure out which class implements it.
     
-    my $format = $request->{format};
-    my $format_class = $self->{format}{$format}{class};
+    my $format = $request->output_format;
+    my $format_class = $ds->{format}{$format}{class};
     
     croak "could not generate a result in format '$format': no implementing class"
 	unless $format_class;
@@ -1891,22 +1895,22 @@ sub _stream_compound_result {
     # First send out the partial output previously stashed by
     # generate_compound_result().
     
-    $writer->write( encode_utf8($self->{stashed_output}) );
+    $writer->write( encode_utf8($ds->{stashed_output}) );
     
     # Then process the remaining rows.
     
-    while ( my $record = $self->_next_record($request) )
+    while ( my $record = $ds->_next_record($request) )
     {
 	# If there are any processing steps to do, then process this record.
 	
-	$self->process_record($request, $record, $request->{proc_list});
+	$ds->process_record($request, $record, $request->{proc_list});
 	
 	# If there is an output_record_hook defined for this path, call it now.
 	# If it returns false, do not output the record.
 	
 	if ( $request->{output_record_hook} )
 	{
-	    $self->call_hook($request->{output_record_hook}, $request, $request->{main_record})
+	    $ds->call_hook($request->{output_record_hook}, $request, $request->{main_record})
 		or return;
 	}
 	
@@ -1929,7 +1933,7 @@ sub _stream_compound_result {
     
     # finish output...
     
-    # my $final = $self->finishOutput();
+    # my $final = $ds->finishOutput();
     # $writer->write( encode_utf8($final) ) if defined $final and $final ne '';
     
     # Finally, send out the footer and then close the writer object.
@@ -1944,13 +1948,13 @@ sub _stream_compound_result {
 # _next_record ( request )
 # 
 # Return the next record to be output for the given request.  If
-# $self->{main_result} is set, use that first.  Once that is exhausted (or if
+# $ds->{main_result} is set, use that first.  Once that is exhausted (or if
 # it was never set) then if $result->{main_sth} is set then read records from
 # it until exhausted.
 
 sub _next_record {
     
-    my ($self, $request) = @_;
+    my ($ds, $request) = @_;
     
     # If the result limit is 0, return nothing.  This prevents any records
     # from being returned.
@@ -1987,12 +1991,12 @@ sub _next_record {
 
 sub _generate_empty_result {
     
-    my ($self, $request) = @_;
+    my ($ds, $request) = @_;
     
     # Determine the output format and figure out which class implements it.
     
-    my $format = $request->{format};
-    my $format_class = $self->{format}{$format}{class};
+    my $format = $request->output_format;
+    my $format_class = $ds->{format}{$format}{class};
     
     croak "could not generate a result in format '$format': no implementing class"
 	unless $format_class;

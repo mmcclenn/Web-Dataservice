@@ -194,7 +194,7 @@ You can specify any of the following attributes when configuring a new path
 node.  The attribute "path" is required, the rest are optional.  Path
 attributes inherit hierarchically.  Any path whose attributes include both
 "class" and "method" indicates a data service operation.  Any path whose
-attributes include "doc_title" indicates a documentation page.  The special
+attributes include "title" indicates a documentation page.  The special
 path "/" defines a root set of attributes which are inherited by all other
 path nodes associated with this data service.
 
@@ -307,7 +307,7 @@ the parameter named by L</output_param>.
 
 =head3 doc_footer
 
-=head3 doc_title
+=head3 title
 
 =head2 Format attributes
 

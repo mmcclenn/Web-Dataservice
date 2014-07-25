@@ -13,6 +13,7 @@ package Web::DataService::Ruleset;
 use Carp qw 'croak';
 use Try::Tiny;
 use Scalar::Util 'reftype';
+use Data::Dumper;
 
 use HTTP::Validate qw(:validators);
 
@@ -32,7 +33,7 @@ our @SPECIAL_SINGLE = qw(show vocab showsource linebreak header);
 
 sub define_ruleset {
     
-    my $self = shift;
+    my $ds = shift;
     
     # The next argument must be the ruleset name.  We restrict these to be
     # valid names according to the Web::DataService pattern.
@@ -76,10 +77,11 @@ sub define_ruleset {
 	if ( $pending_rule )
 	{
 	    push @rules_and_doc, $pending_rule, @pending_doc, @final_doc;
-	    $pending_rule = undef;
-	    @pending_doc = ();
-	    @final_doc = ();
 	}
+	
+	$pending_rule = undef;
+	@pending_doc = ();
+	@final_doc = ();
 	
 	# Now we consider the new rule.
 	
@@ -113,9 +115,9 @@ sub define_ruleset {
 	
 	elsif ( ! ref $valid_attr )
 	{
-	    if ( $self->set_defined($valid_attr) )
+	    if ( $ds->set_defined($valid_attr) )
 	    {
-		$arg->{valid} = $self->valid_set($valid_attr);
+		$arg->{valid} = $ds->valid_set($valid_attr);
 		
 		if ( $arg->{no_doc} )
 		{
@@ -125,7 +127,7 @@ sub define_ruleset {
 		
 		else
 		{
-		    push @final_doc, $self->document_set($valid_attr);
+		    push @final_doc, $ds->document_set($valid_attr);
 		}
 	    }
 	    
@@ -162,7 +164,7 @@ sub define_ruleset {
 		# Exclude the 'vocab' parameter unless more than one
 		# vocabulary has been defined.
 		
-		unless ( @{$self->{vocab_list}} > 1 )
+		unless ( @{$ds->{vocab_list}} > 1 )
 		{
 		    $exclude_special{vocab} = 1;
 		}
@@ -170,26 +172,21 @@ sub define_ruleset {
 		# Exclude the 'header' parameter unless we have a format
 		# that uses it.
 		
-		my $uses_header;
-		
-		foreach my $f ( @{$self->{format_list}} )
+		foreach my $f ( @{$ds->{format_list}} )
 		{
-		    $uses_header = 1 if $self->{format}{$f}{uses_header};
+		    $exclude_special{header} = 0 if $ds->{format}{$f}{uses_header};
 		}
 		
-		unless ( $uses_header )
-		{
-		    $exclude_special{header} = 1;
-		}
+		$exclude_special{header} //= 1;
 		
-		my @remaining_params = grep { ! $exclude_special{$_} } 
+		my @remaining_params = grep { $ds->{special}{$_} && ! $exclude_special{$_} }
 		    ($special_arg eq 'all' ? @Web::DataService::SPECIAL_ALL 
 					   : @Web::DataService::SPECIAL_SINGLE);
 		
 		foreach my $p ( @remaining_params )
 		{
-		    push @rules_and_doc, $self->generate_special_rule($p);
-		    push @rules_and_doc, $self->generate_special_doc($p);
+		    push @rules_and_doc, $ds->generate_special_rule($p);
+		    push @rules_and_doc, $ds->generate_special_doc($p);
 		}
 		
 		$pending_rule = undef;
@@ -200,7 +197,8 @@ sub define_ruleset {
 	    
 	    elsif ( $special_arg eq 'show' )
 	    {
-		$arg->{$ruletype} = $self->{special}{show};
+		$arg->{$ruletype} = $ds->{special}{show};
+		$arg->{list} = 1;
 	    }
 	    
 	    # Otherwise, replace the rule with the specially generated one.
@@ -213,11 +211,16 @@ sub define_ruleset {
 		croak "define_ruleset: unknown special parameter '$special_arg'\n" unless
 		    defined $Web::DataService::SPECIAL_PARAM{$special_arg};
 		
-		#croak "define_ruleset: special parameter '$special_arg' is not active\n"
-		#    unless defined $self->{special}{$special_arg};
+		# Ignore this rule if the special parameter is not active.
 		
-		$pending_rule = $self->generate_special_rule($special_arg);
-		@pending_doc = $self->generate_special_doc($special_arg)
+		unless ( $ds->{special}{$special_arg} )
+		{
+		    $pending_rule = undef;
+		    next ARG;
+		}
+		
+		$pending_rule = $ds->generate_special_rule($special_arg);
+		@pending_doc = $ds->generate_special_doc($special_arg)
 		    unless @pending_doc;
 		
 		# If the original rule specified any of 'errmsg', 'warn', or
@@ -259,8 +262,8 @@ sub define_ruleset {
     my $error_msg;
     
     try {
-    
-	$self->{validator}->define_ruleset($ruleset_name, @rules_and_doc);
+	
+	$ds->{validator}->define_ruleset($ruleset_name, @rules_and_doc);
 
     }
 	
@@ -280,11 +283,16 @@ sub define_ruleset {
 
 sub generate_special_rule {
     
-    my ($self, $param) = @_;
+    my ($ds, $param) = @_;
+    
+    # Double check that this parameter is valid.
+    
+    croak "define_ruleset: the special parameter '$param' is not active\n"
+	unless $ds->{special}{$param};
     
     # Start with a basic 'optional' rule.
     
-    my $rule = { optional => $param };
+    my $rule = { optional => $ds->{special}{$param} };
     
     # Add the necessary validator and other attributes.
     
@@ -302,7 +310,7 @@ sub generate_special_rule {
 	$rule->{valid} = ENUM_VALUE('cr', 'crlf');
     }
     elsif ( $param eq 'vocab' ) {
-	$rule->{valid} = $self->valid_vocab;
+	$rule->{valid} = $ds->valid_vocab;
     }
     
     return $rule;
@@ -315,17 +323,44 @@ sub generate_special_rule {
 
 sub generate_special_doc {
     
-    my ($self, $param) = @_;
+    my ($ds, $param) = @_;
     
     my @doc;
     
-    if ( $param eq 'limit' )
+    if ( $param eq 'selector' )
+    {
+	push @doc,
+	    "Selects from among the available versions of this data service.",
+	    "The value may be one of:";
+    }
+    
+    elsif ( $param eq 'format' )
+    {
+	push @doc, 
+	    "Specifies the output format.  The value may be the name of",
+	    "any of the formats available for the selected operation";
+    }
+    
+    elsif ( $param eq 'path' )
+    {
+	push @doc,
+	    "Specifies a data service operation to perform.";
+    }
+    
+    elsif ( $param eq 'show' )
+    {
+	push @doc,
+	    "Display additional information.  The value",
+	    "of this parameter must be one or more of the following, separated by commas.";
+    }
+    
+    elsif ( $param eq 'limit' )
     {
 	push @doc, 
 	    "Limits the number of records returned.",
 	    "The value may be a positive integer, zero, or C<all>.";
 	
-	my $default = $self->default_limit;
+	my $default = $ds->default_limit;
 	
 	push @doc,
 	    "It defaults to $default, in order to prevent people",
@@ -359,9 +394,9 @@ sub generate_special_doc {
 	my @extras;
 	
 	push @extras, "=item *", "The name of the data provider"
-	    if $self->data_provider;
+	    if $ds->data_provider;
 	push @extras, "=item *", "The license under which it is provided",
-	    if $self->data_license;
+	    if $ds->data_license;
 	
 	push @doc,
 	    "If this parameter is specified, then the response will include",
@@ -387,7 +422,7 @@ sub generate_special_doc {
 	    "You only need to use this if you want to override the default",
 	    "vocabulary for your selected format.",
 	    "Possible values depend upon the particular URL path, and include:",
-	    $self->document_vocab;
+	    $ds->document_vocab;
     }
     
     elsif ( $param eq 'header' )
@@ -407,6 +442,14 @@ sub generate_special_doc {
 	    "Specifies the character sequence used to terminate each line.",
 	    "The value may be either 'cr' or 'crlf', and defaults to the",
 	    "latter.";
+    }
+    
+    elsif ( $param eq 'save' )
+    {
+	push @doc,
+	    "Specifies the name of a local file to which the output of this",
+	    "request should be saved.  Whether and how this happens",
+	    "depends upon which web browser you are using.";
     }
     
     return @doc;

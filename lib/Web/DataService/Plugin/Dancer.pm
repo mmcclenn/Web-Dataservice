@@ -22,7 +22,7 @@ use Carp qw( carp croak );
 sub initialize_plugin {
     
     Dancer::set(warnings => 0);
-    Dancer::set(app_handles_errors => 1);
+    #Dancer::set(app_handles_errors => 1);
 }
 
 
@@ -54,6 +54,51 @@ sub read_config {
 }
 
 
+# store_request ( outer, inner )
+# 
+# Add to the specified "outer" request object a link to our "inner" request
+# object.
+
+sub store_inner {
+    
+    my ($plugin, $outer, $inner) = @_;
+    
+    Dancer::var('wds_request', $inner);
+}
+
+
+# retrieve_request ( outer )
+# 
+# Return the "inner" link from the specified request object.
+
+sub retrieve_inner {
+
+    my ($plugin, $outer) = @_;
+    
+    return Dancer::var('wds_request');
+}
+
+
+# store_outer ( outer )
+# 
+# Store the current 'outer' request object for later use.  This is a no-op for
+# Dancer, since the current 'outer' request object is always available.
+
+sub store_outer {
+
+}
+
+
+# retrieve_outer ( )
+# 
+# Return the 'outer' request object for the request being currently handled.
+
+sub retrieve_outer {
+    
+    return Dancer::request;
+}
+
+
 # get_connection ( )
 # 
 # This method returns a database connection.  If you wish to use it, make sure
@@ -71,11 +116,11 @@ sub get_connection {
 
 sub get_base_url {
     
-    return Dancer::request->uri_base;
+    return Dancer::request->base;
 }
 
 
-# get_request_url ( outer )
+# get_request_url ( request )
 # 
 # Return the full URL that generated the current request
 
@@ -85,25 +130,37 @@ sub get_request_url {
 }
 
 
-# get_params ( outer )
+# get_request_path ( request )
+# 
+# Return the request path
+
+sub get_request_path {
+
+    return Dancer::request->path;
+}
+
+
+# get_params ( request )
 # 
 # Return the parameters for the current request.
 
 sub get_params {
     
-    my $params = Dancer::params;
+    my ($plugin, $request, @rest) = @_;
+    
+    my $params = Dancer::params(@rest);
     delete $params->{splat};
     return $params;
 }
 
 
-# set_cors_header ( outer, arg )
+# set_cors_header ( request, arg )
 # 
 # Set the CORS access control header according to the argument.
 
 sub set_cors_header {
 
-    my ($plugin, $outer, $arg) = @_;
+    my ($plugin, $request, $arg) = @_;
     
     if ( defined $arg && $arg eq '*' )
     {
@@ -118,9 +175,9 @@ sub set_cors_header {
 
 sub set_content_type {
     
-    my ($plugin, $outer, $type) = @_;
+    my ($plugin, $request, $type) = @_;
     
-    Dancer::content_type($type);
+    Dancer::content_type $type;
 }
 
 
@@ -132,7 +189,7 @@ sub set_header {
     
     my ($plugin, $request, $header, $value) = @_;
     
-    Dancer::response->header($header => $value);    
+    Dancer::header $header => $value;
 }
 
 
@@ -144,7 +201,7 @@ sub set_status {
     
     my ($class, $request, $code) = @_;
     
-    Dancer::status($code);
+    Dancer::status $code;
 }
 
 
@@ -155,10 +212,8 @@ sub set_status {
 sub set_body {
     
     my ($class, $request, $body) = @_;
-    $DB::single = 1;
-    my $a = 1;
-    #Dancer::SharedData->response->content($body);
-    #Dancer::SharedData->response->halt();
+    
+    Dancer::SharedData->response->content($body);
 }
 
 	

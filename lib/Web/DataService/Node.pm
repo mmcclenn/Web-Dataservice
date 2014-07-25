@@ -33,7 +33,7 @@ our (%NODE_DEF) = ( path => 'ignore',
 		    ruleset => 'single',
 		    output => 'list',
 		    output_label => 'single',
-		    output_optional => 'single',
+		    optional_output => 'single',
 		    public_access => 'single',
 		    default_format => 'single',
 		    default_limit => 'single',
@@ -372,6 +372,14 @@ sub node_attr {
     
     my ($self, $path, $key) = @_;
     
+    # If we are given an object as the value of $path, pull out its
+    # 'node_path' attribute, or else default to the root path '/'.
+    
+    if ( ref $path && reftype $path eq 'HASH' )
+    {
+	$path = $path->{node_path} || '/';
+    }
+    
     # If the specified attribute is in the attribute cache for this path, just
     # return it.  Even if the value is undefined. We need to turn off warnings
     # for this block, because either of $path or $key may be undefined.  The
@@ -379,7 +387,11 @@ sub node_attr {
     
     {
 	no warnings;
-	return $self->{attr_cache}{$path}{$key} if exists $self->{attr_cache}{$path}{$key};
+	if ( exists $self->{attr_cache}{$path}{$key} )
+	{
+	    return ref $self->{attr_cache}{$path}{$key} eq 'ARRAY' ?
+		@{$self->{attr_cache}{$path}{$key}} : $self->{attr_cache}{$path}{$key};
+	}
     }
     
     # If no key is given, or an invalid key is given, then return undefined.
@@ -389,10 +401,7 @@ sub node_attr {
     return unless $key && defined $NODE_DEF{$key};
     return unless defined $path && $path ne '';
     
-    if ( ref $path && reftype $path eq 'HASH' )
-    {
-	$path = $path->{node_path};
-    }
+    $path = '/' if $path eq '';
     
     return unless exists $self->{node_attrs}{$path};
     
@@ -515,7 +524,9 @@ sub _lookup_node_attr {
     
     # Stuff the new value into the cache and return it.
     
-    return $self->{attr_cache}{$path}{$key} = $new_value;
+    $self->{attr_cache}{$path}{$key} = $new_value;
+    
+    return ref $new_value eq 'ARRAY' ? @$new_value : $new_value;
 }
 
 

@@ -65,8 +65,6 @@ use Web::DataService::IRequest;
 use Web::DataService::IDocument;
 use Web::DataService::PodParser;
 
-use Web::DataService::Plugin::JSON qw(json_list_value);
-
 use Moo;
 use namespace::clean;
 
@@ -85,28 +83,27 @@ our @HTTP_METHOD_LIST = ('GET', 'HEAD', 'POST', 'PUT', 'DELETE');
 
 our @DEFAULT_METHODS = ('GET', 'HEAD');
 
-our %SPECIAL_FEATURE = (format_suffix => 1, fixed_paths => 1,
-			documentation => 1, doc_paths => 1, 
-			strict_params => 1, stream_output => 1);
+our %SPECIAL_FEATURE = (format_suffix => 1, documentation => 1, 
+			doc_paths => 1, send_files => 1, strict_params => 1, 
+			stream_output => 1);
 
 our @FEATURE_STANDARD = ('format_suffix', 'documentation', 'doc_paths', 
-			 'strict_params', 'stream_output');
+			 'send_files', 'strict_params', 'stream_output');
 
-our @FEATURE_FIXED = ('fixed_paths', 'documentation', 'strict_params',
-		      'stream_output');
+our @FEATURE_ALL = ('format_suffix', 'documentation', 'doc_paths', 
+		    'send_files', 'strict_params', 'stream_output');
 
-our @FEATURE_ALL = ('format_suffix', 'fixed_paths', 'documentation', 
-		    'doc_paths', 'strict_params', 'stream_output');
+our %SPECIAL_PARAM = (selector => 'v', format => 'format', path => 'op', 
+		      show => 'show', limit => 'limit', offset => 'offset', 
+		      count => 'count', vocab => 'vocab', showsource => 'showsource', 
+		      linebreak => 'lb', header => 'header', save => 'save');
 
-our %SPECIAL_PARAM = (show => 1, limit => 1, offset => 1, count => 1, format => 1,
-		      vocab => 1, showsource => 1, linebreak => 1, header => 1, save => 1);
+our @SPECIAL_STANDARD = ('show', 'limit', 'offset', 'count',
+			 'showsource', 'linebreak', 'header');
 
-our @SPECIAL_STANDARD = ('show', 'limit', 'offset', 'count', 'vocab', 'showsource',
-			 'linebreak', 'header');
+our @SPECIAL_SINGLE = ('selector', 'format', 'path', 'show', 'showsource', 'linebreak', 'header');
 
-our @SPECIAL_SINGLE = ('show', 'format', 'vocab', 'showsource', 'linebreak', 'header');
-
-our @SPECIAL_ALL = ('show', 'limit', 'offset', 'count', 'format', 'vocab',
+our @SPECIAL_ALL = ('selector', 'format', 'path', 'show', 'limit', 'offset', 'count', 'vocab',
 		    'showsource', 'linebreak', 'header', 'save');
 
 # Execution modes
@@ -130,6 +127,8 @@ has foundation_plugin => ( is => 'ro' );
 has templating_plugin => ( is => 'lazy', builder => sub { $_[0]->_init_value('templating_plugin') } );
 
 has backend_plugin => ( is => 'lazy', builder => sub { $_[0]->_init_value('backend_plugin') } );
+
+has service_key => ( is => 'lazy', builder => sub { $_[0]->_init_value('service_key') } );
 
 has path_prefix => ( is => 'lazy', builder => sub { $_[0]->_init_value('path_prefix') } );
 
@@ -221,7 +220,7 @@ sub BUILD {
     my ($self) = @_;
     
     local($Carp::CarpLevel) = 1;	# We shouldn't have to do this, but
-                                        # Noo and Carp don't play well together.
+                                        # Moo and Carp don't play well together.
     
     # If no path prefix was defined, make it the empty string.
     
@@ -292,7 +291,7 @@ sub BUILD {
     {
 	next unless defined $s && $s ne '';
 	my $key = $s;
-	my $name = $s;
+	my $name = $SPECIAL_PARAM{$s};
 	
 	# If 'standard' was specified, enable the "standard" set of parameters
 	# with their default names (but don't override any that have already
@@ -302,7 +301,7 @@ sub BUILD {
 	{
 	    foreach my $p ( @SPECIAL_STANDARD )
 	    {
-		$self->{special}{$p} //= $p;
+		$self->{special}{$p} //= $SPECIAL_PARAM{$p};
 	    }
 	    
 	    next ARG;
@@ -541,8 +540,9 @@ before 'use Web::DataService' (and make sure that Dancer is installed)\n";
     {
 	my $prefix = $self->path_prefix;
 	
-	# If the prefix ends in '/', then chop it off.  This is because a URL
-	# with just the prefix and no '/' is still valid.
+	# If the prefix ends in '/', then generate a regexp that can handle
+	# either the prefix as given or the prefix string without the final /
+	# and without anything after it.
 	
 	if ( $prefix =~ qr{ (.*) [/] $ }xs )
 	{
@@ -826,6 +826,17 @@ sub set_mode {
 	    $CHECK_LATER = 1;
 	}
     }
+}
+
+
+sub is_mode {
+
+    my ($self, $mode) = @_;
+    
+    return 1 if $mode eq 'debug' && $DEBUG;
+    return 1 if $mode eq 'one_request' && $ONE_REQUEST;
+    return 1 if $mode eq 'late_path_check' && $CHECK_LATER;
+    return;
 }
 
 
