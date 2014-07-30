@@ -95,16 +95,19 @@ our @FEATURE_ALL = ('format_suffix', 'documentation', 'doc_paths',
 
 our %SPECIAL_PARAM = (selector => 'v', format => 'format', path => 'op', 
 		      show => 'show', limit => 'limit', offset => 'offset', 
-		      count => 'count', vocab => 'vocab', showsource => 'showsource', 
-		      linebreak => 'lb', header => 'header', save => 'save');
+		      count => 'count', vocab => 'vocab', 
+		      showsource => 'showsource', linebreak => 'lb', 
+		      header => 'header', save => 'save');
 
-our @SPECIAL_STANDARD = ('show', 'limit', 'offset', 'count',
-			 'showsource', 'linebreak', 'header');
+our @SPECIAL_STANDARD = ('show', 'limit', 'offset', 'header', 'showsource', 
+			 'count', 'vocab', 'linebreak', 'save');
 
-our @SPECIAL_SINGLE = ('selector', 'format', 'path', 'show', 'showsource', 'linebreak', 'header');
+our @SPECIAL_SINGLE = ('selector', 'path', 'format', 'show', 'header', 
+		       'showsource', 'vocab', 'linebreak', 'save');
 
-our @SPECIAL_ALL = ('selector', 'format', 'path', 'show', 'limit', 'offset', 'count', 'vocab',
-		    'showsource', 'linebreak', 'header', 'save');
+our @SPECIAL_ALL = ('selector', 'path', 'format', 'show', 'limit', 'offset', 
+		    'header', 'showsource', 'count', 'vocab', 'linebreak', 
+		    'save');
 
 # Execution modes
 
@@ -127,8 +130,6 @@ has foundation_plugin => ( is => 'ro' );
 has templating_plugin => ( is => 'lazy', builder => sub { $_[0]->_init_value('templating_plugin') } );
 
 has backend_plugin => ( is => 'lazy', builder => sub { $_[0]->_init_value('backend_plugin') } );
-
-has service_key => ( is => 'lazy', builder => sub { $_[0]->_init_value('service_key') } );
 
 has path_prefix => ( is => 'lazy', builder => sub { $_[0]->_init_value('path_prefix') } );
 
@@ -167,6 +168,10 @@ has doc_header => ( is => 'lazy', builder => sub { $_[0]->_init_value('doc_heade
 has doc_footer => ( is => 'lazy', builder => sub { $_[0]->_init_value('doc_footer') } );
 
 has doc_stylesheet => ( is => 'lazy', builder => sub { $_[0]->_init_value('doc_stylesheet') } );
+
+has doc_default_template => ( is => 'lazy', builder => sub { $_[0]->_init_value('doc_default_template') } );
+
+has doc_default_op_template => ( is => 'lazy', builder => sub { $_[0]->_init_value('doc_default_op_template') } );
 
 has default_limit => ( is => 'lazy', builder => sub { $_[0]->_init_value('default_limit') } );
 
@@ -374,6 +379,10 @@ sub BUILD {
 before 'use Web::DataService' (and make sure that Dancer is installed)\n";
     }
     
+    # Let the plugin do whatever initialization it needs to.
+    
+    $self->_plugin_init('foundation_plugin');
+    
     # From this point on, we will be able to read the configuration file
     # (assuming that a valid one is present).  So do so.
     
@@ -423,11 +432,15 @@ before 'use Web::DataService' (and make sure that Dancer is installed)\n";
     if ( defined $self->{templating_plugin} && 
 	 $self->{templating_plugin} ne 'Web::DataService::Plugin::Templating' )
     {
-	my $doc_dir = $self->doc_template_dir;
-	my $output_dir = $self->output_template_dir;
+	# Let the plugin do whatever initialization it needs to.
+	
+	$self->_plugin_init('templating_plugin');
 	
 	# If we weren't given a document template directory, use 'doc' if it
 	# exists and is readable.
+	
+	my $doc_dir = $self->doc_template_dir;
+	my $output_dir = $self->output_template_dir;
 	
 	unless ( defined $doc_dir )
 	{
@@ -463,6 +476,17 @@ before 'use Web::DataService' (and make sure that Dancer is installed)\n";
 	    
 	    $self->{doc_engine} = 
 		$self->{templating_plugin}->new_engine($self, { template_dir => $doc_dir });
+	    
+	    # If the attributes doc_header, doc_footer, etc. were not set,
+	    # check for the existence of defaults.
+	    
+	    my $doc_suffix = $self->{template_suffix} || '';
+	    
+	    $self->{doc_defs} //= $self->check_doc("doc_defs${doc_suffix}");
+	    $self->{doc_header} //= $self->check_doc("doc_header${doc_suffix}");
+	    $self->{doc_footer} //= $self->check_doc("doc_footer${doc_suffix}");
+	    $self->{doc_default_template} //= $self->check_doc("doc_not_found${doc_suffix}");
+	    $self->{doc_default_op_template} //= $self->check_doc("doc_op_template${doc_suffix}");
 	}
 	
 	# we were given a directory for output templates, initialize an
@@ -484,12 +508,7 @@ before 'use Web::DataService' (and make sure that Dancer is installed)\n";
 	
 	# If no stylesheet URL path was specified, use the default.
 	
-	$self->{doc_stylesheet} //= $self->generate_url({ path => 'css/dsdoc.css' });
-	
-	# Generate a closure that we can use for making relative URLs.
-	
-	$self->{doc_url_sub} = sub { $self->generate_url({ doc => $_[0] }) };
-	$self->{path_url_sub} = sub { $self->generate_url({ path => $_[0] }) };
+	$self->{doc_stylesheet} //= $self->generate_url({ type => 'site', path => 'css/dsdoc.css' });
     }
     
     # Check and configure the backend plugin
@@ -522,6 +541,10 @@ before 'use Web::DataService' (and make sure that Dancer is installed)\n";
     {
 	$self->{backend_plugin} = 'Web::DataService::Plugin::Backend';
     }
+    
+    # Let the backend plugin do whatever initialization it needs to.
+    
+    $self->_plugin_init('backend_plugin');
     
     # Check and set some attributes
     # -----------------------------
@@ -590,6 +613,11 @@ before 'use Web::DataService' (and make sure that Dancer is installed)\n";
 	$self->{doc_path_regex} = qr{ ^ ( .* [^/] ) (?: / $self->{doc_index} | / $ }xs;
     }
     
+    # The attribute "default_header" defaults to true unless otherwise
+    # specified. 
+    
+    $self->{default_header} //= 1;
+    
     # Create a new HTTP::Validate object so that we can do parameter
     # validations. 
     
@@ -607,12 +635,6 @@ before 'use Web::DataService' (and make sure that Dancer is installed)\n";
     $self->{format_list} = [];
     $self->{subservice} = {};
     $self->{subservice_list} = [];
-    
-    # Give the various plugins a chance to check and/or modify this instance.
-    
-    $self->_plugin_init('foundation_plugin');
-    $self->_plugin_init('templating_plugin');
-    $self->_plugin_init('backend_plugin');
 }
 
 
@@ -854,9 +876,9 @@ sub is_mode {
 # 
 # params	Species the parameters, if any, to be included in the URL
 # 
-# absolute	If specified, generates an absolute URL rather than a site-relative
-#		one.  The value should be the hostname or hostname:port.
-# 
+# type		Specifies the type of URL to generate: 'absolute' for an
+#		absolute URL, 'relative' for a relative URL, 'site' for
+#		a site-relative URL (starts with '/').  Defaults to 'site'.
 
 sub generate_url {
 
@@ -881,7 +903,7 @@ sub generate_url {
     
     croak "generate_url: you must specify a URL path\n" unless $path;
     
-    $format ||= 'html' if $attrs->{documentation};
+    $format = 'html' if $attrs->{documentation} && ! (defined $format && $format eq 'pod');
     
     my @params;
     if ( defined $attrs->{documentation} && ref $attrs->{documentation} eq 'ARRAY' )
@@ -975,7 +997,11 @@ sub generate_url {
     
     # Now assemble the URL and return it.
     
-    my $url = $attrs->{absolute} ? "http://$attrs->{absolute}/" : '/';
+    my $type = $attrs->{type};
+    
+    my $url = $type eq 'absolute' ? $self->base_url :
+	      $type eq 'site'     ? '/'
+				  : '';
     
     $url .= $self->{path_prefix} if $self->{path_prefix};
     $url .= $path;
@@ -991,62 +1017,6 @@ sub generate_url {
     }
     
     return $url;
-}
-
-
-# generate_relative_url ( path, params )
-# 
-# Using the URL prefix for this data service, generate a site-relative URL
-# starting with '/' for the given path and optional parameters.
-
-sub generate_relative_url {
-    
-    my ($self, $path, $params) = @_;
-    
-    # If a custom routine was specified for this purpose, call it.
-    
-    if ( $self->{generate_url_hook} )
-    {
-	return &{$self->{generate_url_hook}}($self, 0, $path, $params);
-    }
-    
-    # Otherwise, generate the URL.
-    
-    else
-    {
-	my $url = '/' . $self->{path_prefix} . $path;
-	$url .= '?' . $params if defined $params && $params ne '';
-	
-	return $url;
-    }
-}
-
-
-# generate_absolute_url ( path, params )
-# 
-# Generate an absolute URL for the specified path and parameters, using the 
-# the 'path_prefix', 'hostname' and 'port' attributes of the data service.
-
-sub generate_absolute_url {
-    
-    my ($self, $path, $params) = @_;
-    
-    # If a custom routine was specified for this purpose, call it.
-    
-    if ( $self->{generate_url_hook} )
-    {
-	return &{$self->{generate_url_hook}}($self, 1, $path, $params);
-    }
-    
-    # Otherwise, generate the URL.
-    
-    else
-    {
-	my $url = $self->url_base . $self->{path_prefix} . $path;
-	$url .= '?' . $params if defined $params && $params ne '';
-	
-	return $url;
-    }
 }
 
 
@@ -1353,49 +1323,42 @@ sub get_scratch {
 }
 
 
-# get_data_source ( )
+# data_info ( )
 # 
 # Return the following pieces of information:
 # - The name of the data source
 # - The license under which the data is made available
 
-# sub get_data_source {
+sub data_info {
     
-#     my ($self) = @_;
+    my ($self) = @_;
     
-#     my $root_config = $self->get_config;
-#     my $access_time = strftime("%a %F %T GMT", gmtime);
+    my $access_time = strftime("%a %F %T GMT", gmtime);
     
-#     my $ds_name = $self->{name};
-#     my $ds_config = undef;#$config->{$name};
-#     $ds_config = {} unless ref $ds_config && reftype $ds_config eq 'HASH';
+    my $title = $self->{title};
+    my $data_provider = $self->_init_value('data_provider');
+    my $data_source = $self->_init_value('data_source');
+    my $data_license = $self->_init_value('license');
+    my $license_url = $self->_init_value('license_url');
+    my $root_url = $self->root_url;
     
-#     my $result = { 
-# 	data_provider => $ds_config->{data_provider} // $root_config->{data_provider},
-# 	data_source => $ds_config->{data_source} // $root_config->{data_source},
-# 	#base_url => $self->get_base_url,
-# 	access_time => $access_time };
+    my $result = { 
+	data_provider => $data_provider,
+	data_source => $data_source,
+	data_license => $data_license,
+	license_url => $license_url,
+	root_url => $root_url,
+	access_time => $access_time };
     
-#     if ( defined $ds_config->{data_license} )
-#     {
-# 	$result->{data_license} = $ds_config->{data_license};
-# 	$result->{data_license_url} = $ds_config->{data_license_url};
-#     }
+    return $result;
+}
+
+
+sub data_info_keys {
     
-#     elsif ( defined $root_config->{data_license} )
-#     {
-# 	$result->{data_license} = $root_config->{data_license};
-# 	$result->{data_license_url} = $root_config->{data_license_url};
-#     }
-    
-#     $result->{data_provider} //= $result->{data_source};
-#     $result->{data_source} //= $result->{data_provider};
-    
-#     $result->{data_provider} //= '';
-#     $result->{data_source} //= '';
-    
-#     Return $result;
-# }
+    return qw(data_provider data_source data_license license_url
+	      documentation_url data_url access_time);
+}
 
 
 # get_base_path ( )

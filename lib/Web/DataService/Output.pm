@@ -137,7 +137,7 @@ our %OUTPUT_DEF = (output => 'type',
 
 our %SELECT_KEY = (select => 1, tables => 1);
 
-our %FIELD_KEY = (dedup => 1, value => 1, always => 1, rule => 1, if_field => 1, 
+our %FIELD_KEY = (dedup => 1, name => 1, value => 1, always => 1, rule => 1, if_field => 1, 
 		  not_field => 1, if_block => 1, not_block => 1, if_format => 1, not_format => 1,
 		  text_join => 1, xml_join => 1, dtype => 1, doc => 1, show_as_list => 1, undocumented => 1);
 
@@ -262,7 +262,8 @@ sub _setup_output {
     # We start with 'output', which specifies a list of blocks that are always
     # included.
     
-    my @output_list; @output_list = $ds->node_attr($path, 'output');
+    my $output_list = $ds->node_attr($path, 'output');
+    my @output_list; @output_list = @$output_list if ref $output_list eq 'ARRAY';
     
     my @blocks;
     
@@ -1228,7 +1229,8 @@ sub document_response {
     # Block names that do not correspond to any defined block are ignored,
     # with a warning.
     
-    my $output_list = $ds->node_attr($path, 'output') // [];
+    $DB::single = 1;
+    my $output_list = $ds->node_attr($path, 'output') // [ ];
     my $fixed_label = $ds->node_attr($path, 'output_label') // 'basic';
     
     foreach my $block_name ( @$output_list )

@@ -235,7 +235,7 @@ sub execute_request {
     my $path = $request->node_path;
     my $format = $request->output_format;
     
-    $DB::single = 1;
+    # $DB::single = 1;
     
     # If a 'before_execute_hook' was defined for this request, call it now.
     
@@ -249,7 +249,7 @@ sub execute_request {
     # If the request has been tagged as a "documentation path", then show the
     # documentation.
     
-    if ( $request->{is_node_path} && $request->{is_doc_path} && $ds->has_feature('documentation') )
+    if ( $request->{is_node_path} && $request->{is_doc_request} && $ds->has_feature('documentation') )
     {
 	return $ds->generate_doc($request);
     }
@@ -258,7 +258,7 @@ sub execute_request {
     # Figure out the path and send it.  But an empty 'rest_path' will fall
     # through to a 404 error.
     
-    elsif ( $request->{is_file_path} && $request->rest_path )
+    elsif ( $request->{is_file_path} && $request->rest_path && $ds->has_feature('send_files') )
     {
 	return $ds->send_file($request);
     }
@@ -397,6 +397,7 @@ sub configure_request {
 	
 	$request->{clean_params} = $result->values;
 	$request->{valid} = $result;
+	$request->{ruleset} = $rs_name;
 	
 	if ( $ds->debug )
 	{
@@ -490,10 +491,15 @@ sub configure_request {
     
     $request->output_linebreak($output_linebreak);
     
-    my $save_value = $request->special_value('save') //
-	$ds->node_attr($path, 'default_save_output');
+    my $save_specified = $request->special_exists('save');
+    my $save_value = $request->special_value('save') || '';
     
-    $request->save_output($save_value) if defined $save_value;
+    if ( $save_specified && $save_value !~ qr{ ^ (?: no | off | 0 | false ) $ }xsi )
+    {
+	$request->save_output(1);
+	$request->save_filename($save_value) if $save_value ne '' &&
+	    $save_value !~ qr{ ^ (?: yes | on | 1 | true ) $ }xsi;
+    }
     
     # Determine which vocabulary to use.  If the special parameter 'vocab' is
     # active, check that first.
@@ -561,14 +567,14 @@ sub generate_result {
     if ( defined $ds->{format}{$format}{disposition} &&
 	 $ds->{format}{$format}{disposition} eq 'attachment' )
     {
-	$request->save_output(1);
+    	$request->save_output(1);
     }
     
     # Now that we know the format, we can set the response headers.
     
     $ds->_set_cors_header($request);
     $ds->_set_content_type($request);
-    $ds->_set_content_disposition($request);
+    $ds->_set_content_disposition($request, $request->save_filename) if $request->save_output;
     
     # Then set up the output.  This involves constructing a list of
     # specifiers that indicate which fields will be included in the output
@@ -670,8 +676,6 @@ sub generate_doc {
     my $path = $request->node_path;
     my $format = $request->output_format;
     
-    $DB::single = 1;
-    
     # If this is not a valid request, then return a 404 error.
     
     die "404\n" if $request->{is_invalid_path} || $ds->node_attr($path, 'undocumented');
@@ -684,6 +688,25 @@ sub generate_doc {
     {
 	my $role = $ds->node_attr($path, 'role');
 	$ds->initialize_role($role);
+    }
+    
+    # If the output format is not already set, then try to determine what
+    # it should be.
+    
+    unless ( $format )
+    {
+	# If the special parameter 'format' is enabled, check to see if a
+	# value for that parameter was given.
+
+	$request->{raw_params} //= $ds->{foundation_plugin}->get_params($request);
+	
+	$format ||= $request->special_value('format');
+	
+	# Default to HTML.
+	
+	$format ||= 'html';
+	
+	$request->output_format($format);
     }
     
     # We start by determining the values necessary to fill in the documentation
@@ -715,9 +738,9 @@ sub generate_doc {
     
     my $doc_suffix = $ds->{template_suffix} // "";
     
-    my $doc_defs = $ds->node_attr($path, 'doc_defs') // $ds->check_doc("doc_defs${doc_suffix}");
-    my $doc_header = $ds->node_attr($path, 'doc_header') // $ds->check_doc("doc_header${doc_suffix}");
-    my $doc_footer = $ds->node_attr($path, 'doc_footer') // $ds->check_doc("doc_footer${doc_suffix}");
+    my $doc_defs = $ds->node_attr($path, 'doc_defs'); # // $ds->check_doc("doc_defs${doc_suffix}");
+    my $doc_header = $ds->node_attr($path, 'doc_header'); # // $ds->check_doc("doc_header${doc_suffix}");
+    my $doc_footer = $ds->node_attr($path, 'doc_footer'); # // $ds->check_doc("doc_footer${doc_suffix}");
     
     # Now see if we can find a template for this documentation page.  If one
     # was explicitly specified, we try that first.  Otherwise, try the node
@@ -750,10 +773,10 @@ sub generate_doc {
 	    push @try_template, $ds->node_attr($path, 'doc_default_template');
 	}
 	
-	push @try_template, "doc_not_found${doc_suffix}";
-	
  	foreach my $t ( @try_template )
 	{
+	    next unless defined $t;
+	    
 	    $doc_template = $t, last if $ds->check_doc($t);
 	}
     } 
@@ -785,7 +808,7 @@ sub generate_doc {
 		{
 		    my $arg = $1 eq 'node' ? 'documentation' : 'operation';
 		    my $path = $2 || '/';
-		    return $ds->generate_url({ $arg => $path });
+		    return $ds->generate_url({ type => 'site', $arg => $path });
 		}
 		else
 		{
@@ -829,8 +852,6 @@ sub _call_hooks {
     
     # Otherwise, look up the value for this hook which should either be an
     # array ref or undefined.
-    
-    $DB::single = 1;
     
     my $hook_value = $ds->node_attr($path, $hook) || return;
     
@@ -884,15 +905,10 @@ sub _set_content_disposition {
     
     my ($ds, $request, $filename) = @_;
     
-    # Return unless we were given an explicit filename or the 'save_output'
-    # attribute of this request is true.
-    
-    return unless $filename || $request->save_output;
-    
     # If we weren't given an explicit filename, check to see if one was set
     # for this node.
     
-    $filename //= $ds->node_attr($request, 'save_filename');
+    $filename //= $ds->node_attr($request, 'default_save_filename');
     
     # If we still don't have a filename, return without doing anything.
     
@@ -901,7 +917,7 @@ sub _set_content_disposition {
     # Otherwise, set the appropriate header.  If the filename does not already
     # include a suffix, add the format.
     
-    unless ( $filename =~ qr{ [^.] . \w+ $ }xs )
+    unless ( $filename =~ qr{ [^.] [.] \w+ $ }xs )
     {
 	$filename .= '.' . $request->output_format;
     }
@@ -1233,6 +1249,8 @@ sub error_result {
 	
 	$error .= "<li>$_</li>\n" foreach @errors;
 	$error .= "</ul>\n";
+	
+	shift @warnings unless $warnings[0];
 	
 	if ( @warnings )
 	{

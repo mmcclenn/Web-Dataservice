@@ -395,18 +395,6 @@ sub display_counts {
 }
 
 
-# get_data_source
-# 
-# Return the following pieces of information:
-# - The name of the data source
-# - The license under which the data is made available
-
-sub get_data_source {
-    
-    return Web::DataService->get_data_source;
-}
-
-
 # params_for_display
 # 
 # Return a list of (parameter, value) pairs for use in constructing response
@@ -417,13 +405,24 @@ sub params_for_display {
     my $self = $_[0];
     my $ds = $self->{ds};
     my $validator = $ds->{validator};
-    my $rs_name = $self->{rs_name};
+    my $rs_name = $self->{ruleset};
     my $path = $self->{path};
     
     # First get the list of all parameters allowed for this result.  We will
     # then go through them in order to ensure a known order of presentation.
     
-    my @param_list = list_ruleset_params($validator, $rs_name, {});
+    my @param_list = $ds->list_ruleset_params($rs_name);
+    
+    # We skip some of the special parameter names, specifically those that do
+    # not affect the content of the result.
+    
+    my %skip;
+    
+    $skip{$ds->{special}{showsource}} = 1 if $ds->{special}{showsource};
+    $skip{$ds->{special}{linebreak}} = 1 if $ds->{special}{linebreak};
+    $skip{$ds->{special}{count}} = 1 if $ds->{special}{count};
+    $skip{$ds->{special}{header}} = 1 if $ds->{special}{header};
+    $skip{$ds->{special}{save}} = 1 if $ds->{special}{save};
     
     # Now filter this list.  For each parameter that has a value, add its name
     # and value to the display list.
@@ -432,55 +431,19 @@ sub params_for_display {
     
     foreach my $p ( @param_list )
     {
-	# Skip parameters that don't have a value.
+	# Skip parameters that don't have a value, or that we have noted above.
 	
-	next unless defined $self->{params}{$p};
-	
-	# Skip the 'showsource' parameter itself, plus a few more. $$$ RE-DO
-	
-	next if $p eq $ds->{path_attrs}{$path}{showsource_param} ||
-	    $p eq $ds->{path_attrs}{$path}{textresult_param} ||
-		$p eq $ds->{path_attrs}{$path}{linebreak_param} ||
-		    $p eq $ds->{path_attrs}{$path}{count_param} ||
-			$p eq $ds->{path_attrs}{$path}{nohead_param};
+	next unless defined $self->{clean_params}{$p};
+	next if $skip{$p};
 	
 	# Others get included along with their value(s).
 	
-	push @display, $p, $self->{params}{$p};
+	my @values = $self->clean_param_list($p);
+	
+	push @display, $p, join(q{,}, @values);
     }
     
     return @display;
-}
-
-
-sub list_ruleset_params {
-    
-    my ($validator, $rs_name, $uniq) = @_;
-    
-    return if $uniq->{$rs_name}; $uniq->{$rs_name} = 1;
-    
-    my $rs = $validator->{RULESETS}{$rs_name};
-    return unless ref $rs eq 'HTTP::Validate::Ruleset';
-    
-    my @params;
-    
-    foreach my $rule ( @{$rs->{rules}} )
-    {
-	if ( $rule->{type} eq 'param' )
-	{
-	    push @params, $rule->{param};
-	}
-	
-	elsif ( $rule->{type} eq 'include' )
-	{
-	    foreach my $name ( @{$rule->{ruleset}} )
-	    {
-		push @params, list_ruleset_params($validator, $name, $uniq);
-	    }
-	}
-    }
-    
-    return @params;
 }
 
 
@@ -622,7 +585,7 @@ sub single_result {
 }
 
 
-# list_result ( record )
+# list_result ( record_list )
 # 
 # Set the result of this operation to the specified list of results.  Any
 # previously specified results will be removed.
@@ -686,7 +649,30 @@ sub data_result {
 }
 
 
-# sth_result ( data )
+# values_result ( values_list )
+# 
+# Set the result of this operation to the specified list of data values.  Each
+# value should be a scalar.
+
+sub values_result {
+    
+    my $self = shift;
+    
+    $self->clear_result;
+    
+    if ( ref $_[0] eq 'ARRAY' )
+    {
+	$self->{main_values} = $_[0];
+    }
+    
+    else
+    {
+	$self->{main_values} = [ @_ ];
+    }
+}
+
+
+# sth_result ( sth )
 # 
 # Set the result of this operation to the specified DBI statement handle.  Any
 # previously specified results will be removed.

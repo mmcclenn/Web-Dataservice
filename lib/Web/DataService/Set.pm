@@ -210,4 +210,50 @@ sub document_set {
 }
 
 
+# list_set_values ( set_name )
+# 
+# Return a list of the documented values defined for the specified set.
+
+sub list_set_values {
+    
+    my ($ds, $name) = @_;
+    
+    return unless defined $name;
+    
+    my $set = $ds->{set}{$name};
+    
+    return unless ref $set eq 'Web::DataService::Set';
+    return grep { ! $set->{value}{$_}{undocumented} } @{$set->{value_list}};
+}
+
+
+# set_values ( set_name )
+# 
+# Return a list of records representing the values defined for the specified
+# set.
+
+sub set_values {
+    
+    my ($ds, $name) = @_;
+    
+    return unless defined $name;
+    
+    my $set = $ds->{set}{$name};
+    
+    return unless ref $set eq 'Web::DataService::Set';
+    
+    my @list;
+    
+    foreach my $v ( @{$set->{value_list}} )
+    {
+	next if $set->{value}{$v}{undocumented};
+	push @list, { value => $set->{value}{$v}{value},
+		      maps_to => $set->{value}{$v}{maps_to},
+		      doc => $set->{value}{$v}{doc} };
+    }
+    
+    return @list;
+}
+
+
 1;

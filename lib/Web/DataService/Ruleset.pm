@@ -192,13 +192,23 @@ sub define_ruleset {
 		$pending_rule = undef;
 	    }
 	    
-	    # If the rule is 'show', then just replace the parameter name and
-	    # otherwise leave the rule as it is.
+	    # If the rule is 'show' and that parameter is enabled, then just
+	    # replace the parameter name and otherwise leave the rule as it
+	    # is.  Otherwise, ignore this rule.
 	    
 	    elsif ( $special_arg eq 'show' )
 	    {
-		$arg->{$ruletype} = $ds->{special}{show};
-		$arg->{list} = 1;
+		if ( $ds->{special}{show} )
+		{
+		    $arg->{$ruletype} = $ds->{special}{show};
+		    $arg->{list} = ',';
+		}
+		
+		else
+		{
+		    $pending_rule = undef;
+		    next ARG;
+		}
 	    }
 	    
 	    # Otherwise, replace the rule with the specially generated one.
@@ -223,12 +233,13 @@ sub define_ruleset {
 		@pending_doc = $ds->generate_special_doc($special_arg)
 		    unless @pending_doc;
 		
-		# If the original rule specified any of 'errmsg', 'warn', or
-		# 'alias', copy these over to the new rule.
+		# If the original rule specified any of 'errmsg', 'warn', 
+		# 'alias', or 'clean', copy these over to the new rule.
 		
 		$pending_rule->{errmsg} = $arg->{errmsg} if defined $arg->{errmsg};
 		$pending_rule->{warn} = $arg->{warn} if defined $arg->{warn};
 		$pending_rule->{alias} = $arg->{alias} if defined $arg->{alias};
+		$pending_rule->{clean} = $arg->{clean} if defined $arg->{clean};
 		
 		# Mark that this parameter has already been dealt with, so
 		# that a later rule with 'all' will not include it a second
@@ -392,15 +403,18 @@ sub generate_special_doc {
     elsif ( $param eq 'showsource' )
     {
 	my @extras;
+	my $info = $ds->data_info;
 	
 	push @extras, "=item *", "The name of the data provider"
-	    if $ds->data_provider;
+	    if $info->{data_provider};
+	push @extras, "=item *", "The name of the data source"
+	    if $info->{data_source};
 	push @extras, "=item *", "The license under which it is provided",
-	    if $ds->data_license;
+	    if $info->{data_license};
 	
 	push @doc,
-	    "If this parameter is specified, then the response will include",
-	    "a header containing a variety of information including:",
+	    "If this parameter is has a true value, then the response will",
+	    "include header lines with a variety of information including:",
 	    "=over",
 	    @extras,
 	    "=item *", "The date and time at which the data was accessed",
@@ -450,9 +464,22 @@ sub generate_special_doc {
 	    "Specifies the name of a local file to which the output of this",
 	    "request should be saved.  Whether and how this happens",
 	    "depends upon which web browser you are using.";
+	push @doc,
+	    "If you include this parameter without any value, a default",
+	    "filename will be provided."
+		if $ds->node_attr('/', 'default_save_filename');
     }
     
     return @doc;
 }
 
 
+sub list_ruleset_params {
+    
+    my ($ds, $rs_name) = @_;
+    
+    return $ds->{validator}->list_params($rs_name);
+}
+
+
+1;

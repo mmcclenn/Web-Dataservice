@@ -25,7 +25,7 @@ our (%FORMAT_DEF) = (name => 'ignore',
 		     doc_path => 'single',
 		     class => 'single',
 		     module => 'single',
-		     no_module => 'single',
+		     # no_module => 'single',
 		     doc => 'single',
 		     undocumented => 'single',
 		     disabled => 'single');
@@ -153,7 +153,7 @@ sub define_format {
 # in a parameter rule to validate a format-selecting parameter.  All
 # non-disabled formats are included.
 
-sub valid_format {
+sub format_validator {
     
     my ($self) = @_;
     

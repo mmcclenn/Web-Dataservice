@@ -43,20 +43,14 @@ sub emit_header {
     
     if ( $request->display_source )
     {
-	my $source = $request->get_data_source;
-	my $base = $source->{base_url};
-	my $url_rest = $request->get_request_url;
+	my $info = $request->data_info;
 	
-	my $data_url = $base . $url_rest;
-	my $doc_url = $base . $request->get_request_path . "_doc.html";
+	foreach my $key ( $request->data_info_keys )
+	{
+	    next unless $info->{$key};
+	    $output .= $class->emit_line($request, "Data Source:", $info->{$key});
+	}
 	
-	$output .= $class->emit_line($request, "Data Source:", $source->{name});
-	$output .= $class->emit_line($request, "Data Source URL:", $base . '/');
-	$output .= $class->emit_line($request, "Data License:", $source->{license});
-	$output .= $class->emit_line($request, "Data License URL:", $source->{license_url});
-	$output .= $class->emit_line($request, "Documentation URL:", $doc_url);
-	$output .= $class->emit_line($request, "Data URL:", $data_url);
-	$output .= $class->emit_line($request, "Access Time:", $source->{access_time});
 	$output .= $class->emit_line($request, "Parameters:");
 	
 	my @display = $request->params_for_display;

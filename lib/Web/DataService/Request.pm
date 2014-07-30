@@ -57,13 +57,15 @@ has result_limit => ( is => 'rw' );
 
 has result_offset => ( is => 'rw' );
 
-has display_header => ( is => 'rw' );
+has display_header => ( is => 'rw' ); #, lazy => 1, builder => sub { $_[0]->_init_value('header') } );
 
 has display_source => ( is => 'rw' );
 
 has display_counts => ( is => 'rw' );
 
 has save_output => ( is => 'rw' );
+
+has save_filename => ( is => 'rw' );
 
 has do_not_stream => ( is => 'rw' );
 
@@ -97,6 +99,27 @@ sub is_dataservice_object {
     
     die "must be an object of class Web::DataService"
 	unless ref $_[0] && $_[0]->isa('Web::DataService');
+}
+
+
+sub _init_value {
+    
+    my ($self, $attr) = @_;
+    
+    if ( my $special = $self->special_value($attr) )
+    {
+	return $special;
+    }
+    
+    elsif ( my $default = $self->{ds}->node_attr("default_$attr") )
+    {
+	return $default;
+    }
+    
+    else
+    {
+	return;
+    }
 }
 
 
@@ -149,25 +172,33 @@ sub _match_node {
     {
 	if ( $node_path eq '' )
 	{
-	    $self->{is_doc_path} = 1;
+	    $self->{is_doc_request} = 1;
 	}
 	
 	elsif ( ref $ds->{doc_path_regex} eq 'Regexp' && $node_path =~ $ds->{doc_path_regex} )
 	{
 	    $node_path = $1;
-	    $self->{is_doc_path} = 1;
+	    $self->{is_doc_request} = 1;
 	}
 	
 	elsif ( $ds->{doc_index} && $node_path eq $ds->{doc_index} )
 	{
 	    $node_path = '';
-	    $self->{is_doc_path} = 1;
+	    $self->{is_doc_request} = 1;
 	}
 	
         elsif ( $suffix_is_missing )
 	{
-	    $self->{is_doc_path} = 1;
+	    $self->{is_doc_request} = 1;
 	}
+    }
+    
+    # If the 'doc_paths' feature is not enabled, we still check for an empty
+    # path.  This should always produce documentation.
+    
+    elsif ( $node_path eq '' )
+    {
+	$self->{is_doc_request} = 1;
     }
     
     # We then lop off components as necessary until we get to a node that has
@@ -245,7 +276,7 @@ sub configure {
 
 sub request_url {
     
-    return $_[0]->{ds}->{foundation_plugin}->request_url($_[0]->{outer});
+    return $_[0]->{ds}->{foundation_plugin}->get_request_url($_[0]->{outer});
 }
 
 
@@ -279,6 +310,40 @@ sub path_prefix {
 }
 
 
+# data_info ( )
+# 
+# Return a hash of information about the request.
+
+sub data_info {
+    
+    my ($self) = @_;
+    
+    # We start with the information provided by the data service, and add some
+    # info specific to this request.
+    
+    my $ds = $self->{ds};
+    my $info = $ds->data_info;
+    
+    my $node_path = $self->node_path;
+    my $base_url = $self->base_url;
+    
+    my $doc_url = $ds->generate_url({ type => 'relative', documentation => $node_path });
+    my $data_url = $self->request_url;
+    $data_url =~ s{^/}{};
+    
+    $info->{documentation_url} = $base_url . $doc_url;
+    $info->{data_url} = $base_url . $data_url;
+    
+    return $info;
+}
+
+
+sub data_info_keys {
+
+    return $_[0]->{ds}->data_info_keys;
+}
+
+
 # special_value ( param )
 # 
 # Return the value of the specified special param, if it is enabled, and if
@@ -289,6 +354,7 @@ sub special_value {
     my ($self, $param) = @_;
     
     my $ds = $self->{ds};
+    
     my $param_name = $ds->special_param($param) || return;
     
     # If we have already passed the params through HTTP::Validate, return the
@@ -305,6 +371,22 @@ sub special_value {
     # Otherwise, return the raw value if it exists and undefined otherwise.
     
     return $self->{raw_params}{$param_name};
+}
+
+
+# special_exists ( param )
+# 
+# Return true if the given special parameter was specified in the request,
+# regardless of its value.
+
+sub special_exists {
+
+    my ($self, $param) = @_;
+    
+    my $ds = $self->{ds};
+    my $param_name = $ds->special_param($param) || return;
+    
+    return exists $self->{raw_params}{$param_name};
 }
 
 

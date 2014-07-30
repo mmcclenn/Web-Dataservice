@@ -41,8 +41,7 @@ our (%NODE_DEF) = ( path => 'ignore',
 		    default_showsource => 'single',
 		    default_count => 'single',
 		    default_linebreak => 'single',
-		    default_save_output => 'single',
-		    save_filename => 'single',
+		    default_save_filename => 'single',
 		    stream_theshold => 'single',
 		    init_operation_hook => 'hook',
 		    post_params_hook => 'hook',
@@ -389,8 +388,9 @@ sub node_attr {
 	no warnings;
 	if ( exists $self->{attr_cache}{$path}{$key} )
 	{
-	    return ref $self->{attr_cache}{$path}{$key} eq 'ARRAY' ?
-		@{$self->{attr_cache}{$path}{$key}} : $self->{attr_cache}{$path}{$key};
+	    $self->{attr_cache}{$path}{$key};
+	    #return ref $self->{attr_cache}{$path}{$key} eq 'ARRAY' ?
+	    #	@{$self->{attr_cache}{$path}{$key}} : $self->{attr_cache}{$path}{$key};
 	}
     }
     
@@ -524,9 +524,7 @@ sub _lookup_node_attr {
     
     # Stuff the new value into the cache and return it.
     
-    $self->{attr_cache}{$path}{$key} = $new_value;
-    
-    return ref $new_value eq 'ARRAY' ? @$new_value : $new_value;
+    return $self->{attr_cache}{$path}{$key} = $new_value;
 }
 
 
