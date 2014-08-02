@@ -131,7 +131,15 @@ has templating_plugin => ( is => 'lazy', builder => sub { $_[0]->_init_value('te
 
 has backend_plugin => ( is => 'lazy', builder => sub { $_[0]->_init_value('backend_plugin') } );
 
+has title => ( is => 'lazy', builder => sub { $_[0]->_init_value('title') } );
+
+has version => ( is => 'lazy', builder => sub { $_[0]->_init_value('version') } );
+
 has path_prefix => ( is => 'lazy', builder => sub { $_[0]->_init_value('path_prefix') } );
+
+has path_re => ( is => 'lazy', builder => sub { $_[0]->_init_value('path_re') } );
+
+has key => ( is => 'lazy', builder => sub { $_[0]->_init_value('key') } );
 
 has hostname => ( is => 'lazy', builder => sub { $_[0]->_init_value('hostname') } );
 
@@ -139,51 +147,43 @@ has port => ( is => 'lazy', builder => sub { $_[0]->_init_value('port') } );
 
 has generate_url_hook => ( is => 'rw', isa => \&_code_ref );
 
-has title => ( is => 'lazy', builder => sub { $_[0]->_init_value('title') } );
-
-has label => ( is => 'lazy', builder => sub { $_[0]->_init_value('label') } );
-
-has version => ( is => 'lazy', builder => sub { $_[0]->_init_value('version') } );
-
-has path_re => ( is => 'lazy', builder => sub { $_[0]->_init_value('path_re') } );
-
-has doc_suffix => ( is => 'lazy', builder => sub { $_[0]->_init_value('doc_suffix') } );
-
-has doc_index => ( is => 'lazy', builder => sub { $_[0]->_init_value('doc_index') } );
-
-has doc_template_dir => ( is => 'lazy', builder => sub { $_[0]->_init_value('doc_template_dir') } );
-
-has output_template_dir => ( is => 'lazy', builder => sub { $_[0]->_init_value('output_template_dir') } );
-
 has ruleset_prefix => ( is => 'lazy', builder => sub { $_[0]->_init_value('ruleset_prefix') } );
 
-has no_strict_params => ( is => 'lazy', builder => sub { $_[0]->_init_value('no_strict_params') } );
+# has public_access => ( is => 'lazy', builder => sub { $_[0]->_init_value('public_access') } );
 
-has public_access => ( is => 'lazy', builder => sub { $_[0]->_init_value('public_access') } );
+# has doc_suffix => ( is => 'lazy', builder => sub { $_[0]->_init_value('doc_suffix') } );
 
-has doc_defs => ( is => 'lazy', builder => sub { $_[0]->_init_value('doc_defs') } );
+# has doc_index => ( is => 'lazy', builder => sub { $_[0]->_init_value('doc_index') } );
 
-has doc_header => ( is => 'lazy', builder => sub { $_[0]->_init_value('doc_header') } );
+# has doc_template_dir => ( is => 'lazy', builder => sub { $_[0]->_init_value('doc_template_dir') } );
 
-has doc_footer => ( is => 'lazy', builder => sub { $_[0]->_init_value('doc_footer') } );
+# has doc_defs => ( is => 'lazy', builder => sub { $_[0]->_init_value('doc_defs') } );
 
-has doc_stylesheet => ( is => 'lazy', builder => sub { $_[0]->_init_value('doc_stylesheet') } );
+# has doc_header => ( is => 'lazy', builder => sub { $_[0]->_init_value('doc_header') } );
 
-has doc_default_template => ( is => 'lazy', builder => sub { $_[0]->_init_value('doc_default_template') } );
+# has doc_footer => ( is => 'lazy', builder => sub { $_[0]->_init_value('doc_footer') } );
 
-has doc_default_op_template => ( is => 'lazy', builder => sub { $_[0]->_init_value('doc_default_op_template') } );
+# has doc_stylesheet => ( is => 'lazy', builder => sub { $_[0]->_init_value('doc_stylesheet') } );
 
-has default_limit => ( is => 'lazy', builder => sub { $_[0]->_init_value('default_limit') } );
+# has doc_default_template => ( is => 'lazy', builder => sub { $_[0]->_init_value('doc_default_template') } );
 
-has default_header => ( is => 'lazy', builder => sub { $_[0]->_init_value('default_header') } );
+# has doc_default_op_template => ( is => 'lazy', builder => sub { $_[0]->_init_value('doc_default_op_template') } );
 
-has default_showsource => ( is => 'lazy', builder => sub { $_[0]->_init_value('default_showsource') } );
+# has output_template_dir => ( is => 'lazy', builder => sub { $_[0]->_init_value('output_template_dir') } );
 
-has default_count => ( is => 'lazy', builder => sub { $_[0]->_init_value('default_count') } );
+# has default_limit => ( is => 'lazy', builder => sub { $_[0]->_init_value('default_limit') } );
 
-has default_linebreak => ( is => 'lazy', builder => sub { $_[0]->_init_value('default_linebreak') } );
+# has default_header => ( is => 'lazy', builder => sub { $_[0]->_init_value('default_header') } );
 
-has stream_threshold => ( is => 'lazy', builder => sub { $_[0]->_init_value('stream_threshold') } );
+# has default_showsource => ( is => 'lazy', builder => sub { $_[0]->_init_value('default_showsource') } );
+
+# has default_count => ( is => 'lazy', builder => sub { $_[0]->_init_value('default_count') } );
+
+# has default_linebreak => ( is => 'lazy', builder => sub { $_[0]->_init_value('default_linebreak') } );
+
+# has default_save_filename => ( is => 'lazy', builder => sub { $_[0]->_init_value('default_save_filename') } );
+
+# has stream_threshold => ( is => 'lazy', builder => sub { $_[0]->_init_value('stream_threshold') } );
 
 has data_source => ( is => 'lazy', builder => sub { $_[0]->_init_value('data_source') } );
 
@@ -354,12 +354,12 @@ sub BUILD {
     # If a foundation plugin was specified in the initialization, make sure
     # that it is correct.
     
-    my $foundation_plugin = $self->foundation_plugin;
-    
-    if ( $foundation_plugin )
+    if ( my $foundation_plugin = $self->foundation_plugin )
     {
-	croak "class '$foundation_plugin' is not a valid foundation plugin: cannot find method '_read_config'\n"
-	    unless $foundation_plugin->can('_read_config');
+	eval "require $foundation_plugin" or croak $@;
+	
+	croak "class '$foundation_plugin' is not a valid foundation plugin: cannot find method 'read_config'\n"
+	    unless $foundation_plugin->can('read_config');
     }
     
     # Otherwise, if 'Dancer.pm' has already been required then install the
@@ -367,7 +367,7 @@ sub BUILD {
     
     elsif ( $INC{'Dancer.pm'} )
     {
-	require Web::DataService::Plugin::Dancer;
+	require Web::DataService::Plugin::Dancer or croak $@;
 	$self->{foundation_plugin} = 'Web::DataService::Plugin::Dancer';
     }
     
@@ -394,20 +394,20 @@ before 'use Web::DataService' (and make sure that Dancer is installed)\n";
     # If a templating plugin was explicitly specified, either in the code
     # or in the configuration file, check that it is valid.
     
-    if ( $self->{templating_plugin} )
+    if ( my $templating_plugin = $self->templating_plugin )
     {
-	my $plugin_name = $self->{templating_plugin} || "''";
+	eval "require $templating_plugin" or croak $@;
 	
-	croak "$plugin_name is not a valid templating plugin: cannot find method 'render_template'\n"
-	    unless $self->{templating_plugin}->can('render_template');
+	croak "$templating_plugin is not a valid templating plugin: cannot find method 'render_template'\n"
+	    unless $templating_plugin->can('render_template');
     }
     
     # Otherwise, if 'Template.pm' has already been required then install the
     # corresponding plugin.
     
-    elsif ( $INC{'Template.pm'} )
+    elsif ( $INC{'Template.pm'} && ! defined $self->templating_plugin )
     {
-	require Web::DataService::Plugin::TemplateToolkit;
+	require Web::DataService::Plugin::TemplateToolkit or croak $@;
 	$self->{templating_plugin} = 'Web::DataService::Plugin::TemplateToolkit';
     }
     
@@ -436,7 +436,7 @@ before 'use Web::DataService' (and make sure that Dancer is installed)\n";
 	
 	$self->_plugin_init('templating_plugin');
 	
-	# If we weren't given a document template directory, use 'doc' if it
+	# If no document template directory was specified, use 'doc' if it
 	# exists and is readable.
 	
 	my $doc_dir = $self->doc_template_dir;
@@ -487,6 +487,10 @@ before 'use Web::DataService' (and make sure that Dancer is installed)\n";
 	    $self->{doc_footer} //= $self->check_doc("doc_footer${doc_suffix}");
 	    $self->{doc_default_template} //= $self->check_doc("doc_not_found${doc_suffix}");
 	    $self->{doc_default_op_template} //= $self->check_doc("doc_op_template${doc_suffix}");
+	    
+	    # If no stylesheet URL path was specified, use the default.
+	    
+	    $self->{doc_stylesheet} //= $self->generate_url({ type => 'site', path => 'css/dsdoc.css' });
 	}
 	
 	# we were given a directory for output templates, initialize an
@@ -505,10 +509,6 @@ before 'use Web::DataService' (and make sure that Dancer is installed)\n";
 	    $self->{output_engine} =
 		$self->{templating_plugin}->new_engine($self, { template_dir => $output_dir });
 	}
-	
-	# If no stylesheet URL path was specified, use the default.
-	
-	$self->{doc_stylesheet} //= $self->generate_url({ type => 'site', path => 'css/dsdoc.css' });
     }
     
     # Check and configure the backend plugin
@@ -516,18 +516,18 @@ before 'use Web::DataService' (and make sure that Dancer is installed)\n";
     
     # If a backend plugin was explicitly specified, check that it is valid.
     
-    if ( $self->{backend_plugin} )
+    if ( my $backend_plugin = $self->backend_plugin )
     {
-	my $plugin_name = $self->{backend_plugin} || "''";
+	eval "require $backend_plugin" or croak $@;
 	
-	croak "$plugin_name is not a valid backend plugin: cannot find method 'get_connection'\n"
-	    unless $self->{backend_plugin}->can('get_connection');
+	croak "$backend_plugin is not a valid backend plugin: cannot find method 'get_connection'\n"
+	    unless $backend_plugin->can('get_connection');
     }
     
     # Otherwise, if 'Dancer::Plugin::Database' is available then select the
     # corresponding plugin.
     
-    elsif ( $INC{'Dancer.pm'} && $INC{'Dancer/Plugin/Database.pm'} )
+    elsif ( $INC{'Dancer.pm'} && $INC{'Dancer/Plugin/Database.pm'} && ! defined $self->backend_plugin )
     {
 	$self->{backend_plugin} = 'Web::DataService::Plugin::Dancer';
     }
@@ -1563,33 +1563,18 @@ under the same terms as Perl itself.
 =cut
 
 
-package Web::DataService::Plugin::Foundation;
-
-sub _read_config { die "no foundation plugin was specified"; }
-
-sub get_request_url { die "no foundation plugin was specified"; }
-
-sub get_base_url { die "no foundation plugin was specified"; }
-
-sub get_params { die "no foundation plugin was specified"; }
-
-sub set_header { die "no foundation plugin was specified"; }
-
-sub set_content_type { die "no foundation plugin was specified"; }
-
-
 package Web::DataService::Plugin::Templating;
 
-sub intialize_service { die "no templating plugin was specified"; }
+use Carp qw(croak);
 
-sub intialize_engine { die "no templating plugin was specified"; }
-
-sub render_template { die "no templating plugin was specified"; }
+sub render_template { croak "render_template: no templating plugin was specified\n"; }
 
 
 package Web::DataService::Plugin::Backend;
 
-sub get_connection { die "get_connection: no backend plugin was specified"; }
+use Carp qw(croak);
+
+sub get_connection { croak "get_connection: no backend plugin was specified"; }
 
 
 1;

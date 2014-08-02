@@ -129,7 +129,7 @@ Each data service is represented by an instance of the class Web::DataService,
 which serves as the root element.  The basic attributes of the data service
 are either provided at the time of instantiation, or are read from the
 application configuration file provided by the foundation framework.  These
-attributes are documented in L<Web::DataService::Configuration>.
+attributes are documented in L<Web::DataService::Configuration/"Data service attributes">.
 
 A data service application starts by creating a new data service instance and
 then calling its methods to define the other elements discussed below.  Once
@@ -241,3 +241,42 @@ each command paragraph that you provide will be treated properly
 The documentation engine will also close any open lists, and does some other
 cleanup as well to make the documentation process as easy as possible.
 
+=head2 Multiple data services
+
+You may wish to arrange for your application to provide multiple data
+services through a single server port.  Reasons for doing this include:
+
+=over
+
+=item *
+
+Over time, you may wish to introduce a new protocol version (i.e. a new
+specification for parameter values and result fields) while still keeping the
+old version active so that older client software will not break.
+
+=item *
+
+You may wish to provide both a "production" and a "development" data service.
+
+=back
+
+In either case, you can simply create multiple instances of Web::DataService,
+instantiate the necessary data service elements for each, and select between
+them using whatever criteria make the most sense for your application.
+Examples include:
+
+=over
+
+=item *
+
+Different URL path prefixes, i.e. "/data1.0/my/operation.json" vs. "/data2.0/my/operation.json"
+
+=item *
+
+A version parameter, i.e. "/my/operation.json?v=1.0"
+vs. "/my/operation.json?v=2.0" 
+
+=back
+
+The L<multiple version example|Web::DataService::Tutorial/"Multiple versions">
+presented in L<Web::DataService::Tutorial> shows how to do this.
