@@ -21,8 +21,8 @@ use Moo::Role;
 
 
 
-our @SPECIAL_ALL = qw(show limit offset count vocab showsource linebreak header);
-our @SPECIAL_SINGLE = qw(show vocab showsource linebreak header);
+our @SPECIAL_ALL = qw(show limit offset count vocab datainfo linebreak header);
+our @SPECIAL_SINGLE = qw(show vocab datainfo linebreak header);
 
 
 # define_ruleset ( name, rule... )
@@ -314,7 +314,7 @@ sub generate_special_rule {
     elsif ( $param eq 'offset' ) {
 	$rule->{valid} = POS_ZERO_VALUE;
     }
-    elsif ( $param eq 'count' || $param eq 'showsource' || $param eq 'header' ) {
+    elsif ( $param eq 'count' || $param eq 'datainfo' || $param eq 'header' ) {
 	$rule->{valid} = FLAG_VALUE;
     }
     elsif ( $param eq 'linebreak' ) {
@@ -400,7 +400,7 @@ sub generate_special_doc {
 	    "output formats.";
     }
     
-    elsif ( $param eq 'showsource' )
+    elsif ( $param eq 'datainfo' )
     {
 	my @extras;
 	my $info = $ds->data_info;

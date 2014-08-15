@@ -418,7 +418,7 @@ sub params_for_display {
     
     my %skip;
     
-    $skip{$ds->{special}{showsource}} = 1 if $ds->{special}{showsource};
+    $skip{$ds->{special}{datainfo}} = 1 if $ds->{special}{datainfo};
     $skip{$ds->{special}{linebreak}} = 1 if $ds->{special}{linebreak};
     $skip{$ds->{special}{count}} = 1 if $ds->{special}{count};
     $skip{$ds->{special}{header}} = 1 if $ds->{special}{header};

@@ -96,17 +96,17 @@ our @FEATURE_ALL = ('format_suffix', 'documentation', 'doc_paths',
 our %SPECIAL_PARAM = (selector => 'v', format => 'format', path => 'op', 
 		      show => 'show', limit => 'limit', offset => 'offset', 
 		      count => 'count', vocab => 'vocab', 
-		      showsource => 'showsource', linebreak => 'lb', 
+		      datainfo => 'datainfo', linebreak => 'lb', 
 		      header => 'header', save => 'save');
 
-our @SPECIAL_STANDARD = ('show', 'limit', 'offset', 'header', 'showsource', 
+our @SPECIAL_STANDARD = ('show', 'limit', 'offset', 'header', 'datainfo', 
 			 'count', 'vocab', 'linebreak', 'save');
 
 our @SPECIAL_SINGLE = ('selector', 'path', 'format', 'show', 'header', 
-		       'showsource', 'vocab', 'linebreak', 'save');
+		       'datainfo', 'vocab', 'linebreak', 'save');
 
 our @SPECIAL_ALL = ('selector', 'path', 'format', 'show', 'limit', 'offset', 
-		    'header', 'showsource', 'count', 'vocab', 'linebreak', 
+		    'header', 'datainfo', 'count', 'vocab', 'linebreak', 
 		    'save');
 
 # Execution modes
@@ -175,7 +175,7 @@ has ruleset_prefix => ( is => 'lazy', builder => sub { $_[0]->_init_value('rules
 
 # has default_header => ( is => 'lazy', builder => sub { $_[0]->_init_value('default_header') } );
 
-# has default_showsource => ( is => 'lazy', builder => sub { $_[0]->_init_value('default_showsource') } );
+# has default_datainfo => ( is => 'lazy', builder => sub { $_[0]->_init_value('default_datainfo') } );
 
 # has default_count => ( is => 'lazy', builder => sub { $_[0]->_init_value('default_count') } );
 

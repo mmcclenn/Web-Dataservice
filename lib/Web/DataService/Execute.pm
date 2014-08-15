@@ -476,8 +476,8 @@ sub configure_request {
     
     $request->display_header($header_value) if defined $header_value;
     
-    my $source_value = $request->special_value('showsource') //
-	$ds->node_attr($path, 'default_showsource');
+    my $source_value = $request->special_value('datainfo') //
+	$ds->node_attr($path, 'default_datainfo');
     
     $request->display_source($source_value) if defined $source_value;
     
