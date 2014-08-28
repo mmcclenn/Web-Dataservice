@@ -88,9 +88,6 @@ sub BUILD {
     
     my ($self) = @_;
     
-    local($Carp::CarpLevel) = 1;	# We shouldn't have to do this, but
-                                        # Moo and Carp don't play well together.
-    
     my $ds = $self->{ds};
 }
 
@@ -125,105 +122,119 @@ sub _init_value {
 
 # _match_node ( )
 # 
-# This routine should be called whenever the 'raw_path' attribute of this
-# request is set.  It determines the closest matching 'node_path' and sets
-# some other attributes.
+# This routine will be called whenever the 'path' attribute of this request is
+# set.  It determines the closest matching 'node_path' and sets some other
+# attributes.
 
 sub _match_node {
     
     my ($self) = @_;
     
+    local($Carp::CarpLevel) = 1;	# We shouldn't have to do this, but
+                                        # Moo and Carp don't play well together.
+    
     my $ds = $self->{ds};
     my $raw_path = $self->{path};
     my $suffix_is_missing;
     
-    # If the 'is_node_path' flag is already set, then we don't do anything.
-    
-    return if $self->{is_node_path};
-    
-    # Otherwise, we start with the raw path and trim it in various ways to
-    # find the closest matching data service node.
+    # We start with the raw path and trim it in various ways to find the
+    # closest matching data service node.
     
     my $node_path = $raw_path;
     
-    # If the feature 'format_suffix' is enabled and the specified path has a
-    # suffix, split it off.
+    # If the raw path exactly matches any node, we just use that.  Otherwise,
+    # apply any applicable path transformations.
     
-    if ( $ds->has_feature('format_suffix') )
+    if ( exists $ds->{node_attrs}{$raw_path} )
     {
-	if ( $node_path =~ qr{ ^ (.+) [.] (.+) }xs )
+	$self->{is_node_path} = 1;
+    }
+    
+    else
+    {
+	# If the feature 'format_suffix' is enabled and the specified path has
+	# a suffix, split it off.
+	
+	if ( $ds->has_feature('format_suffix') )
 	{
-	    $node_path = $1;
-	    $self->{output_format} = $2;
+	    if ( $node_path =~ qr{ ^ (.+) [.] (.+) }xs )
+	    {
+		$node_path = $1;
+		$self->{output_format} = $2;
+	    }
+	    
+	    else
+	    {
+		$suffix_is_missing = 1;
+	    }
 	}
 	
-	else
+	# If the feature 'doc_paths' is enabled and the specified path ends in
+	# '_doc', remove that string and set the 'doc_path' attribute for this
+	# request.  Under this feature, the path "abc/def_doc" indicates a
+	# request for doumentation about the path "abc/def".
+	
+	if ( $ds->has_feature('doc_paths') )
 	{
-	    $suffix_is_missing = 1;
+	    if ( $node_path eq '' )
+	    {
+		$self->{is_doc_request} = 1;
+	    }
+	    
+	    elsif ( ref $ds->{doc_path_regex} eq 'Regexp' && $node_path =~ $ds->{doc_path_regex} )
+	    {
+		$node_path = $1;
+		$self->{is_doc_request} = 1;
+	    }
+	    
+	    elsif ( $ds->{doc_index} && $node_path eq $ds->{doc_index} )
+	    {
+		$node_path = '';
+		$self->{is_doc_request} = 1;
+	    }
+	    
+	    elsif ( $suffix_is_missing )
+	    {
+		$self->{is_doc_request} = 1;
+	    }
+	}
+	
+	# We then lop off components as necessary until we get to a node that has
+	# attributes or until we reach the empty string.  We set the 'is_node_path'
+	# flag to 0 (unless it has already been set) to indicate that the request
+	# path does not fully match a defined node.
+	
+	while ( $node_path ne '' && ! exists $ds->{node_attrs}{$node_path} )
+	{
+	    $self->{is_node_path} //= 0;
+	    
+	    if ( $node_path =~ qr{ ^ (.*) / (.*) }xs )
+	    {
+		$node_path = $1;
+	    }
+	    
+	    else
+	    {
+		$node_path = '';
+	    }
 	}
     }
     
-    # If the feature 'doc_paths' is enabled and the specified path ends in
-    # '_doc', remove that string and set the 'doc_path' attribute for this request.
-    # Under this feature, the path "abc/def_doc" indicates a request for
-    # doumentation about the path "abc/def".
+    # An empty path should always produce documentation.  In fact, it should
+    # produce a "main documentation page" for this data service.  The data
+    # service author should make sure that this is so.
     
-    if ( $ds->has_feature('doc_paths') )
-    {
-	if ( $node_path eq '' )
-	{
-	    $self->{is_doc_request} = 1;
-	}
-	
-	elsif ( ref $ds->{doc_path_regex} eq 'Regexp' && $node_path =~ $ds->{doc_path_regex} )
-	{
-	    $node_path = $1;
-	    $self->{is_doc_request} = 1;
-	}
-	
-	elsif ( $ds->{doc_index} && $node_path eq $ds->{doc_index} )
-	{
-	    $node_path = '';
-	    $self->{is_doc_request} = 1;
-	}
-	
-        elsif ( $suffix_is_missing )
-	{
-	    $self->{is_doc_request} = 1;
-	}
-    }
-    
-    # If the 'doc_paths' feature is not enabled, we still check for an empty
-    # path.  This should always produce documentation.
-    
-    elsif ( $node_path eq '' )
+    if ( $node_path eq '' )
     {
 	$self->{is_doc_request} = 1;
     }
     
-    # We then lop off components as necessary until we get to a node that has
-    # attributes or until we reach the empty string.  We set the 'is_node_path'
-    # flag to 0 (unless it has already been set) to indicate that the request
-    # path does not match a defined node.
+    # If the selected node is disabled, set the 'is_invalid_request' attribute.
     
-    while ( $node_path ne '' && ! exists $ds->{node_attrs}{$node_path} )
+    elsif ( $ds->node_attr($node_path, 'disabled') )
     {
-	$self->{is_node_path} //= 0;
-	
-	if ( $node_path =~ qr{ ^ (.*) / (.*) }xs )
-	{
-	    $node_path = $1;
-	}
-	
-	else
-	{
-	    $node_path = '';
-	}
+	$self->{is_invalid_request} = 1;
     }
-    
-    # If the selected node is disabled, set the 'is_invalid_path' attribute.
-    
-    $self->{is_invalid_path} = 1 if $ds->node_attr($node_path, 'disabled');
     
     # If 'is_node_path' has not yet been set, then we assume it should be 1.
     
@@ -238,12 +249,23 @@ sub _match_node {
     
     $self->{node_path} = $node_path eq '' ? '/' : $node_path;
     
-    # If the node that we got is a 'send_files' node, then mark this request
-    # as 'is_file_path'.
+    # If the node that we got has either the 'file_path' or 'file_dir'
+    # attribute, then mark this request as 'is_file_path'.  If it has
+    # 'file_path', then it is invalid unless $rest_path is empty.  If it has
+    # 'file_dir', then it is invalid unless $rest_path is NOT empty.
     
-    if ( $ds->node_attr($self->{node_path}, 'send_files') )
+    if ( $ds->node_attr($self->{node_path}, 'file_dir') )
     {
 	$self->{is_file_path} = 1;
+	$self->{is_invalid_request} = 1 unless defined $self->{rest_path} &&
+	    $self->{rest_path} ne '';
+    }
+    
+    elsif ( $ds->node_attr($self->{node_path}, 'file_path' ) )
+    {
+	$self->{is_file_path} = 1;
+	$self->{is_invalid_request} = 1 if defined $self->{rest_path} &&
+	    $self->{rest_path} ne '';
     }
 }
 

@@ -16,8 +16,9 @@ use Moo::Role;
 
 our (%VOCAB_DEF) = (name => 'ignore',
 		    title => 'single',
-		    doc_path => 'single',
+		    doc_node => 'single',
 		    use_field_names => 'single',
+		    undocumented => 'single',
 		    disabled => 'single');
 
 
@@ -68,11 +69,11 @@ sub define_vocab {
 	    # Remove the default vocabulary, because it is only used if no
 	    # other vocabularies are defined.
 	    
-	    if ( $ds->{vocab}{default}{_default} and not $item->{disabled} )
-	    {
-		delete $ds->{vocab}{default};
-		shift @{$ds->{vocab_list}};
-	    }
+	    # if ( $ds->{vocab}{default}{_default} and not $item->{disabled} )
+	    # {
+	    # 	delete $ds->{vocab}{default};
+	    # 	shift @{$ds->{vocab_list}};
+	    # }
 	    
 	    # Now install the new vocabulary.  But don't add it to the list if
 	    # the 'disabled' attribute is set.
@@ -167,7 +168,7 @@ sub document_vocabs {
     
     # Go through the list of defined vocabularies in order, 
     
-    my @paths = grep { $ds->{vocab}{$_}{doc_path} } @vocabs;
+    my @paths = grep { $ds->{vocab}{$_}{doc_node} } @vocabs;
     
     my $doc = "=over 4\n\n";
     my $ext_header = $options->{extended} || ! @paths ? " | Description" : '';
@@ -181,7 +182,7 @@ sub document_vocabs {
 	my $frec = $ds->{vocab}{$name};
 	my $title = $frec->{title} || $frec->{name};
 	my $def_list = $default_for{$name} ? join(', ', @{$default_for{$name}}) : '';
-	my $doc_link = $ds->node_link($frec->{doc_path}) if $frec->{doc_path};
+	my $doc_link = $ds->node_link($frec->{doc_node}) if $frec->{doc_node};
 	
 	next VOCABULARY if $frec->{undocumented};
 	

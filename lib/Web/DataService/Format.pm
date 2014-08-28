@@ -17,16 +17,16 @@ use Moo::Role;
 
 
 our (%FORMAT_DEF) = (name => 'ignore',
-		     default_vocab => 'single',
+		     suffix => 'single',
+		     title => 'single',
 		     content_type => 'single',
 		     disposition => 'single',
 		     uses_header => 'single',
-		     title => 'single',
-		     doc_path => 'single',
-		     class => 'single',
+		     default_vocab => 'single',
+		     doc_node => 'single',
 		     module => 'single',
-		     # no_module => 'single',
-		     doc => 'single',
+		     package => 'single',
+		     doc_string => 'single',
 		     undocumented => 'single',
 		     disabled => 'single');
 
@@ -104,12 +104,13 @@ sub define_format {
 	    croak "define_format: you must specify an HTTP content type for format '$name' using the attribute 'content_type'"
 		unless $record->{content_type};
 	    
-	    $record->{class} //= $FORMAT_CLASS{$name};
+	    $record->{package} //= $record->{module};
+	    $record->{package} //= $FORMAT_CLASS{$name};
 	    
-	    croak "define_format: you must specify a class to implement format '$name' using the attribute 'class'"
-		unless defined $record->{class};
+	    croak "define_format: you must specify a package to implement format '$name' using the attribute 'module'"
+		unless defined $record->{package};
 	    
-	    $record->{module} ||= $record->{class} . ".pm" if $record->{class} ne '';
+	    $record->{module} //= $record->{package};
 	    
 	    # Make sure that the module is loaded, unless the format is disabled.
 	    
@@ -211,7 +212,7 @@ sub document_formats {
     
     # Go through the list of defined formats in order, 
     
-    my @paths = grep { $ds->{format}{$_}{doc_path} } @formats;
+    my @paths = grep { $ds->{format}{$_}{doc_node} } @formats;
     
     my $doc = "=over 4\n\n";
     my $name_header = $ds->has_feature('format_suffix') ? 'Suffix' : 'Name';
@@ -225,7 +226,7 @@ sub document_formats {
     {
 	my $frec = $ds->{format}{$name};
 	my $title = $frec->{title} || $frec->{name};
-	my $doc_link = $ds->node_link($frec->{doc_path}) if $frec->{doc_path};
+	my $doc_link = $ds->node_link($frec->{doc_node}) if $frec->{doc_node};
 	my $name_or_suffix = $ds->has_feature('format_suffix') ? ".$frec->{name}" : $frec->{name};
 	
 	next FORMAT if $frec->{undocumented};

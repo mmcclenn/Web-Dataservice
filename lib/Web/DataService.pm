@@ -24,18 +24,20 @@ This module provides a framework for you to use in building data service
 applications for the World Wide Web.  Such applications sit between a data
 storage and retrieval system on one hand and the Web on the other, and fulfill
 HTTP-based data requests by fetching the appropriate data from the backend and
-expressing it in an output format such as JSON or XML.
+serializing it in an output format such as JSON or XML.
 
 Using the methods provided by this module, you start by defining a set of
 output formats, output blocks, vocabularies, and parameter rules, followed by
-a set of data service operations.  Each of these objects is configured by a
-set of attributes, optionally including documentation strings.
+a set of data service nodes representing the various operations to be provided
+by your service.  Each of these objects is configured by a set of attributes,
+optionally including documentation strings.
 
 You continue by writing one or more classes whose methods will handle the
-"meat" of each operation: constructing one or more queries on the backend data
-system and fetching the resulting data.  This module then handles the rest of
-the work necessary for handling each data service request, including
-serializing the result in the appropriate output format.
+"meat" of each operation: talking to the backend data system and storing
+and/or fetching the relevant data, based on the parameter values provided in a
+data service request.  This module then handles the rest of the work necessary
+for handling each data service request, including serializing the result in
+the appropriate output format.
 
 =cut
 
@@ -1392,59 +1394,55 @@ sub debug {
 =head2 CONFIGURATION
 
 The following methods are used to configure a web data service application.
+For a list of the available attributes for each method, see
+L<Web::DataService::Configuration>.  For detailed instructions on how to set
+up a data service application, see L<Web::DataService::Tutorial>.  These
+configuration methods will be called at the start of your data service
+application.  The method C<new> is a class method; the others are all instance
+methods, to be called on the resulting Web::DataService object(s).
 
 =head3 new ( { attributes ... } )
 
-Defines a new data service instance.  This is generally the first step in
-configuring a web dataservice application.  The available attributes are
-described in L<Web::DataService::Attributes>.  The attribute C<name> is
-required; the others are optional, and may be specified in the application
-configuration file instead.  See L<Web::DataService::Intro> for instructions
-on how to set up an application.
-
-=head3 define_subservice ( { attributes ... } )
-
-Defines a new data service instance that will be a sub-service of the base
-instance.  You can use this method if you wish to have multiple versions of
-your service available, i.e a development version and a stable version.  The
-sub-service will inherit all of the attributes of the parent, except those
-which are explicitly specified.
+This class method defines a new data service instance.  Calling it is
+generally the first step in configuring a web dataservice application.  The
+available attributes are described in L<Web::DataService::Configuration>.  The
+attribute C<name> is required; the others are optional, and may be specified
+in the application configuration file instead.
 
 =head3 define_vocab ( { attributes ... }, documentation ... )
 
 Defines one or more vocabularies, using the specified attributes and
-documentation strings.
-
-=head3 valid_vocab ( )
-
-Returns a code reference which can be used in a parameter rule to accept only
-valid vocabulary names.
+documentation strings.  Each vocabulary represents a different set of terms by
+which to label and express the returned data.
 
 =head3 define_format ( { attributes ... }, documentation ... )
 
-Defines one or more formats, using the specified attributes and documentation
-strings.
+Defines one or more output formats, using the specified attributes and
+documentation strings.  Each of these formats represents a configuration of
+one of the available serialization modules.
 
-=head3 define_path ( { attributes ... } )
+=head3 define_node ( { attributes ... }, documentation ... )
 
-Defines a new path, using the specified attributes.  Paths do not (currently)
-have associated documentation strings.
-
-=head3 define_ruleset ( ruleset_name, { attributes ... }, documentation ... )
-
-Define a ruleset with the given name, containing the specified rules and
-documentation.  The arguments to this method are simply passed on to the
-C<define_ruleset> method of L<HTTP::Validate>.
+Defines one or more data service nodes, using the specified attributes and
+documentation strings.  Each of these nodes represents either an operation
+provided by the data service or a page of documentation.
 
 =head3 define_block ( block_name, { attributes ... }, documentation ... )
 
-Define an output block with the given name, containing the specified output
+Defines an output block with the given name, containing the specified output
 fields and documentation.
 
 =head3 define_set ( set_name, { attributes ... }, documentation ... )
 
-Define a set with the given name, containing the specified values and
-documentation.
+Defines a named set of values, possibly with a mapping to some other list of
+values.  These can be used to specify the acceptable values for request
+parameters, to translate data values into different vocabularies, or to
+specify the available sets of optional output for various kinds of requests.
+
+=head3 define_ruleset ( ruleset_name, { attributes ... }, documentation ... )
+
+Define a ruleset with the given name, containing the specified rules and
+documentation.  These are used to validate parameter values.
 
 =head2 EXECUTION
 
@@ -1453,8 +1451,8 @@ that handles incoming requests.
 
 =head3 new_request ( outer, path )
 
-Returns an object from the class Web::DataService::Request, representing a 
-request on the specified path.  This request can then be executed (using the
+Returns an object of class Web::DataService::Request, representing a request
+on the specified path.  This request can then be executed (using the
 C<execute> method) which, in most cases, is all that is necessary to
 completely handle a request.
 

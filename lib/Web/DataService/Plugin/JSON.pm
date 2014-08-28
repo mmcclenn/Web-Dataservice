@@ -228,17 +228,17 @@ sub emit_object {
 	          : defined $record->{$field} ? $record->{$field}
 		  :                             '';
 	
-	# If the field has a 'rule' attribute and the value is a hashref then
+	# If the field has a 'sub_record' attribute and the value is a hashref then
 	# generate output to represent a sub-object by applying the named
 	# output section to the value.  If the value is a scalar then this
 	# field is silently ignored.
 	
-	if ( defined $f->{rule} )
+	if ( defined $f->{sub_record} )
 	{
-	    $request->configure_block($f->{rule});
+	    $request->configure_block($f->{sub_record});
 	    
-	    my $output_list = $request->{block_field_list}{$f->{rule}};
-	    my $proc_list = $request->{block_proc_list}{$f->{rule}};
+	    my $output_list = $request->{block_field_list}{$f->{sub_record}};
+	    my $proc_list = $request->{block_proc_list}{$f->{sub_record}};
 	    
 	    if ( ref $value && reftype $value eq 'HASH' )
 	    {

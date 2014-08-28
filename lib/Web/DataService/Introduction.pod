@@ -22,35 +22,36 @@ able to handle the following tasks:
 
 =over
 
-=item 1.
+=item A.
 
 Parse HTTP requests
 
-=item 2.
+=item B.
 
 Validate parameters
 
-=item 3.
+=item C.
 
-Talk to the backend system (data store, instrument, control system, etc.)
+Talk to the backend system (whether it be a data store, instrument, control
+system, etc.)
 
-=item 4.
+=item D.
 
 Assemble representations of data
 
-=item 5.
+=item E.
 
 Serialize those representations in formats such as JSON, XML, etc.
 
-=item 6.
+=item F.
 
 Set HTTP response headers
 
-=item 7.
+=item G.
 
 Generate appropriate error messages
 
-=item *
+=item H.
 
 Provide documentation about itself
 
@@ -60,17 +61,18 @@ Most people who implement data services in Perl base them on web application
 frameworks such as Dancer, Catalyst, etc.  These frameworks provide a good
 start, but then the authors must implement all of the functionality listed
 above.  The basic idea behind this module is the realization that all of the
-steps listed above except (3) can be handled by a common code base, configured
+steps listed above except (C) can be handled by a common code base, configured
 according to the requirements of a particular data service by a common set of
-directives.
+directives.  This leaves "Talk to the backend system" as the only part that
+must be implemented using code directly written by the data service author.
 
 The remainder of this document describes the various concepts behind
 Web::DataService.  It is true that this framework is a complicated one, and
 that is because the problem it attempts to solve is a complicated problem.  In
 order to make sense of these concepts, you may wish to examine the example
-data service discussed in L<Web::DataService::Tutorial>.  This application
-demonstrates the full power of Web::DataService, and can be used as a basis
-for your own projects.
+data service discussed in L<Web::DataService::Tutorial>.  This example
+application demonstrates the full power of Web::DataService, and can be used
+as a basis for your own projects.
 
 =head2 Principles
 
@@ -93,14 +95,14 @@ systems, etc.
 =head3 Orthogonality of output formats
 
 One basic principle of this framework is that data output is organized around
-a set of data fields.  A request is satisfied by generating one or more
-records, each of which is a hash of field values.  These records are then
-passed to a seprate module, which serializes them in the selected output
-format.  This de-coupling of the data generation and data serialization
-processes simplifies the data generation code immensely, and allows a user of
-the service to ask for their output in any of the available formats.  It also
-makes it easy for the data service developer to add new output formats as
-needed.
+the abstract idea of a "record" defined by a set of data fields.  A request is
+satisfied by generating one or more records, each of which is a hash of field
+values.  These records are then passed to a seprate module, which serializes
+them in the selected output format.  This de-coupling of data generation from
+data serialization simplifies the data generation code immensely, and allows a
+user of the service to ask for their output in any of the available formats.
+It also makes it easy for the data service developer to add new output formats
+as needed.
 
 =head3 Integral Documentation
 
@@ -119,9 +121,11 @@ how they fit together in an actual application.
 =head3 Foundation framework
 
 A Web::DataService application is built on top of a I<foundation framework>,
-which provides the basic functionality for a web service such as receiving
-and assembling HTTP messages.  Currently, the only such framework that can be used
+which provides the basic functionality for a web service such as receiving and
+assembling HTTP messages.  Currently, the only such framework that can be used
 with Web::DataService is L<Dancer>.  We hope to expand this set in the future.
+(Please let us know if you are interested in creating a plugin module to work
+with one of the other available frameworks).
 
 =head3 Data service instance
 
@@ -129,7 +133,8 @@ Each data service is represented by an instance of the class Web::DataService,
 which serves as the root element.  The basic attributes of the data service
 are either provided at the time of instantiation, or are read from the
 application configuration file provided by the foundation framework.  These
-attributes are documented in L<Web::DataService::Configuration/"Data service attributes">.
+attributes are documented in
+L<Web::DataService::Configuration|Web::DataService::Configuration/"Data service attributes">.
 
 A data service application starts by creating a new data service instance and
 then calling its methods to define the other elements discussed below.  Once
@@ -141,15 +146,14 @@ L<Web::DataService::Tutorial>.
 
 Each distinct data service operation or documentation page is associated with
 a I<data service node>, generated at startup time by the C<define_node> method
-of the data service instance.  Each nodes is keyed by a unique I<path>, 
-which in a typical data service will correspond to one of the request
-URL paths accepted by the service.
+of the data service instance.  Each node is keyed by a unique I<path>, which
+in a typical data service will correspond to one of the request URL
+paths accepted by the service.
 
 The space of nodes is hierarchical, in the same sense that the set of paths
-is.  Attributes specified for a higher-level node (such as "a") are inherited
-by all of its children (i.e. "a/b" and "a/c").  Unless a particular attribute
-is specifically overridden for a child node, that node will take the same
-attribute value as its path-parent.  Any attribute values assigned to the root
+is.  If your application creates the nodes "a", "a/b", and "a/c", then any
+attribute values you define for "a" will be inherited by "a/b" and "a/c"
+unless specifically overridden.  Any attribute values assigned to the root
 node "/" will be inherited by all other nodes except where specifically
 overridden.
 
@@ -164,7 +168,7 @@ method of the data service application.  Each output block consists of a list
 of field definitions, processing steps, and other auxiliary declarations.  Each
 data service node that represents a data-producing operation must select one
 or more of these output blocks, which are then used to generate the output
-records.
+records when this operation is requested.
 
 =head3 Formats
 
@@ -173,15 +177,17 @@ using the C<define_format> method of the data service instance.  Each of these
 format definitions configures one of the available serialization modules which
 are used to transform a set of data records into an HTTP response body.
 
-The Web::DataService module contains two built-in serialization modules:
-C<JSON>, which serializes responses in the JSON format, and C<Text>, which can
-generate either tab-separated or comma-separated text.  If you wish your data
-service to generate output in other formats, you can easily implement your own
-plug-in modules (see L<Web::DataService::Configuration>).
+The Web::DataService module contains three built-in serialization modules:
+C<JSON>, which serializes responses using the
+L<JSON|https://en.wikipedia.org/JSON> format, C<XML>, which serializes
+responses using XML, and C<Text>, which can generate either tab-separated or
+comma-separated text responses.  If you wish your data service to generate
+output in other formats, you can easily implement your own plug-in modules
+(see L<Web::DataService::Plugins>).
 
-By providing multiple formats, users of the data service can choose which
-format best meets their needs, and can vary the format from request to
-request as they choose.
+If your data service provides multiple formats, clients can then choose which
+format best meets their needs and can vary the format from request to request
+as they choose.
 
 =head3 Vocabularies
 
@@ -238,8 +244,8 @@ into HTML by the module L<Web::DataService::PodParser>.  The documentation
 strings that you provide may contain POD markup and command paragraphs, and
 each command paragraph that you provide will be treated properly
 (i.e. preceded and followed by a blank line) in the generated documentation.
-The documentation engine will also close any open lists, and does some other
-cleanup as well to make the documentation process as easy as possible.
+The documentation engine will also auto-close any open lists, and does some
+other cleanup as well to make the documentation process as easy as possible.
 
 =head2 Multiple data services
 
@@ -263,7 +269,7 @@ You may wish to provide both a "production" and a "development" data service.
 In either case, you can simply create multiple instances of Web::DataService,
 instantiate the necessary data service elements for each, and select between
 them using whatever criteria make the most sense for your application.
-Examples include:
+Ways of doing this include:
 
 =over
 
@@ -280,3 +286,24 @@ vs. "/my/operation.json?v=2.0"
 
 The L<multiple version example|Web::DataService::Tutorial/"Multiple versions">
 presented in L<Web::DataService::Tutorial> shows how to do this.
+
+
+
+=head1 AUTHOR
+
+mmcclenn "at" cpan.org
+
+=head1 BUGS
+
+Please report any bugs or feature requests to C<bug-web-dataservice at rt.cpan.org>, or through the web interface at
+L<http://rt.cpan.org/NoAuth/ReportBug.html?Queue=Web-DataService>.  I will be
+notified, and then you'll automatically be notified of progress on your bug as
+I make changes.
+
+=head1 COPYRIGHT & LICENSE
+
+Copyright 2014 Michael McClennen, all rights reserved.
+
+This program is free software; you can redistribute it and/or modify it
+under the same terms as Perl itself.
+

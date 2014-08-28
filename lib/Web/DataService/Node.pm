@@ -23,8 +23,8 @@ our (%NODE_DEF) = ( path => 'ignore',
 		    undocumented => 'single',
 		    title => 'single',
 		    collapse_tree => 'single',
-		    send_files => 'single',
 		    file_dir => 'single',
+		    file_path => 'single',
 		    role => 'single',
 		    method => 'single',
 		    arg => 'single',
@@ -271,8 +271,7 @@ sub _check_path_node {
     
     my ($self, $path) = @_;
     
-    # Throw an error if 'class' doesn't specify an existing subclass of
-    # Web::DataService::Request.
+    # Throw an error if 'role' doesn't specify an existing module.
     
     my $role = $self->node_attr($path, 'role');
     
@@ -299,6 +298,25 @@ sub _check_path_node {
 	
 	croak "define_node: '$method' must be a method implemented by '$role'\n"
 	    unless $role->can($method);
+    }
+    
+    # Throw an error if more than one of 'file_path', 'file_dir', 'method' are
+    # set.
+    
+    my $attr_count;
+    
+    $attr_count++ if $method;
+    $attr_count++ if $self->node_attr($path, 'file_dir');
+    $attr_count++ if $self->node_attr($path, 'file_path');
+    
+    if ( $method && $attr_count > 1 )
+    {
+	croak "define_node: you may only specify one of 'method', 'file_dir', 'file_path'\n";
+    }
+    
+    elsif ( $attr_count > 1 )
+    {
+	croak "define_node: you may only specify one of 'file_dir' and 'file_path'\n";
     }
     
     # Throw an error if any of the specified formats fails to match an

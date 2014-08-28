@@ -104,7 +104,6 @@ our %OUTPUT_DEF = (output => 'type',
 		   select => 'type',
 		   filter => 'type',
 		   include => 'type',
-		   require => 'type',
 		   if_block => 'set',
 		   not_block => 'set',
 		   if_vocab => 'set',
@@ -122,10 +121,9 @@ our %OUTPUT_DEF = (output => 'type',
 		   xml_join => 'single',
 		   show_as_list => 'single',
 		   data_type => 'single',
-		   rule => 'single',
+		   sub_record => 'single',
 		   from => 'single',
 		   from_each => 'single',
-		   from_record => 'single',
 		   append => 'single',
 		   code => 'code',
 		   lookup => 'hash',
@@ -133,18 +131,19 @@ our %OUTPUT_DEF = (output => 'type',
 		   split => 'regexp',
 		   join => 'single',
 		   tables => 'set',
-		   doc => 'single');
+		   doc_string => 'single');
 
 our %SELECT_KEY = (select => 1, tables => 1);
 
-our %FIELD_KEY = (dedup => 1, name => 1, value => 1, always => 1, rule => 1, if_field => 1, 
+our %FIELD_KEY = (dedup => 1, name => 1, value => 1, always => 1, sub_record => 1, if_field => 1, 
 		  not_field => 1, if_block => 1, not_block => 1, if_format => 1, not_format => 1,
-		  text_join => 1, xml_join => 1, dtype => 1, doc => 1, show_as_list => 1, undocumented => 1);
+		  if_vocab => 1, not_vocab => 1,
+		  text_join => 1, xml_join => 1, doc_string => 1, show_as_list => 1, undocumented => 1);
 
-our %PROC_KEY = (set => 1, append => 1, from => 1, from_each => 1, from_record => 1,
+our %PROC_KEY = (set => 1, append => 1, from => 1, from_each => 1, 
 		 if_vocab => 1, not_vocab => 1, if_block => 1, not_block => 1,
 	         if_format => 1, not_format => 1, if_field => 1, not_field => 1,
-		 code => 1, lookup => 1, split => 1, join => 1, subfield => 1, default => 1);
+		 code => 1, lookup => 1, split => 1, join => 1, default => 1);
 
 sub check_output_record {
     
@@ -710,7 +709,7 @@ sub get_output_keys {
 # 
 # Given a block name, determine the list of output fields and proc fields
 # (if any) that are defined for it.  This is used primarily to configure
-# blocks referred to via 'rule' attributes.
+# blocks referred to via 'sub_record' attributes.
 # 
 # These lists are stored under the keys 'block_proc_list' and
 # 'block_field_list' in the request record.  If these have already been filled
@@ -795,7 +794,7 @@ sub configure_block {
 		    $output->{$key} = $r->{$key};
 		}
 		
-		elsif ( $key =~ qr{ ^ (\w+) _ (name|value|rule) $ }x )
+		elsif ( $key =~ qr{ ^ (\w+) _ (name|value) $ }x )
 		{
 		    $output->{$2} = $r->{$key} if $vocab eq $1;
 		}
@@ -815,9 +814,17 @@ sub configure_block {
 	{
 	    my $proc = { set => $r->{set} };
 	    
-	    foreach my $key ( qw(code set add split subfield) )
+	    foreach my $key ( keys %$r )
 	    {
-		$proc->{$key} = $r->{$key} if exists $r->{$key};
+		if ( $PROC_KEY{$key} )
+		{
+		    $proc->{$key} = $r->{$key};
+		}
+		
+		else
+		{
+		    carp "Warning: unknown key '$key' in proc record\n";
+		}
 	    }
 	    
 	    push @proc_list, $proc;
@@ -1026,7 +1033,7 @@ sub process_doc {
     
     else
     {
-	$primary_item->{doc} = clean_doc($body, 1);
+	$primary_item->{doc_string} = clean_doc($body, 1);
 	push @{$node->{doc_list}}, $primary_item;
     }
 }
@@ -1152,7 +1159,7 @@ sub document_node {
 	{
 	    next ITEM unless ref $state->{namespace} && reftype $state->{namespace} eq 'HASH';
 	    
-	    if ( defined $item->{doc} and $item->{doc} ne '' and not $state->{items_only} )
+	    if ( defined $item->{doc_string} and $item->{doc_string} ne '' and not $state->{items_only} )
 	    {
 		if ( $state->{in_list} )
 		{
@@ -1162,7 +1169,7 @@ sub document_node {
 		}
 		
 		$doc .= "\n\n" if $doc ne '';
-		$doc .= $item->{doc};
+		$doc .= $item->{doc_string};
 	    }
 	    
 	    my $included_node = $state->{namespace}{$item->{include}};
@@ -1194,7 +1201,7 @@ sub document_node {
 	    }
 	    
 	    $doc .= "\n\n=item $name";
-	    $doc .= "\n\n$item->{doc}" if defined $item->{doc} && $item->{doc} ne '';
+	    $doc .= "\n\n$item->{doc_string}" if defined $item->{doc_string} && $item->{doc_string} ne '';
 	}
     }
     
@@ -1375,7 +1382,7 @@ sub document_field {
     
     my $names = join ' / ', @names;
     
-    my $descrip = $r->{doc} || "";
+    my $descrip = $r->{doc_string} || "";
     
     if ( defined $r->{if_block} )
     {
@@ -1435,10 +1442,10 @@ sub process_record {
 	# value in the corresponding field (unless the 'always' attribute is
 	# set).
 	
-	if ( $source_field && ! $p->{always} && ! $p->{from_record} )
+	if ( $source_field && $source_field ne '*' && ! $p->{always} )
 	{
-	    next unless defined $record->{$source_field} && $record->{$source_field} ne '';
-	    next if ref $record->{$source_field} eq 'ARRAY' && ! @{$record->{$source_field}};
+	    next unless defined $record->{$source_field};
+	    next if ref $record->{$source_field} eq 'ARRAY' && @{$record->{$source_field}} == 0;
 	}
 	
 	# Skip this processing step based on a conditional field value, if one
@@ -1446,13 +1453,14 @@ sub process_record {
 	
 	if ( my $cond_field = $p->{if_field} )
 	{
-	    next unless defined $record->{$cond_field} && $record->{$cond_field} ne '';
-	    next if ref $record->{$cond_field} eq 'ARRAY' && ! @{$record->{$cond_field}};
+	    next unless defined $record->{$cond_field};
+	    next if ref $record->{$cond_field} eq 'ARRAY' && @{$record->{$cond_field}} == 0;
 	}
 	
 	elsif ( $cond_field = $p->{not_field} )
 	{
-	    next if defined $record->{$cond_field} && $record->{$cond_field} ne '';
+	    next if defined $record->{$cond_field} && ref $record->{$cond_field} ne 'ARRAY';
+	    next if ref $record->{$cond_field} eq 'ARRAY' && @{$record->{$cond_field}} > 0;
 	}
 	
 	# Now generate a list of result values, according to the attributes of this
@@ -1464,26 +1472,26 @@ sub process_record {
 	
 	if ( ref $p->{code} eq 'CODE' )
 	{
-	    if ( $p->{from_record} || $set_field eq '*' )
+	    if ( $source_field eq '*' )
 	    {
-		@result = $p->{code}($request, $record, $p);
+		@result = $p->{code}($request, $record);
 	    }
 	    
 	    elsif ( $p->{from_each} )
 	    {
-		@result = map { $p->{code}($request, $_, $p) } 
+		@result = map { $p->{code}($request, $_) } 
 		    (ref $record->{$source_field} eq 'ARRAY' ? 
 		     @{$record->{$source_field}} : $record->{$source_field});
 	    }
 	    
 	    elsif ( $p->{from} )
 	    {
-		@result = $p->{code}($request, $record->{$source_field}, $p);
+		@result = $p->{code}($request, $record->{$source_field});
 	    }
 	    
 	    else
 	    {
-		@result = $p->{code}($request, $record->{$set_field}, $p);
+		@result = $p->{code}($request, $record->{$set_field});
 	    }
 	}
 	
