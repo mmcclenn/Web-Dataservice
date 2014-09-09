@@ -753,9 +753,9 @@ sub generate_doc {
     
     my $doc_suffix = $ds->{template_suffix} // "";
     
-    my $doc_defs = $ds->node_attr($path, 'doc_defs'); # // $ds->check_doc("doc_defs${doc_suffix}");
-    my $doc_header = $ds->node_attr($path, 'doc_header'); # // $ds->check_doc("doc_header${doc_suffix}");
-    my $doc_footer = $ds->node_attr($path, 'doc_footer'); # // $ds->check_doc("doc_footer${doc_suffix}");
+    my $doc_defs = $ds->node_attr($path, 'doc_defs') // $ds->check_doc("doc_defs${doc_suffix}");
+    my $doc_header = $ds->node_attr($path, 'doc_header') // $ds->check_doc("doc_header${doc_suffix}");
+    my $doc_footer = $ds->node_attr($path, 'doc_footer') // $ds->check_doc("doc_footer${doc_suffix}");
     
     # Now see if we can find a template for this documentation page.  If one
     # was explicitly specified, we try that first.  Otherwise, try the node

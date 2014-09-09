@@ -16,7 +16,7 @@ Web::DataService - a framework for building data service applications for the We
 
 =head1 VERSION
 
-Version 0.10
+Version 0.20
 
 =head1 SYNOPSIS
 
@@ -116,6 +116,11 @@ our @SPECIAL_ALL = ('selector', 'path', 'format', 'show', 'limit', 'offset',
 our ($DEBUG, $ONE_REQUEST, $CHECK_LATER);
 
 
+# Map of keys to data service instances (global)
+
+my (%KEY_MAP);
+
+
 # Attributes of a Web::DataService object
 
 has name => ( is => 'ro', required => 1,
@@ -153,11 +158,13 @@ has ruleset_prefix => ( is => 'lazy', builder => sub { $_[0]->_init_value('rules
 
 # has public_access => ( is => 'lazy', builder => sub { $_[0]->_init_value('public_access') } );
 
-# has doc_suffix => ( is => 'lazy', builder => sub { $_[0]->_init_value('doc_suffix') } );
+has doc_suffix => ( is => 'lazy', builder => sub { $_[0]->_init_value('doc_suffix') } );
 
-# has doc_index => ( is => 'lazy', builder => sub { $_[0]->_init_value('doc_index') } );
+has doc_index => ( is => 'lazy', builder => sub { $_[0]->_init_value('doc_index') } );
 
-# has doc_template_dir => ( is => 'lazy', builder => sub { $_[0]->_init_value('doc_template_dir') } );
+has doc_template_dir => ( is => 'lazy', builder => sub { $_[0]->_init_value('doc_template_dir') } );
+
+has output_template_dir => ( is => 'lazy', builder => sub { $_[0]->_init_value('output_template_dir') } );
 
 # has doc_defs => ( is => 'lazy', builder => sub { $_[0]->_init_value('doc_defs') } );
 
@@ -170,8 +177,6 @@ has ruleset_prefix => ( is => 'lazy', builder => sub { $_[0]->_init_value('rules
 # has doc_default_template => ( is => 'lazy', builder => sub { $_[0]->_init_value('doc_default_template') } );
 
 # has doc_default_op_template => ( is => 'lazy', builder => sub { $_[0]->_init_value('doc_default_op_template') } );
-
-# has output_template_dir => ( is => 'lazy', builder => sub { $_[0]->_init_value('output_template_dir') } );
 
 # has default_limit => ( is => 'lazy', builder => sub { $_[0]->_init_value('default_limit') } );
 
@@ -195,9 +200,9 @@ has data_license => ( is => 'lazy', builder => sub { $_[0]->_init_value('data_li
 
 has license_url => ( is => 'lazy', builder => sub { $_[0]->_init_value('license_url') } );
 
-has admin_name => ( is => 'lazy', builder => sub { $_[0]->_init_value('admin_name') } );
+has contact_name => ( is => 'lazy', builder => sub { $_[0]->_init_value('contact_name') } );
 
-has admin_email => ( is => 'lazy', builder => sub { $_[0]->_init_value('admin_email') } );
+has contact_email => ( is => 'lazy', builder => sub { $_[0]->_init_value('contact_email') } );
 
 has validator => ( is => 'ro', init_arg => undef );
 
@@ -548,6 +553,11 @@ before 'use Web::DataService' (and make sure that Dancer is installed)\n";
     
     $self->_plugin_init('backend_plugin');
     
+    # Register the key, if one was specified
+    # --------------------------------------
+    
+    $self->_register_key;
+    
     # Check and set some attributes
     # -----------------------------
     
@@ -585,11 +595,11 @@ before 'use Web::DataService' (and make sure that Dancer is installed)\n";
     
     # Create a default vocabulary, to be used in case no others are defined.
     
-    $self->{vocab} = { 'default' => 
-		       { name => 'default', use_field_names => 1, _default => 1, title => 'Default',
-			 doc_string => "The default vocabulary consists of the field names from the underlying data." } };
+    $self->{vocab} = { 'null' => 
+		       { name => 'null', use_field_names => 1, _default => 1, title => 'Null vocabulary',
+			 doc_string => "This default vocabulary consists of the field names from the underlying data." } };
     
-    $self->{vocab_list} = [ 'default' ];
+    $self->{vocab_list} = [ 'null' ];
     
     # We need to set defaults for 'doc_suffix' and 'index_name' so that we can
     # handle 'doc_paths' if it is enabled.  Application authors can turn
@@ -764,57 +774,89 @@ sub valid_name {
 }
 
 
+# _register_key ( )
+# 
+# Register this service's key so that the application code can later locate the
+# appropriate service for handling each request.
+
+sub _register_key {
+
+    my ($self) = @_;
+    
+    if ( my $key = $self->key )
+    {
+	croak "You cannot register two data services with the key '$key'\n"
+	    if $KEY_MAP{$key};
+	
+	$KEY_MAP{$key} = $self;
+    }
+}
+
+
+# find_by_key ( key )
+# 
+# Return the data service instance corresponding to the specified key.  You
+# can call this either as a class method or an instance method.
+
+sub find_by_key {
+    
+    my ($class, $key) = @_;
+    
+    return $KEY_MAP{$key};
+}
+
+
 # define_subservice ( attrs... )
 # 
 # Define one or more subservices of this data service.  This routine cannot be
 # used except as an object method.
 
-sub define_subservice { 
+# sub define_subservice { 
 
-    my ($self) = shift;
+#     my ($self) = shift;
     
-    my ($last_node);
+#     my ($last_node);
     
-    # Start by determining the class of the parent instance.  This will be
-    # used for the subservice as well.
+#     # Start by determining the class of the parent instance.  This will be
+#     # used for the subservice as well.
     
-    my $class = ref $self;
+#     my $class = ref $self;
     
-    croak "define_subservice: must be called on an existing data service instance\n"
-	unless $class;
+#     croak "define_subservice: must be called on an existing data service instance\n"
+# 	unless $class;
     
-    # We go through the arguments one by one.  Hashrefs define new
-    # subservices, while strings add to the documentation of the subservice
-    # whose definition they follow.
+#     # We go through the arguments one by one.  Hashrefs define new
+#     # subservices, while strings add to the documentation of the subservice
+#     # whose definition they follow.
     
-    foreach my $item (@_)
-    {
-	# A hashref defines a new subservice.
+#     foreach my $item (@_)
+#     {
+# 	# A hashref defines a new subservice.
 	
-	if ( ref $item eq 'HASH' )
-	{
-	    $item->{parent} = $self;
+# 	if ( ref $item eq 'HASH' )
+# 	{
+# 	    $item->{parent} = $self;
 	    
-	    $last_node = $class->new($item)
-		unless defined $item->{disabled};
-	}
+# 	    $last_node = $class->new($item)
+# 		unless defined $item->{disabled};
+# 	}
 	
-	elsif ( not ref $item )
-	{
-	    $self->add_node_doc($last_node, $item);
-	}
+# 	elsif ( not ref $item )
+# 	{
+# 	    $self->add_node_doc($last_node, $item);
+# 	}
 	
-	else
-	{
-	    croak "define_subservice: the arguments must be a list of hashrefs and strings\n";
-	}
-    }
+# 	else
+# 	{
+# 	    croak "define_subservice: the arguments must be a list of hashrefs and strings\n";
+# 	}
+#     }
     
-    croak "define_subservice: arguments must include at least one hashref of attributes\n"
-	unless $last_node;
+#     croak "define_subservice: arguments must include at least one hashref of attributes\n"
+# 	unless $last_node;
     
-    return $last_node;
-}
+#     return $last_node;
+# }
 
 
 
@@ -899,21 +941,21 @@ sub generate_url {
     
     # Otherwise, construct the URL according to the feature set of this data
     # service.
-
+    
     my $path = $attrs->{documentation} || $attrs->{operation} || $attrs->{path};
     my $format = $attrs->{format};
     
-    croak "generate_url: you must specify a URL path\n" unless $path;
+    croak "generate_url: you must specify a URL path\n" unless defined $path;
     
     $format = 'html' if $attrs->{documentation} && ! (defined $format && $format eq 'pod');
     
     my @params;
-    if ( defined $attrs->{documentation} && ref $attrs->{documentation} eq 'ARRAY' )
-    {
-	push @params, @{$attrs->{documentation}};
-	croak "generate_url: odd number of parameters is not allowed\n"
-	    if scalar(@_) % 2;
-    }
+    # if ( defined $attrs->{documentation} && ref $attrs->{documentation} eq 'ARRAY' )
+    # {
+    # 	push @params, @{$attrs->{documentation}};
+    # 	croak "generate_url: odd number of parameters is not allowed\n"
+    # 	    if scalar(@_) % 2;
+    # }
     
     # First, check if the 'fixed_paths' feature is on.  If so, then the given
     # documentation or operation path is converted to a parameter and the appropriate
@@ -1338,13 +1380,14 @@ sub data_info {
     my $access_time = strftime("%a %F %T GMT", gmtime);
     
     my $title = $self->{title};
-    my $data_provider = $self->_init_value('data_provider');
-    my $data_source = $self->_init_value('data_source');
-    my $data_license = $self->_init_value('license');
-    my $license_url = $self->_init_value('license_url');
+    my $data_provider = $self->data_provider;
+    my $data_source = $self->data_source;
+    my $data_license = $self->data_license;
+    my $license_url = $self->license_url;
     my $root_url = $self->root_url;
     
     my $result = { 
+	title => $title,
 	data_provider => $data_provider,
 	data_source => $data_source,
 	data_license => $data_license,
@@ -1359,7 +1402,24 @@ sub data_info {
 sub data_info_keys {
     
     return qw(data_provider data_source data_license license_url
-	      documentation_url data_url access_time);
+	      documentation_url data_url access_time title);
+}
+
+
+# contact_info ( )
+# 
+# Return the data service attributes "contact_name" and "contact_email",
+# as a hash whose keys are "name" and "email".
+
+sub contact_info {
+    
+    my ($self) = @_;
+    
+    my $result = { 
+	name => $self->contact_name,
+	email => $self->contact_email };
+    
+    return $result;
 }
 
 
@@ -1447,58 +1507,154 @@ documentation.  These are used to validate parameter values.
 =head2 EXECUTION
 
 The following methods are available for you to use in the part of your code
-that handles incoming requests.
+that handles incoming requests.  This will typically be inside one or more
+"route handlers" or "controllers" defined using the foundation framework.
 
-=head3 new_request ( outer, path )
+=head3 handle_request ( outer, [ attrs ] )
 
-Returns an object of class Web::DataService::Request, representing a request
-on the specified path.  This request can then be executed (using the
-C<execute> method) which, in most cases, is all that is necessary to
-completely handle a request.
+A call to this method directs the Web::DataService framework to handle the
+current request.  Depending on the request, one of the data service operation
+methods that you have written may be called as part of this process.
 
-The parameter C<outer> should be a reference to the object generated by the
-underlying Web Application Framework (i.e. L<Dancer>) to represent this
-request.  The parameter C<path> should be the path corresponding to the
-requested operation.
+The first argument must be the "outer" request object generated by the
+foundation framework.  This allows the Web::DataService code to obtain details
+about the request and to compose the response using the functionality provided
+by that framework.  The Web::DataService code will create an "inner" object of
+class Web::DataService::Request, with attributes derived from the current
+request along with the data service node (if any) that matches it.  If no data
+service node matches the current request, a 404 error response will be
+returned to the client.
 
-If the data service instance on which you call this method has defined
-sub-services, the appropriate sub-service will be automatically selected.
+You may provide a second optional argument, which must be a hashref of request
+attributes (see L<Web::DataService::Request>).  These will be used to
+initialize the request object, overriding any automatically determined
+attributes.
 
-=head3 set_mode ( mode ... )
+=head3 new_request ( outer, [ attrs ] )
 
-Turns on one or more of the following modes.
+If you wish more control over the request-handling process than is provided by
+L<handle_request|/"handle_request ( outer, [ attrs ] )">, you may instead call
+this method.  It returns an object of class Web::DataService::Request, derived
+as described for C<handle_request>.
 
-=over 4
+You can then examine and possibly alter any of the request attributes, before
+calling L<execute_request|/"execute_request ( request )">.
 
-=item debug
+=head3 execute_request ( request )
 
-Produces additional debugging output to STDERR.
-
-=item one_request
-
-Configures the data service to satisfy one request and then exit.  This is
-generally used for testing purposes.
-
-=back
-
-=head3 get_attr ( attribute )
-
-Returns the value of the specified data service attribute.
+This method may be called to execute a request, once the request object has
+been created and examined.  The argument must be an object of class
+Web::DataService::Request from a previous call to
+L<new_request|/"new_request ( outer, [ attrs ] )">.
 
 =head3 node_attr ( path, attribute )
 
-Returns the specified attribute of the specified path, if the specified path
-and attribute are both defined.  Return undefined otherwise.  You can use this
-to test whether a particular path is in fact defined.
+Returns the specified attribute of the node with the specified path, if the
+specified path and attribute are both defined.  Returns C<undef> otherwise.
+You can use this to test whether a particular node is in fact defined, or to
+retrieve any node attribute.
 
-=head3 get_connection ( )
+You will rarely need to call this method, since for any request the relevant
+attributes of the matching node will be automatically used to instantiate the
+request object.  In almost all cases, you will instead use the attribute
+accessor methods of the request object.
 
-If a backend plugin is available, obtains a connection handle from it.  You can
-use this method when initializing your data classes.
+=head3 get_connection
 
-=head3 get_config ( )
+If a backend plugin is available, obtains a connection handle from it.  You
+can use this method when initializing your data classes, if your
+initialization process requires communication with the backend.  You are not
+required to use this mechanism, however, and may contact the backend in any
+way you choose.
 
-Returns a hash of configuration values from the application configuration file.
+=head3 has_feature ( feature_name )
+
+Returns a true value if the specified
+L<feature|Web::DataService::Configuration/"features [req] [inst]">
+is enabled for this data service.  Returns false otherwise.
+
+=head3 special_param ( parameter_name )
+
+If the specified 
+L<special parameter|Web::DataService::Configuration/"special_params [req]
+[inst]"> is enabled for this data service, returns the parameter name which
+clients use.  This may be different from the internal name by which this
+parameter is known, but will always be a true value.  Returns false if this
+parameter is not enabled.
+
+=head3 base_url
+
+Returns the base URL of this data service, in the form
+"http[s]://hostname[:port]/".  Most of the URLs included in the documentation
+pages will be relative to this base.
+
+=head3 root_url
+
+Returns the root URL of this data service, in the form
+"http[s]://hostname[:port]/[prefix/] where I<prefix> is the 
+L<path prefix|Web::DataService::Configuration/"path_prefix"> defined for this
+data service.
+
+=head3 generate_url ( attrs )
+
+Returns a URL generated from the specified attributes, which must be given
+either as a hashref or as separate arguments:
+
+    $url = $ds->generate_url( operation => 'abc/def', format => 'json' );
+    $url = $ds->generate_url( { operation => 'abc/def', format => 'json' } );
+
+The attributes are as follows:
+
+=over
+
+=item operation
+
+Generate a URL which will request a data service operation using the node path
+given by the value of this attribute.
+
+=item documentation
+
+Generate a URL which will request documentation using the node path given by
+the value of this attribute.
+
+=item path
+
+Generate a URL which will request the exact path given.  This is used to
+generate URLs for requesting files, such as CSS files.
+
+=item format
+
+Configure the URL to request output in the specified format.  Depending upon
+the features enabled for this data service, that may mean either adding the
+specified value as a suffix to the URL path, or adding a special parameter.
+
+=item params
+
+Configure the URL to include the specified parameters.  The value of this
+attribute must be an arrayref with an even number of elements.
+
+=item type
+
+The value of this attribute must be either C<absolute>, C<relative>, or
+C<site>.  If "absolute" is given, then the generated URL will begin with
+"http[s]://hostname[:port]/.  If "site", then the generated URL will begin
+with "/".  If "relative", no prefix will be added to the generated URL.  In
+this case, you should make sure to specify a path that will work properly
+relative to the URL of the page on which you intend to display it.
+
+If this attribute is not specified, it defaults to "site".
+
+=back
+
+=head3 accessor methods
+
+Each of the data service 
+L<attributes|Web::DataService::Config/"Data service attributes">
+is provided with an accessor method.  This method returns the attribute value,
+but cannot be used to set it.  All data service attributes must be set when
+the data service object is instantiated with C<new>, either specified
+directly in that call or looked up in the application configuration file
+provided by the foundation framework.
 
 =head2 DOCUMENTATION
 
@@ -1540,6 +1696,35 @@ Documents all formats, not just those allowed for the path.
 Includes the documentation string for each format.
 
 =back
+
+=head2 MISCELLANEOUS
+
+=head3 valid_name ( name )
+
+Returns true if the given string is valid as a Web::DataService name.  This
+means that it begins with a word character and includes only word characters
+plus the punctuation characters ':', '-' and '.'.
+
+=head3 set_mode ( mode ... )
+
+You can call this either as a class method or as an instance method; it has
+a global effect either way.  This method turns on one or more of the
+following modes:
+
+=over 4
+
+=item debug
+
+Produces additional debugging output to STDERR.
+
+=item one_request
+
+Configures the data service to satisfy one request and then exit.  This is
+generally used for testing purposes.
+
+=back
+
+You will typically call this at application startup time.
 
 =head1 AUTHOR
 

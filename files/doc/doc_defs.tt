@@ -1,0 +1,228 @@
+<%- #
+    # This template belongs to the package Web::DataService, and contains
+    # default definitions for generating documentation pages.
+    # 
+    # You can edit this in order to modify the look of your documentation pages.
+    #
+    # ===========================
+
+    USE dumper;
+    SET block_done = { };
+    
+    # Edit the following definitions to modify the labels used for navigation
+    # -----------------------------------------------------------------------
+    
+    SET main_doc_label = "Main Documentation";
+    IF ds.version; SET main_doc_label = "$main_doc_label (v. $ds.version)"; END;
+    main_doc_prefix = "";
+    
+    section_label = {
+        params = "PARAMETERS"
+ 	methods = "METHODS"
+    	response = "RESPONSE"
+    	formats = "FORMATS"
+    	vocabs = "VOCABULARIES"
+    }
+    
+    msgval = {
+    	format_param = ds.special_param('format')
+	vocab_param = ds.special_param('vocab')
+	show_param = ds.special_param('show')
+    }
+    
+    message = {
+        
+	MSG_DOCSTRING_MISSING = "I<The documentation string for this node is missing.>  "
+	
+	MSG_PARAM_HEADER_OP = "You can use any of the following parameters with this operation:"
+	MSG_PARAM_NONE_DEFINED = "I<No parameters are defined.>"
+	
+    	MSG_FORMAT_HEADER_SOME = "The following response formats are available for this operation.  "
+    	MSG_FORMAT_HEADER_ALL = "The following response formats are available for this data service.  Not all of these may be available for every operation.  "
+	MSG_FORMAT_HEADER_SUFFIX = "You must select the desired format for a request by adding the appropriate suffix to the URI path.  "
+	MSG_FORMAT_HEADER_PARAM = "You can select the desired format by using the parameter C<$msgval.format_param> with the appropriate format name.  "
+	MSG_FORMAT_HEADER_DEFAULT = "The default format for this operation is C<%s>."
+        MSG_FORMAT_NONE_DEFINED = "I<No output formats are defined for this data service.>  "
+	MSG_FORMAT_NONE_ALLOWED = "I<No output formats are configured for this operation.>  "
+	
+	MSG_VOCAB_HEADER_SOME = "The following response vocabularies are available for this operation.  "
+    	MSG_VOCAB_HEADER_ALL = "The following response vocabularies are available for this data service.  "
+	MSG_VOCAB_HEADER_PARAM = "If you wish your responses to be expressed in a vocabulary other than the default for your selected format, you can use the C<$msgval.vocab_param> parameter with the appropriate vocabulary name.  "
+	MSG_VOCAB_NONE_ALLOWED = "I<No output vocabularies are configured for this operation.>  "
+	
+	MSG_METHOD_NONE_DEFINED = "I<none are defined>"
+	MSG_METHOD_HEADER_OP = "You can use the following HTTP methods with this operation:"
+	MSG_METHOD_HEADER_NODE = "This data service accepts the following HTTP methods:"
+	
+	MSG_RESPONSE_HEADER = "The response to an HTTP request on this path will consist of fields from the following list.  "
+	MSG_RESPONSE_HEADER_FIXED = "The block C<%s> is always present.  "
+	MSG_RESPONSE_HEADER_OPT = "The others may be selected using the parameter C<$msgval.show_param>.  "
+	MSG_RESPONSE_HEADER_OPT_ONLY = "You can select which blocks will be present in the response using the parameter C<$msgval.show_param>.  "
+	MSG_RESPONSE_NONE_DEFINED = "I<No response is defined for this operation.>  "
+    };
+    
+    MACRO sub_message(text) IF message.$text; message.$text; ELSE; text; "\n"; END;
+    MACRO sub_value(msg, value) GET message.$msg FILTER replace('%s', value);
+    
+    # 
+    # DOCSTRING : Include the documentation string for this node, if any.
+    # -------------------------------------------------------------------
+        
+    BLOCK DOCSTRING; GET request.document_node or sub_message("MSG_DOCSTRING_MISSING"); END;
+    
+    MACRO DOCSTRING PROCESS DOCSTRING;
+    
+    # 
+    # TRAIL: Add a navigation trail to the page
+    # -----------------------------------------
+    
+    BLOCK NAVTRAIL;
+        IF block_done.trail; RETURN; ELSE; SET block_done.trail = 1; END;
+	SET navtrail = "";
+        FOREACH item IN request.list_navtrail(main_doc_label);
+	    IF navtrail; SET navtrail = "$navtrail E<GT> $item";
+	    ELSE; SET navtrail = item; END;
+        END;
+        "\n=for wds_nav =head3 $main_doc_prefix$navtrail\n";
+    END;
+    
+    MACRO NAVTRAIL INCLUDE NAVTRAIL;
+    
+    #
+    # PARAMETERS: Document the parameters corresponding to this URL path
+    # ------------------------------------------------------------------
+    
+    BLOCK PARAMETERS;
+        IF block_done.params; RETURN; ELSE; SET block_done.params = 1; END;
+    	"\n=head2 $section_label.params\n\n";
+	SET param_doc = request.document_params(ruleset);
+	IF content; GET content FILTER trim; "\n\n"; sub_message(param_doc);
+	ELSIF param_doc; sub_message("MSG_PARAM_HEADER_OP"); "\n\n"; param_doc;
+	ELSE; sub_message("MSG_PARAM_NONE_DEFINED");
+	END;
+    END;
+    
+    MACRO PARAMETERS(ruleset) INCLUDE PARAMETERS;
+    
+    #
+    # METHODS: Document the HTTP methods accepted by this URL path
+    # ------------------------------------------------------------
+    
+    BLOCK METHODS;
+        IF block_done.methods; RETURN; ELSE; SET block_done.methods = 1; END;
+        SET method_list = request.document_http_methods or sub_method("MSG_METHOD_NONE_DEFINED");
+        "\n=head2 $section_label.methods\n\n";
+	IF content; GET content FILTER trim;
+        ELSIF request.node_has_operation; sub_message("MSG_METHOD_HEADER_OP");
+        ELSE; sub_message("MSG_METHOD_HEADER_NODE");
+        END;
+	GET " $method_list";
+    END;
+    
+    MACRO METHODS INCLUDE METHODS;
+    
+    #
+    # FORMATS: Document the formats allowed by this URL path
+    # ------------------------------------------------------
+    
+    BLOCK FORMATS;
+        IF block_done.formats; RETURN; ELSE; SET block_done.formats = 1; END;
+        IF opt_extended; options.extended = 1; END;
+	IF opt_all; options.path = '/'; END;
+	IF request.node_path == '/'; opt_all = 1; END;
+	SET format_doc = request.document_formats(options);
+	"\n=head2 $section_label.formats\n\n";
+  	IF format_doc.match('^MSG_'); sub_message(format_doc);
+	ELSIF content; GET content FILTER trim; "\n\n$format_doc";
+	ELSIF opt_all;
+	    sub_message("MSG_FORMAT_HEADER_ALL");
+	    sub_message("MSG_FORMAT_HEADER_SUFFIX") IF ds.has_feature('format_suffix');
+	    sub_message("MSG_FORMAT_HEADER_PARAM") IF ds.special_param('format');
+	    "\n\n$format_doc";
+	ELSE;
+	    sub_message("MSG_FORMAT_HEADER_SOME");
+	    sub_message("MSG_FORMAT_HEADER_SUFFIX") IF ds.has_feature('format_suffix');
+	    sub_message("MSG_FORMAT_HEADER_PARAM") IF ds.special_param('format');
+	    IF not ds.has_feature('format_suffix');
+	        default_value = request.default_format;
+	        sub_value("MSG_FORMAT_HEADER_DEFAULT", default_value) IF default_value;
+	    END;
+	    "\n\n$format_doc";
+	END;
+    END;
+    
+    MACRO FORMATS INCLUDE FORMATS;
+    
+    #
+    # VOCABULARIES: Document the vocabularies allowed by this URL path
+    # ----------------------------------------------------------------
+    
+    BLOCK VOCABULARIES;
+        IF block_done.vocabs; RETURN; ELSE; SET block_done.vocabs = 1; END;
+        IF opt_extended; options.extended = 1; END;
+	IF opt_all; options.path = '/'; END;
+	IF request.node_path == '/'; opt_all = 1; END;
+	SET vocab_doc = request.document_vocabs(options);
+	IF vocab_doc;
+	    "\n=head2 $section_label.vocabs\n\n";
+	    IF content;
+	        GET content FILTER trim; "\n\n$vocab_doc";
+	    ELSIF opt_all;
+	        sub_message("MSG_VOCAB_HEADER_ALL");
+	        sub_message("MSG_VOCAB_HEADER_PARAM") IF ds.special_param('vocab');
+	        "\n\n$vocab_doc";
+	    ELSE;
+	        sub_message("MSG_VOCAB_HEADER_SOME");
+	        sub_message("MSG_VOCAB_HEADER_PARAM") IF ds.special_param('vocab');
+	        "\n\n$vocab_doc";
+            END;
+	END;
+    END;
+    
+    MACRO VOCABULARIES INCLUDE VOCABULARIES;
+    
+    # 
+    # RESPONSE: Document the response fields returned by this URL path
+    # ----------------------------------------------------------------
+
+    BLOCK RESPONSE;
+        IF block_done.response; RETURN; ELSE; SET block_done.response = 1; END;
+        "\n=head2 $section_label.response\n\n";
+	SET response_doc = request.document_response;
+	SET fixed = request.output_label;
+	SET optional = request.optional_output;
+	IF response_doc;
+	    IF content; GET content FILTER trim;
+	    ELSE;
+	        sub_message("MSG_RESPONSE_HEADER");
+	    	IF fixed && optional;
+	            sub_value("MSG_RESPONSE_HEADER_FIXED", fixed);
+	    	    sub_message("MSG_RESPONSE_HEADER_OPT");
+	    	ELSIF optional;
+	            sub_message("MSG_RESPONSE_HEADER_OPT_ONLY");
+	    	END;
+		"\n\n";
+	    END;
+	    GET response_doc;
+	    INCLUDE FORMATS;
+	    INCLUDE VOCABULARIES;
+	ELSE;
+	    sub_message("MSG_RESPONSE_NONE_DEFINED");
+	END;
+    END;
+    
+    MACRO RESPONSE INCLUDE RESPONSE;
+    
+    #
+    # STANDARD: Include all of the standard blocks for an "operation" page
+    # --------------------------------------------------------------------
+    
+    BLOCK STANDARD;
+        INCLUDE PARAMETERS;
+	INCLUDE METHODS;
+	INCLUDE RESPONSE;
+    END;
+    
+    MACRO STANDARD INCLUDE STANDARD;
+
+-%>

@@ -16,6 +16,42 @@ use Carp 'croak';
 use Moo;
 use namespace::clean;
 
+
+=head1 NAME
+
+Web::DataService::Request - base class for data service request objects
+
+=head1 SYNOPSIS
+
+Under the Web::DataService framework, each incoming data service request
+generates an object to represent it.  Each of these objects belongs to
+a subclass of this one, and inherits all of the methods documented here.
+
+
+
+
+
+This module provides a framework for you to use in building data service
+applications for the World Wide Web.  Such applications sit between a data
+storage and retrieval system on one hand and the Web on the other, and fulfill
+HTTP-based data requests by fetching the appropriate data from the backend and
+serializing it in an output format such as JSON or XML.
+
+Using the methods provided by this module, you start by defining a set of
+output formats, output blocks, vocabularies, and parameter rules, followed by
+a set of data service nodes representing the various operations to be provided
+by your service.  Each of these objects is configured by a set of attributes,
+optionally including documentation strings.
+
+You continue by writing one or more classes whose methods will handle the
+"meat" of each operation: talking to the backend data system and storing
+and/or fetching the relevant data, based on the parameter values provided in a
+data service request.  This module then handles the rest of the work necessary
+for handling each data service request, including serializing the result in
+the appropriate output format.
+
+=cut
+
 # The required attribute 'ds' is the data service with which this request is
 # associated.
 
@@ -365,6 +401,18 @@ sub data_info_keys {
     return $_[0]->{ds}->data_info_keys;
 }
 
+
+# contact_info ( )
+# 
+# Return a hash of information indicating who to contact about this data service.
+
+sub contact_info {
+    
+    my ($self) = @_;
+
+    my $ds = $self->{ds};
+    return $ds->contact_info;
+}
 
 # special_value ( param )
 # 

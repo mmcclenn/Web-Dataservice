@@ -66,15 +66,6 @@ sub define_vocab {
 		$record->{$k} = $item->{$k};
 	    }
 	    
-	    # Remove the default vocabulary, because it is only used if no
-	    # other vocabularies are defined.
-	    
-	    # if ( $ds->{vocab}{default}{_default} and not $item->{disabled} )
-	    # {
-	    # 	delete $ds->{vocab}{default};
-	    # 	shift @{$ds->{vocab_list}};
-	    # }
-	    
 	    # Now install the new vocabulary.  But don't add it to the list if
 	    # the 'disabled' attribute is set.
 	    

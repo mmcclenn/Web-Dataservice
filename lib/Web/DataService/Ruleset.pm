@@ -104,28 +104,16 @@ sub define_ruleset {
 	
 	my $valid_attr = $arg->{valid};
 	
-	# Do nothing if the value of 'valid' is empty.
+	# If the value of 'valid' is a non-empty string, look up the corresponding
+	# set (not ruleset) or throw an exception if one is not found.
 	
-	unless ( $valid_attr )
-	{
-	}
-	
-	# If it is a string, look up the corresponding set (not ruleset) or throw
-	# an exception if one is not found.
-	
-	elsif ( ! ref $valid_attr )
+	if ( $valid_attr && ! ref $valid_attr )
 	{
 	    if ( $ds->set_defined($valid_attr) )
 	    {
 		$arg->{valid} = $ds->valid_set($valid_attr);
 		
-		if ( $arg->{no_doc} )
-		{
-		    delete $arg->{no_doc};	# HTTP::Validate would reject
-		    # this, so we must delete it.
-		}
-		
-		else
+		unless ( $arg->{no_doc} )
 		{
 		    push @final_doc, $ds->document_set($valid_attr);
 		}
@@ -139,10 +127,15 @@ sub define_ruleset {
 	
 	# Otherwise, complain if 'valid' is anything other than a code ref.
 	
-	elsif ( reftype $valid_attr ne 'CODE' )
+	elsif ( ref $valid_attr && reftype $valid_attr ne 'CODE' )
 	{
 	    croak "define_ruleset: invalid value '$valid_attr' for 'valid': must be a CODE ref\n";
 	}
+	
+	# Delete the attribute 'no_doc' if it exists, because HTTP::Validate
+	# would reject it.
+	
+	delete $arg->{no_doc};
 	
 	# Now look for special values of the rule type parameter.
 	
@@ -371,14 +364,16 @@ sub generate_special_doc {
 	    "Limits the number of records returned.",
 	    "The value may be a positive integer, zero, or C<all>.";
 	
-	my $default = $ds->default_limit;
+	my $default = $ds->node_attr('', 'default_limit');
 	
-	push @doc,
-	    "It defaults to $default, in order to prevent people",
-	    "from accidentally sending requests that might generate",
-	    "extremely large responses.  If you really want the",
-	    "entire result set, specify C<limit=all>"
-		if $default > 0;
+	if ( defined $default && $default > 0 )
+	{
+	    push @doc,
+		"It defaults to $default, in order to prevent people",
+		    "from accidentally sending requests that might generate",
+			"extremely large responses.  If you really want the",
+			    "entire result set, specify C<limit=all>";
+	}
     }
     
     elsif ( $param eq 'offset' )

@@ -1,0 +1,24 @@
+# Example configuration file for a Web::DataService application using
+# Dancer as the foundation framework.
+
+# These settings are read by Web::DataService
+
+title: "Web::DataService Example"
+data_file: "data/population_data.txt"
+contact_name: "J. A. Perlhacker"
+contact_email: "japh@example.com"
+
+# Settings may be placed under the data service name, as well as at
+# the top level.
+
+data1.0:
+    default_limit: 500
+
+# These settings are read by Dancer
+
+port: 3000
+charset: "UTF-8"
+show_errors: 1
+log: "warning"
+
+

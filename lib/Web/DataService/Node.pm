@@ -303,7 +303,7 @@ sub _check_path_node {
     # Throw an error if more than one of 'file_path', 'file_dir', 'method' are
     # set.
     
-    my $attr_count;
+    my $attr_count = 0;
     
     $attr_count++ if $method;
     $attr_count++ if $self->node_attr($path, 'file_dir');
