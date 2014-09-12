@@ -1126,27 +1126,27 @@ sub error_result {
     {
 	unless ( defined $error )
 	{
-	    Dancer::debug "CAUGHT UNKNOWN ERROR";
+	    Dancer::debug("CAUGHT UNKNOWN ERROR");
 	}
 	
 	elsif ( ! ref $error )
 	{
-	    Dancer::debug "CAUGHT ERROR: " . $error;
+	    Dancer::debug("CAUGHT ERROR: " . $error);
 	}
 	
 	elsif ( $error->isa('HTTP::Validate::Result') )
 	{
-	    Dancer::debug "CAUGHT HTTP::VALIDATE RESULT";
+	    Dancer::debug("CAUGHT HTTP::VALIDATE RESULT");
 	}
 	
 	elsif ( $error->isa('Dancer::Exception::Base') )
 	{
-	    Dancer::debug "CAUGHT ERROR: " . $error->message
+	    Dancer::debug("CAUGHT ERROR: " . $error->message);
 	}
 	
 	else
 	{
-	    Dancer::debug "CAUGHT OTHER ERROR";
+	    Dancer::debug("CAUGHT OTHER ERROR");
 	}
     }
     

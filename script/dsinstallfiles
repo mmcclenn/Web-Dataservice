@@ -1,0 +1,1313 @@
+#!/usr/bin/env perl
+
+eval 'exec /opt/local/bin/perl5.12  -S $0 ${1+"$@"}'
+    if 0; # not running under some shell
+
+use lib 'lib';
+
+use strict;
+use warnings;
+use File::Basename 'basename', 'dirname';
+use File::Path 'mkpath';
+use File::Spec::Functions;
+use Getopt::Long;
+use Pod::Usage;
+use LWP::UserAgent;
+
+use Web::DataService;
+
+use constant FILE => 1;
+use constant REMOVE => 2;
+
+# options
+my $help = 0;
+my $no_check = 0;
+my $report_version = 0;
+my $name = undef;
+my $path = '.';
+my $make = 0;
+
+
+GetOptions(
+    "h|help"          => \$help,
+    "p|path=s"        => \$path,
+    "x|no-check"      => \$no_check,
+    "v|version"       => \$report_version,
+    "M|make"          => \$make,
+) or pod2usage( -verbose => 1 );
+
+# main
+
+my $PERL_INTERPRETER = -r '/usr/bin/env' ? '#!/usr/bin/env perl' : "#!$^X";
+my $DO_OVERWRITE_ALL = 0;
+
+my $TARGET_NAME = 'dsinstallfiles';
+
+if ( $make )
+{
+    &make_program;
+    exit(0);
+}
+
+pod2usage( -verbose => 1 ) if $help;
+
+die "Cannot write to $path: $!\n" unless -d $path && -w $path;
+
+my $WDS_VERSION   = $Web::DataService::VERSION;
+
+if ( $report_version )
+{
+    print "Web::DataService $WDS_VERSION\n";
+    exit 0;
+}
+
+# Now determine which foundation framework we are using.  Currently, the only
+# one available is Dancer.
+
+if ( -r "environments" && -r "public/404.html" )
+{
+    eval { require Dancer };
+    
+    unless ( $INC{'Dancer.pm'} )
+    {
+	die "It looks as though you are trying to build a Dancer application, but Dancer is not installed.\n";
+    }
+    
+    eval { require YAML; };
+    
+    unless ( $INC{'YAML.pm'} )
+    {
+	die "You must install YAML in order to use Web::DataService with Dancer.\n";
+    }
+    
+    version_check() unless $no_check;
+    unpack_files( &dancer_app_tree );
+    exit 0;
+}
+
+else
+{
+    eval { require Dancer };
+    
+    unless ( $INC{'Dancer.pm'} )
+    {
+	die "You must install Dancer in order to use Web::DataService.\n";
+    }
+    
+    die "You must run this program from the root directory of an already-installed Dancer application.  Try 'dancer -a myappname'.\n";
+}
+
+
+# subs
+
+sub dancer_app_tree {
+    
+    return {
+        "lib" => {
+            "Example.pm" => FILE,
+	    "PopulationData.pm" => FILE,
+        },
+        "bin" => {
+            "+dataservice.pl" => FILE,
+	    "app.pl" => REMOVE,
+        },
+        "config.yml"         => FILE,
+	"doc" => {
+	    "doc_defs.tt"    => FILE,
+	    "doc_header.tt"  => FILE,
+	    "doc_footer.tt"  => FILE,
+	    "operation.tt"   => FILE,
+	    "index.tt"       => FILE,
+            "special_doc.tt" => FILE,
+	},
+        "public" => {
+            "css"            => {
+                "dsdoc.css" => FILE,
+            },
+        },
+    };
+}
+
+
+sub unpack_files {
+    my ($node, $root) = @_;
+    $root ||= '.';
+
+    my $manifest_name = catfile($root => 'MANIFEST');
+    open my $manifest, ">>", $manifest_name or die $!;
+    
+    # create a closure, so we do not need to get $root passed as
+    # argument on _create_node
+    my $add_to_manifest = sub {
+        my $file = shift;
+        $file =~ s{^$root/?}{};
+        print $manifest "$file\n";
+    };
+    
+    _create_node($add_to_manifest, $node, $root);
+    close $manifest;
+}
+
+sub _create_node {
+    my ($add_to_manifest, $node, $root) = @_;
+
+    my $templates = &templates;
+    
+    while ( my ($path, $thing) = each %$node )
+    {
+	next unless defined $thing;
+	
+        $path = catfile($root, $path);
+	
+        if ( ref $thing eq 'HASH' )
+	{
+            safe_mkdir($path);
+            _create_node($add_to_manifest, $thing, $path);
+        }
+	elsif ( ref $thing eq 'CODE' )
+	{
+            # The content is a coderef, which, given the path to the file it
+            # should create, will do the appropriate thing:
+            $thing->($path);
+            $add_to_manifest->($path);
+	}
+	else
+	{
+            my $file = basename($path);
+            my $dir  = dirname($path);
+            my $ex = ($file =~ s/^\+//); # look for '+' flag (executable)
+            my $template = $templates->{$file};
+	    
+            $path = catfile($dir, $file); # rebuild the path without the '+'
+                                          # flag 
+	    
+	    if ( $thing eq FILE )
+	    {
+		my $vars = { PERL_INTERPRETER => $PERL_INTERPRETER };
+		write_file($path, $template, $vars);
+		chmod 0755, $path if $ex;
+		$add_to_manifest->($path);
+	    }
+	    
+	    elsif ( $thing eq REMOVE )
+	    {
+		unlink($path);
+	    }
+        }
+    }
+}
+
+sub safe_mkdir {
+    my ($dir) = @_;
+    if (not -d $dir) {
+        print "+ $dir\n";
+        mkpath $dir or die "could not mkpath $dir: $!";
+    }
+    else {
+        print "  $dir\n";
+    }
+}
+
+sub read_file {
+
+    my ($path, $contents_ref) = @_;
+    
+    my $infile;
+    
+    unless ( open $infile, "<", $path )
+    {
+	warn $!;
+	return;
+    }
+    
+    while (<$infile>)
+    {
+	$$contents_ref .= $_;
+    }
+    
+    close $infile or warn $!;
+}
+
+sub write_file {
+    my ($path, $template, $vars) = @_;
+    warn "no template found for $path" unless defined $template;
+
+    # if file already exists, ask for confirmation
+    if (-f $path && (not $DO_OVERWRITE_ALL)) {
+        print "! $path exists, overwrite? [N/y/a]: ";
+        my $res = <STDIN>; chomp($res);
+        $DO_OVERWRITE_ALL = 1 if $res eq 'a';
+        return 0 unless ($res eq 'y') or ($res eq 'a');
+    }
+
+    $template =~ s| <<% \s* (\w+) \s* %>> | $vars->{$1} |xmge;
+    
+    print "+ $path\n";
+    
+    my $fh;
+    open $fh, '>', $path or die "unable to open file `$path' for writing: $!";
+    print $fh $template;
+    close $fh;
+}
+
+sub send_http_request {
+    my $url = shift;
+    my $ua = LWP::UserAgent->new;
+    $ua->timeout(10);
+    $ua->env_proxy();
+
+    my $response = $ua->get($url);
+
+    if ($response->is_success) {
+        return $response->content;
+    }
+    else {
+        return;
+    }
+}
+
+sub version_check {
+    my $latest_version = 0;
+    
+    my $resp = send_http_request('http://search.cpan.org/api/module/Web::DataService');
+
+    if ($resp) {
+        if ( $resp =~ /"version" (?:\s+)? \: (?:\s+)? "(\d\.\d+)"/x ) {
+            $latest_version = $1;
+        } else {
+            die "Can't understand search.cpan.org's reply.\n";
+        }
+    }
+
+    return if $WDS_VERSION =~  m/_/;
+
+    if ($latest_version > $WDS_VERSION) {
+        print qq|
+The latest stable Dancer release is $latest_version, you are currently using $WDS_VERSION.
+Please check http://search.cpan.org/dist/Dancer/ for updates.
+
+|;
+    }
+}
+
+# make_program ( )
+# 
+# Create a new script called $TARGET_NAME, in the same directory as this
+# one, but with the string __TEMPLATES_GO_HERE__ replaced by the contents of
+# each of the files listed in the app_tree hash (see below).  These files are
+# copied from the directory "./files".
+
+sub make_program {
+    
+    # First get all of the contents.
+    
+    my $contents = '';
+    process_tree( &dancer_app_tree, 'files', \$contents );
+    
+    my $source_name = $0;
+    my $target_name = $source_name;
+    $target_name =~ s{ [^/]+ $ }{ $TARGET_NAME }xe;
+    
+    open my $source, "<", $source_name or die "File $source_name: $!";
+    open my $target, ">", $target_name or die "File $target_name: $!";
+    
+    while (<$source>)
+    {
+	if ( /^#_TEMPLATES_GO_HERE/ )
+	{
+	    print $target $contents;
+	}
+	
+	else
+	{
+	    print $target $_;
+	}
+    }
+    
+    close $source or die "File $source_name: $!";
+    close $target or die "File $target_name: $!";
+    
+    chmod(0755, $target_name) or die "File $target_name: $!";
+}
+
+sub process_tree {
+    
+    my ($node, $root, $contents_ref) = @_;
+    
+    while ( my ($name, $thing) = each %$node )
+    {
+	next unless defined $thing;
+	
+	$name =~ s/ ^ \+ //x;
+        $path = catfile($root, $name);
+	
+	if ( ref $thing eq 'HASH' )
+	{
+	    process_tree($thing, $path, $contents_ref);
+	}
+	
+	elsif ( ref $thing eq 'CODE' )
+	{
+	    $thing->($path);
+	}
+	
+	elsif ( $thing eq FILE )
+	{
+	    $$contents_ref .= "    '$name' => << 'END_END_END',\n";
+	    my $content = read_file($path, $contents_ref);
+	    $$contents_ref .= "END_END_END\n";
+	}
+    }
+}
+
+sub templates {
+
+    return {
+
+    'config.yml' => << 'END_END_END',
+# Example configuration file for a Web::DataService application using
+# Dancer as the foundation framework.
+
+# These settings are read by Web::DataService
+
+title: "Web::DataService Example"
+data_file: "data/population_data.txt"
+contact_name: "J. A. Perlhacker"
+contact_email: "japh@example.com"
+
+# Settings may be placed under the data service name, as well as at
+# the top level.
+
+data1.0:
+    default_limit: 500
+
+# These settings are read by Dancer
+
+port: 3000
+charset: "UTF-8"
+show_errors: 1
+log: "warning"
+
+
+END_END_END
+    'dataservice.pl' => << 'END_END_END',
+<<% PERL_INTERPRETER %>>
+use lib './lib';
+use Dancer;
+use Example;
+dance;
+END_END_END
+    'dsdoc.css' => << 'END_END_END',
+
+A.pod_link { color: #0000F0; text-decoration: none; font-weight: bold; }
+
+.pod_verbatim { border-width: 1; border-style: solid; background-color: #F5F5F5; border-color: #AAAAAA; margin-left: 10px; padding: 6px; }
+
+.pod_heading { color: #00A0A0; }
+
+DT.pod_term, TD.field_name, TD.pod_term { color: #A00000; font-weight: bold; }
+
+DT.pod_term2, TD.pod_term2 { color: #CC8080; font-weight: bold; }
+
+TD.pod_term, TD.pod_def { vertical-align: top; }
+
+.pod_th TD { color: #00A0A0; text-align: center; }
+
+H1 { font-size: 150%; }
+
+H2 { font-size: 120%; }
+
+H3 { font-size: 100%; }
+
+H4 { font-size: 100%; }
+
+TABLE.response, TABLE.pod_list { border-width: 1; border-style: solid; border-color: #AAAAAA; border-spacing: 0; }
+
+TABLE.response TD, TABLE.pod_list TD { border-width: 1; border-style: solid; border-color: #AAAAAA; padding: 6px; }
+
+TABLE.pod_list2 TD { border-width: 0; padding: 3px; vertical-align: top; };
+
+TR.resp_head { color: #00A0A0; text-align: center; }
+
+END_END_END
+    'PopulationData.pm' => << 'END_END_END',
+# 
+# PopulationData.pm
+# 
+# This class is used by the example data service application that comes with
+# Web::DataService.
+# 
+# You can use this as a base for your own data service application.
+# 
+# AUTHOR:
+# 
+#   mmcclenn@cpan.org
+
+
+
+use strict;
+
+package PopulationData;
+
+use HTTP::Validate qw(:validators);
+use Carp qw(carp croak);
+
+use Moo::Role;
+
+
+# This 'initialize' method is called automatically at application startup.  It
+# is passed a reference to the Web::DataService object, which can then be used
+# to read data, define output blocks, define rulesets, etc.  If you are using
+# a backend database, and if the relevant information has been added to the
+# file config.yml, you can call the get_connection method if necessary to
+# obtain a handle by which you can make queries.
+
+# You can define the necessary output blocks and rulesets either here or in
+# the main application file, or in a separate file, depending upon how you
+# wish to structure your code.  The author finds it best to put them here,
+# together with the methods for carrying out the various data service
+# operations.
+
+sub initialize {
+
+    my ($class, $ds) = @_;
+    
+    # First read in the data that we will be serving, and put it in the data
+    # service scratchpad for use by the data service operations.  A more
+    # complex data service application might instead set up a database
+    # connection and read from it as necessary to satisfy each operation.
+    
+    my $datafile = $ds->config_value('data_file');
+    croak "no data file was specified: add the configuration directive 'data_file' to the file 'config.yml'.\n"
+	unless defined $datafile && $datafile ne '';
+    
+    my ($data, $states);
+    
+    $class->read_data($datafile, \$data, \$states);
+    
+    $ds->set_scratch('popdata', $data);
+    
+    # Next we define some output blocks, each of which specifies one or more
+    # fields to be displayed as part of the output.
+    
+    $ds->define_block( 'basic' =>
+	{ output => 'name' },
+	    "The name of the state",
+	{ output => 'abbrev' },
+	    "The standard abbreviation for the state",
+	{ output => 'region' },
+	    "The region of the country in which the state is located",
+	{ output => 'pop2010' },
+	    "The population of the state in 2010");
+    
+    $ds->define_block( 'history' =>
+	{ output => 'pop2000' },
+	    "The population of the state in 2000",
+	{ output => 'pop1990' },
+	    "The population of the state in 1990",
+	{ output => 'pop1950' },
+	    "The population of the state in 1950",
+	{ output => 'pop1900' },
+	    "The population of the state in 1900",
+	{ output => 'pop1790' },
+	    "The population of the state in 1790");
+    
+    $ds->define_block( 'total' =>
+	{ select => 'totals' });
+    
+    $ds->define_block( 'regions' =>
+	{ output => 'value', name => 'code' },
+	    "Region code",
+	{ output => 'doc', name => 'description' },
+	    "Region description");
+    
+    # This map selects additional optional information that can be selected
+    # with the 'show' parameter.
+    
+    $ds->define_output_map( 'extra' =>
+	{ value => 'hist', maps_to => 'history' },
+	    "Include historical population information",
+	{ value => 'total', maps_to => 'total' },
+	    "Add a record for the total population of the selected state(s)");
+    
+    # The following map specifies the region codes that can be used for selecting
+    # states. 
+    
+    $ds->define_set( 'regions' =>
+	{ value => 'NE' },
+	    "New England",
+	{ value => 'MA' },
+	    "Mid Atlantic",
+	{ value => 'SE' },
+	    "South East",
+	{ value => 'MW' },
+	    "Mid West",
+	{ value => 'WE' },
+	    "West");
+    
+    # The following map specifies the options for output ordering.
+    
+    $ds->define_set( 'output_order' =>
+	{ value => 'name' },
+	    "Order the output records alphabetically by name",
+	{ value => 'name.desc' },
+	    "Order the output records reverse alphabetically by name",
+	{ value => 'pop' },
+	    "Order the output records by current population, least to most",
+	{ value => 'pop.desc' },
+	    "Order the output records by current population, most to least");
+    
+    # Create a validator for state names.
+    
+    my $valid_state = sub {
+	my ($value) = @_;
+	return { error => "the value of {param} must be a valid state name or abbreviation" }
+	    unless $states->{uc $value};
+    };
+    
+    # The following rulesets are used to validate the parameters for these operations.
+    
+    $ds->define_ruleset( 'special' =>
+	{ ignore => 'doc' },
+	{ optional => 'SPECIAL(all)' });
+    
+    $ds->define_ruleset( 'single' =>
+	{ param => 'state', valid => $valid_state },
+	    "Return information about the specified state.",
+	    "You may specify either the full name or standard abbreviation.",
+	{ optional => 'SPECIAL(show)', valid => 'extra' },
+	    "Display additional information about the specified state.  The value",
+	    "of this parameter must be one or more of the following, separated by commas.",
+	{ allow => 'special' },
+	"^You can also use any of the L<special parameters|node:special> with this request");
+    
+    $ds->define_ruleset( 'list' =>
+	{ optional => 'name', valid => $valid_state, list => ',' },
+	    "Return information about the specified state or states.",
+	    "You may specify either the full names or standard abbreviations,",
+	    "and you may specify more than one separated by commas.",
+	{ optional => 'region', valid => 'regions', list => ',' },
+	    "Return information about all of the states in the specified region(s).",
+	    "The regions are as follows:",
+	{ optional => 'order', valid => 'output_order' },
+	    "Specify how the output records should be ordered:",
+	{ optional => 'SPECIAL(show)', valid => 'extra' },
+	    "Display additional information about the selected states.  The value",
+	    "of this parameter must be one or more of the following, separated by commas.",
+	{ allow => 'special' },
+	"^You can also use any of the L<special parameters|node:special> with this request");
+    
+    $ds->define_ruleset( 'regions' =>
+	{ allow => 'special' },
+	"^You can use any of the L<special parameters|node:special> with this request");
+}
+
+
+# read_data ( filename, data_ref, states_ref )
+# 
+# Reads the specified data file, and returns two data handles.  The first will
+# be a list of records, and the second a hash of state names.
+
+sub read_data {
+
+    my ($class, $filename, $data_ref, $states_ref) = @_;
+    
+    my @records;
+    my %names;
+    my $past_header;
+    
+    open( my $infile, "<", $filename ) || die "could not open data file '$filename': $!";
+    
+ LINE:
+    while ( <$infile> )
+    {
+	next LINE unless $past_header++;
+	
+	s/\s+$//;
+	my @values = split /\t/;
+	
+	$names{uc $values[0]} = 1;
+	$names{uc $values[1]} = 1;
+	
+	push @records, { name => $values[0],
+			 name_uc => uc $values[0],
+			 abbrev => $values[1],
+			 region => $values[2],
+			 pop2010 => $values[3],
+			 pop2000 => $values[4],
+			 pop1990 => $values[5],
+			 pop1950 => $values[6],
+			 pop1900 => $values[7],
+			 pop1790 => $values[8] };
+    }
+    
+    $$data_ref = \@records;
+    $$states_ref = \%names;
+}
+
+
+# The following methods are associated with data service operations by the
+# calls to 'define_path' in the main application file.
+# =========================================================================
+
+# Return information about a single state.
+
+sub single {
+
+    my ($request) = @_;
+    
+    # Get the data and the request parameters.
+    
+    my $data = $request->get_scratch('popdata');
+    my $name = uc $request->clean_param('state');
+    
+    # Locate the matching record, if any, and return it.
+    
+    foreach my $record ( @$data )
+    {
+	next unless $record->{name_uc} eq $name || $record->{abbrev} eq $name;
+	return $request->single_result($record);
+    }
+}
+
+
+sub list {
+
+    my ($request) = @_;
+    
+    # Get the data and the request parameters.
+    
+    my $data = $request->get_scratch('popdata');
+    my $name_filter = $request->clean_param_hash('state');
+    my $region_filter = $request->clean_param_hash('region');
+    my $order = $request->clean_param('order');
+    my $totals = $request->has_output_block('total');
+    
+    my $return_all; $return_all = 1 unless %$name_filter || %$region_filter;
+    
+    # Put any names that were specified into upper-case.
+    
+    $name_filter->{uc $_} = 1 foreach keys %$name_filter;
+    $region_filter->{uc $_} = 1 foreach keys %$region_filter;
+    
+    # Filter for matching records.
+    
+    my @result;
+    my $total; $total = { name => "Total" } if $totals;
+    
+    foreach my $record ( @$data )
+    {
+	if ( $return_all ||
+	     ($name_filter->{$record->{name_uc}}) ||
+	     ($name_filter->{$record->{abbrev}}) ||
+	     ($region_filter->{$record->{region}}) )
+	{
+	    push @result, $record;
+	    
+	    if ( $totals )
+	    {
+		foreach my $field ( qw( pop1790 pop1900 pop1950 pop1990 pop2000 pop2010 ) )
+		{
+		    $total->{$field} += $record->{$field} if $record->{$field};
+		}
+	    }
+	}
+    }
+    
+    # Now sort them if we were so requested.
+    
+    if ( $order eq 'pop' )
+    {
+	@result = sort { $a->{pop2010} <=> $b->{pop2010} } @result;
+    }
+    
+    elsif ( $order eq 'pop.desc' )
+    {
+	@result = sort { $b->{pop2010} <=> $a->{pop2010} } @result;
+    }
+    
+    elsif ( $order eq 'name' )
+    {
+	@result = sort { $a->{name_uc} cmp $b->{name_uc} } @result;
+    }
+    
+    elsif ( $order eq 'name.desc' )
+    {
+	@result = sort { $b->{name_uc} cmp $a->{name_uc} } @result;
+    }
+    
+    # Add the total record if one was requested;
+    
+    push @result, $total if $totals;
+    
+    # Now return the result set.
+    
+    $request->list_result(\@result);
+}
+
+
+sub regions {
+    
+    my ($request) = @_;
+    
+    my $ds = $request->ds;
+    $request->list_result($ds->set_values('regions'));
+}
+
+1;
+END_END_END
+    'Example.pm' => << 'END_END_END',
+# 
+# Example Data Service
+# 
+# This file provides the base application for an example data service implemented
+# using the Web::DataService framework.
+# 
+# You can use it as a starting point for setting up your own data service.
+# 
+# Author: Michael McClennen <mmcclenn@cpan.org>
+
+use strict;
+
+package Example;
+
+use lib './lib';
+
+use Dancer ':syntax';		# This module is required for
+                                # Web::DataService, until plugins for other
+                                # foundation frameworks are written.
+
+#use Dancer::Plugin::Database;  # You can uncomment this if you wish to use a
+				# backend database via DBI (the example
+				# application does not need it).
+
+use Template;			# This is required in order to generate
+                                # documentation pages.
+
+use Web::DataService;		# Bring in Web::DataService.
+
+use PopulationData;		# Load the code which will implement the
+                                # data service operations for this
+                                # application.  If you use the current file as
+                                # a basis for your own application, replace
+                                # this line with your own module or modules.
+
+
+# If we were called from the command line with 'GET' as the first argument,
+# then assume that we have been called for debugging purposes.  The second
+# argument should be the URL path, and the third should contain any query
+# parameters.
+
+if ( defined $ARGV[0] and lc $ARGV[0] eq 'get' )
+{
+    set apphandler => 'Debug';
+    set logger => 'console';
+    set traces => 1;
+    set show_errors => 0;
+    
+    Web::DataService->set_mode('debug', 'one_request');
+}
+
+
+# We begin by instantiating a data service object.
+
+my $ds = Web::DataService->new(
+    { name => 'data1.0',
+      title => 'Example Data Service',
+      features => 'standard',
+      special_params => 'standard',
+      path_prefix => 'data1.0/' });
+
+
+# Continue by defining some output formats.  These are automatically handled
+# by the plugins Web::DataService::Plugin::JSON and
+# Web::DataService::Plugin::Text.
+
+$ds->define_format(
+    { name => 'json', content_type => 'application/json',
+      doc_node => 'formats/json', title => 'JSON' },
+	"The JSON format is intended primarily to support client applications.",
+    { name => 'txt', content_type => 'text/plain',
+      doc_node => 'formats/txt', title => 'Plain text' },
+	"The plain text format is intended for direct responses to humans, or for loading into a spreadsheet");
+
+
+# We then define a hierarchy of data service nodes.  These nodes define the
+# operations and documentation pages that will be available to users of this
+# service.  The node '/' defines a set of root attributes that will be
+# inherited by all other nodes.
+
+$ds->define_node({ path => '/', 
+		   title => 'Main Documentation',
+		   public_access => 1,
+		   doc_default_op_template => 'operation.tt',
+		   role => 'Example',
+		   output => 'basic' });
+
+
+# Any URL path starting with /css indicates a stylesheet file:
+
+$ds->define_node({ path => 'css',
+		   file_dir => 'css' });
+
+
+# Some example operations:
+
+$ds->define_node(
+    { path => 'single',
+      title => 'Single States',
+      output => 'basic',
+      optional_output => 'extra',
+      method => 'single' },
+	"Returns information about a single U.S. state.",
+    { path => 'list',
+      title => 'Multiple States',
+      output => 'basic',
+      optional_output => 'extra',
+      method => 'list' },
+	"Returns information about all of the states matching specified criteria.",
+    { path => 'regions',
+      title => 'Regions',
+      output => 'regions',
+      method => 'regions' },
+	"Returns the list of region codes used by this data set.");
+
+
+# Add documentation about the various output formats, parameters, etc..
+
+$ds->define_node(
+    { path => 'formats',
+      title => 'Output formats' },
+    { path => 'formats/json',
+      title => 'JSON format' },
+    { path => 'formats/txt',
+      title => 'Plain text format' },
+    { path => 'special',
+      title => 'Special parameters' });
+
+
+# Next we configure the Dancer routes that will allow this application to
+# respond to various URL paths.  For this simple example, all we
+# need is a single route with which to capture all requests.
+
+# This may be all you need even for more complicated applications.  But if the
+# node structure of Web::DataService is not sufficient to properly describe
+# your application, you are free to add additional routes to process
+# certain URLs differently.
+
+my $request;
+
+any qr{/data1\.0.*}xs => sub {
+    
+    return $ds->handle_request(request);
+};
+
+
+any qr{.*} => sub {
+    
+    die "404\n";
+};
+
+
+# If an error occurs, we want to generate a Web::DataService response rather
+# than the default Dancer response.  In order for this to happen, we need the
+# following two hooks:
+
+hook on_handler_exception => sub {
+    
+    var(error => $_[0]);
+};
+
+hook after_error_render => sub {
+    
+    $ds->error_result(var('error'), var('wds_request'));
+};
+
+dance;
+END_END_END
+    'special_doc.tt' => << 'END_END_END',
+
+<% WRAPPER PARAMETERS(special) %>
+You can use any of the following special parameters with any request:
+<% END %>
+END_END_END
+    'doc_footer.tt' => << 'END_END_END',
+
+=head2 CONTACT
+
+If you have questions about this data service, or wish to report a bug, please
+contact <% request.admin_name %> L<<% request.contact_info.name %>|mailto:<% request.contact_info.email %>>.
+
+
+END_END_END
+    'doc_defs.tt' => << 'END_END_END',
+<%- #
+    # This template belongs to the package Web::DataService, and contains
+    # default definitions for generating documentation pages.
+    # 
+    # You can edit this in order to modify the look of your documentation pages.
+    #
+    # ===========================
+
+    USE dumper;
+    SET block_done = { };
+    
+    # Edit the following definitions to modify the labels used for navigation
+    # -----------------------------------------------------------------------
+    
+    SET main_doc_label = "Main Documentation";
+    IF ds.version; SET main_doc_label = "$main_doc_label (v. $ds.version)"; END;
+    main_doc_prefix = "";
+    
+    section_label = {
+        params = "PARAMETERS"
+ 	methods = "METHODS"
+    	response = "RESPONSE"
+    	formats = "FORMATS"
+    	vocabs = "VOCABULARIES"
+    }
+    
+    msgval = {
+    	format_param = ds.special_param('format')
+	vocab_param = ds.special_param('vocab')
+	show_param = ds.special_param('show')
+    }
+    
+    message = {
+        
+	MSG_DOCSTRING_MISSING = "I<The documentation string for this node is missing.>  "
+	
+	MSG_PARAM_HEADER_OP = "You can use any of the following parameters with this operation:"
+	MSG_PARAM_NONE_DEFINED = "I<No parameters are defined.>"
+	
+    	MSG_FORMAT_HEADER_SOME = "The following response formats are available for this operation.  "
+    	MSG_FORMAT_HEADER_ALL = "The following response formats are available for this data service.  Not all of these may be available for every operation.  "
+	MSG_FORMAT_HEADER_SUFFIX = "You must select the desired format for a request by adding the appropriate suffix to the URI path.  "
+	MSG_FORMAT_HEADER_PARAM = "You can select the desired format by using the parameter C<$msgval.format_param> with the appropriate format name.  "
+	MSG_FORMAT_HEADER_DEFAULT = "The default format for this operation is C<%s>."
+        MSG_FORMAT_NONE_DEFINED = "I<No output formats are defined for this data service.>  "
+	MSG_FORMAT_NONE_ALLOWED = "I<No output formats are configured for this operation.>  "
+	
+	MSG_VOCAB_HEADER_SOME = "The following response vocabularies are available for this operation.  "
+    	MSG_VOCAB_HEADER_ALL = "The following response vocabularies are available for this data service.  "
+	MSG_VOCAB_HEADER_PARAM = "If you wish your responses to be expressed in a vocabulary other than the default for your selected format, you can use the C<$msgval.vocab_param> parameter with the appropriate vocabulary name.  "
+	MSG_VOCAB_NONE_ALLOWED = "I<No output vocabularies are configured for this operation.>  "
+	
+	MSG_METHOD_NONE_DEFINED = "I<none are defined>"
+	MSG_METHOD_HEADER_OP = "You can use the following HTTP methods with this operation:"
+	MSG_METHOD_HEADER_NODE = "This data service accepts the following HTTP methods:"
+	
+	MSG_RESPONSE_HEADER = "The response to an HTTP request on this path will consist of fields from the following list.  "
+	MSG_RESPONSE_HEADER_FIXED = "The block C<%s> is always present.  "
+	MSG_RESPONSE_HEADER_OPT = "The others may be selected using the parameter C<$msgval.show_param>.  "
+	MSG_RESPONSE_HEADER_OPT_ONLY = "You can select which blocks will be present in the response using the parameter C<$msgval.show_param>.  "
+	MSG_RESPONSE_NONE_DEFINED = "I<No response is defined for this operation.>  "
+    };
+    
+    MACRO sub_message(text) IF message.$text; message.$text; ELSE; text; "\n"; END;
+    MACRO sub_value(msg, value) GET message.$msg FILTER replace('%s', value);
+    
+    # 
+    # DOCSTRING : Include the documentation string for this node, if any.
+    # -------------------------------------------------------------------
+        
+    BLOCK DOCSTRING; GET request.document_node or sub_message("MSG_DOCSTRING_MISSING"); END;
+    
+    MACRO DOCSTRING PROCESS DOCSTRING;
+    
+    # 
+    # TRAIL: Add a navigation trail to the page
+    # -----------------------------------------
+    
+    BLOCK NAVTRAIL;
+        IF block_done.trail; RETURN; ELSE; SET block_done.trail = 1; END;
+	SET navtrail = "";
+        FOREACH item IN request.list_navtrail(main_doc_label);
+	    IF navtrail; SET navtrail = "$navtrail E<GT> $item";
+	    ELSE; SET navtrail = item; END;
+        END;
+        "\n=for wds_nav =head3 $main_doc_prefix$navtrail\n";
+    END;
+    
+    MACRO NAVTRAIL INCLUDE NAVTRAIL;
+    
+    #
+    # PARAMETERS: Document the parameters corresponding to this URL path
+    # ------------------------------------------------------------------
+    
+    BLOCK PARAMETERS;
+        IF block_done.params; RETURN; ELSE; SET block_done.params = 1; END;
+    	"\n=head2 $section_label.params\n\n";
+	SET param_doc = request.document_params(ruleset);
+	IF content; GET content FILTER trim; "\n\n"; sub_message(param_doc);
+	ELSIF param_doc; sub_message("MSG_PARAM_HEADER_OP"); "\n\n"; param_doc;
+	ELSE; sub_message("MSG_PARAM_NONE_DEFINED");
+	END;
+    END;
+    
+    MACRO PARAMETERS(ruleset) INCLUDE PARAMETERS;
+    
+    #
+    # METHODS: Document the HTTP methods accepted by this URL path
+    # ------------------------------------------------------------
+    
+    BLOCK METHODS;
+        IF block_done.methods; RETURN; ELSE; SET block_done.methods = 1; END;
+        SET method_list = request.document_http_methods or sub_method("MSG_METHOD_NONE_DEFINED");
+        "\n=head2 $section_label.methods\n\n";
+	IF content; GET content FILTER trim;
+        ELSIF request.node_has_operation; sub_message("MSG_METHOD_HEADER_OP");
+        ELSE; sub_message("MSG_METHOD_HEADER_NODE");
+        END;
+	GET " $method_list";
+    END;
+    
+    MACRO METHODS INCLUDE METHODS;
+    
+    #
+    # FORMATS: Document the formats allowed by this URL path
+    # ------------------------------------------------------
+    
+    BLOCK FORMATS;
+        IF block_done.formats; RETURN; ELSE; SET block_done.formats = 1; END;
+        IF opt_extended; options.extended = 1; END;
+	IF opt_all; options.path = '/'; END;
+	IF request.node_path == '/'; opt_all = 1; END;
+	SET format_doc = request.document_formats(options);
+	"\n=head2 $section_label.formats\n\n";
+  	IF format_doc.match('^MSG_'); sub_message(format_doc);
+	ELSIF content; GET content FILTER trim; "\n\n$format_doc";
+	ELSIF opt_all;
+	    sub_message("MSG_FORMAT_HEADER_ALL");
+	    sub_message("MSG_FORMAT_HEADER_SUFFIX") IF ds.has_feature('format_suffix');
+	    sub_message("MSG_FORMAT_HEADER_PARAM") IF ds.special_param('format');
+	    "\n\n$format_doc";
+	ELSE;
+	    sub_message("MSG_FORMAT_HEADER_SOME");
+	    sub_message("MSG_FORMAT_HEADER_SUFFIX") IF ds.has_feature('format_suffix');
+	    sub_message("MSG_FORMAT_HEADER_PARAM") IF ds.special_param('format');
+	    IF not ds.has_feature('format_suffix');
+	        default_value = request.default_format;
+	        sub_value("MSG_FORMAT_HEADER_DEFAULT", default_value) IF default_value;
+	    END;
+	    "\n\n$format_doc";
+	END;
+    END;
+    
+    MACRO FORMATS INCLUDE FORMATS;
+    
+    #
+    # VOCABULARIES: Document the vocabularies allowed by this URL path
+    # ----------------------------------------------------------------
+    
+    BLOCK VOCABULARIES;
+        IF block_done.vocabs; RETURN; ELSE; SET block_done.vocabs = 1; END;
+        IF opt_extended; options.extended = 1; END;
+	IF opt_all; options.path = '/'; END;
+	IF request.node_path == '/'; opt_all = 1; END;
+	SET vocab_doc = request.document_vocabs(options);
+	IF vocab_doc;
+	    "\n=head2 $section_label.vocabs\n\n";
+	    IF content;
+	        GET content FILTER trim; "\n\n$vocab_doc";
+	    ELSIF opt_all;
+	        sub_message("MSG_VOCAB_HEADER_ALL");
+	        sub_message("MSG_VOCAB_HEADER_PARAM") IF ds.special_param('vocab');
+	        "\n\n$vocab_doc";
+	    ELSE;
+	        sub_message("MSG_VOCAB_HEADER_SOME");
+	        sub_message("MSG_VOCAB_HEADER_PARAM") IF ds.special_param('vocab');
+	        "\n\n$vocab_doc";
+            END;
+	END;
+    END;
+    
+    MACRO VOCABULARIES INCLUDE VOCABULARIES;
+    
+    # 
+    # RESPONSE: Document the response fields returned by this URL path
+    # ----------------------------------------------------------------
+
+    BLOCK RESPONSE;
+        IF block_done.response; RETURN; ELSE; SET block_done.response = 1; END;
+        "\n=head2 $section_label.response\n\n";
+	SET response_doc = request.document_response;
+	SET fixed = request.output_label;
+	SET optional = request.optional_output;
+	IF response_doc;
+	    IF content; GET content FILTER trim;
+	    ELSE;
+	        sub_message("MSG_RESPONSE_HEADER");
+	    	IF fixed && optional;
+	            sub_value("MSG_RESPONSE_HEADER_FIXED", fixed);
+	    	    sub_message("MSG_RESPONSE_HEADER_OPT");
+	    	ELSIF optional;
+	            sub_message("MSG_RESPONSE_HEADER_OPT_ONLY");
+	    	END;
+		"\n\n";
+	    END;
+	    GET response_doc;
+	    INCLUDE FORMATS;
+	    INCLUDE VOCABULARIES;
+	ELSE;
+	    sub_message("MSG_RESPONSE_NONE_DEFINED");
+	END;
+    END;
+    
+    MACRO RESPONSE INCLUDE RESPONSE;
+    
+    #
+    # STANDARD: Include all of the standard blocks for an "operation" page
+    # --------------------------------------------------------------------
+    
+    BLOCK STANDARD;
+        INCLUDE PARAMETERS;
+	INCLUDE METHODS;
+	INCLUDE RESPONSE;
+    END;
+    
+    MACRO STANDARD INCLUDE STANDARD;
+
+-%>
+END_END_END
+    'index.tt' => << 'END_END_END',
+
+This is an example data service, built using the Web::DataService framework.  It provides
+information about the historical population of U.S. states, based on data from the
+L<Bureau of the Census|http://www.census.gov/>.
+
+You can use this code as a basis for building your own data services.
+
+=head2 Operations
+
+The following data service operations are available:
+
+=for pp_table_header documentation / description
+
+=over
+
+=item L<Single state|node:single>
+
+Returns information about a single state.
+
+=item L<Multiple states|node:list>
+
+Returns information about a list of states matching the specified criteria.
+
+=back
+
+<% INCLUDE FORMATS opt_extended=1 %>
+
+<% INCLUDE VOCABULARIES opt_extended=1 opt_all=1 %>
+
+
+
+
+END_END_END
+    'operation.tt' => << 'END_END_END',
+
+<% DOCSTRING %>
+
+<% PARAMETERS %>
+
+<% METHODS %>
+
+<% RESPONSE %>
+
+<% FORMATS %>
+END_END_END
+    'doc_header.tt' => << 'END_END_END',
+=encoding utf8
+
+=head1 <% ds.title %>: <% doc_title %>
+
+<% INCLUDE NAVTRAIL %>
+
+END_END_END
+
+    };
+}
+
+
+=pod
+
+=head1 NAME
+
+dancer - helper script to create new Dancer applications
+
+=head1 SYNOPSIS
+
+dancer [options] -a <appname>
+
+=head1 OPTIONS
+
+    -h, --help            : print what you are currently reading
+    -a, --application     : the name of your application
+    -p, --path            : the path where to create your application
+                              (current directory if not specified)
+    -x, --no-check        : don't check for the latest version of Dancer
+                              (checking version implies internet connection)
+    -v, --version         : print the version of dancer being used
+
+=head1 DESCRIPTION
+
+Helper script for providing a bootstrapping method to quickly and easily create
+the framework for a new Dancer application.
+
+=head1 EXAMPLE
+
+Here is an application created with dancer:
+
+    $ dancer -a mywebapp
+    + mywebapp
+    + mywebapp/bin
+    + mywebapp/bin/app.pl
+    + mywebapp/config.yml
+    + mywebapp/environments
+    + mywebapp/environments/development.yml
+    + mywebapp/environments/production.yml
+    + mywebapp/views
+    + mywebapp/views/index.tt
+    + mywebapp/views/layouts
+    + mywebapp/views/layouts/main.tt
+    + mywebapp/lib
+    + mywebapp/lib/mywebapp.pm
+    + mywebapp/public
+    + mywebapp/public/css
+    + mywebapp/public/css/style.css
+    + mywebapp/public/css/error.css
+    + mywebapp/public/images
+    + mywebapp/public/500.html
+    + mywebapp/public/404.html
+    + mywebapp/public/dispatch.fcgi
+    + mywebapp/public/dispatch.cgi
+    + mywebapp/public/javascripts
+    + mywebapp/public/javascripts/jquery.js
+    + mywebapp/Makefile.PL
+    + mywebapp/t
+    + mywebapp/t/002_index_route.t
+    + mywebapp/t/001_base.t
+
+The application is ready to serve:
+
+    $ cd mywebapp
+    $ ./mywebapp.pl
+    >> Listening on 127.0.0.1:3000
+    == Entering the development dance floor ...
+
+=head1 AUTHOR
+
+This script has been written by Sebastien Deseille
+<sebastien.deseille@gmail.com> and Alexis Sukrieh
+<sukria@cpan.org>.
+
+=head1 SOURCE CODE
+
+See L<Dancer> for more information.
+
+=head1 LICENSE
+
+This module is free software and is published under the same
+terms as Perl itself.
+
+=cut

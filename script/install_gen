@@ -1,0 +1,454 @@
+#!/usr/bin/env perl
+
+eval 'exec /opt/local/bin/perl5.12  -S $0 ${1+"$@"}'
+    if 0; # not running under some shell
+
+use lib 'lib';
+
+use strict;
+use warnings;
+use File::Basename 'basename', 'dirname';
+use File::Path 'mkpath';
+use File::Spec::Functions;
+use Getopt::Long;
+use Pod::Usage;
+use LWP::UserAgent;
+
+use Web::DataService;
+
+use constant FILE => 1;
+use constant REMOVE => 2;
+
+# options
+my $help = 0;
+my $no_check = 0;
+my $report_version = 0;
+my $name = undef;
+my $path = '.';
+my $make = 0;
+
+
+GetOptions(
+    "h|help"          => \$help,
+    "p|path=s"        => \$path,
+    "x|no-check"      => \$no_check,
+    "v|version"       => \$report_version,
+    "M|make"          => \$make,
+) or pod2usage( -verbose => 1 );
+
+# main
+
+my $PERL_INTERPRETER = -r '/usr/bin/env' ? '#!/usr/bin/env perl' : "#!$^X";
+my $DO_OVERWRITE_ALL = 0;
+
+my $TARGET_NAME = 'dsinstallfiles';
+
+if ( $make )
+{
+    &make_program;
+    exit(0);
+}
+
+pod2usage( -verbose => 1 ) if $help;
+
+die "Cannot write to $path: $!\n" unless -d $path && -w $path;
+
+my $WDS_VERSION   = $Web::DataService::VERSION;
+
+if ( $report_version )
+{
+    print "Web::DataService $WDS_VERSION\n";
+    exit 0;
+}
+
+# Now determine which foundation framework we are using.  Currently, the only
+# one available is Dancer.
+
+if ( -r "environments" && -r "public/404.html" )
+{
+    eval { require Dancer };
+    
+    unless ( $INC{'Dancer.pm'} )
+    {
+	die "It looks as though you are trying to build a Dancer application, but Dancer is not installed.\n";
+    }
+    
+    eval { require YAML; };
+    
+    unless ( $INC{'YAML.pm'} )
+    {
+	die "You must install YAML in order to use Web::DataService with Dancer.\n";
+    }
+    
+    version_check() unless $no_check;
+    unpack_files( &dancer_app_tree );
+    exit 0;
+}
+
+else
+{
+    eval { require Dancer };
+    
+    unless ( $INC{'Dancer.pm'} )
+    {
+	die "You must install Dancer in order to use Web::DataService.\n";
+    }
+    
+    die "You must run this program from the root directory of an already-installed Dancer application.  Try 'dancer -a myappname'.\n";
+}
+
+
+# subs
+
+sub dancer_app_tree {
+    
+    return {
+        "lib" => {
+            "Example.pm" => FILE,
+	    "PopulationData.pm" => FILE,
+        },
+        "bin" => {
+            "+dataservice.pl" => FILE,
+	    "app.pl" => REMOVE,
+        },
+        "config.yml"         => FILE,
+	"doc" => {
+	    "doc_defs.tt"    => FILE,
+	    "doc_header.tt"  => FILE,
+	    "doc_footer.tt"  => FILE,
+	    "operation.tt"   => FILE,
+	    "index.tt"       => FILE,
+            "special_doc.tt" => FILE,
+	},
+        "public" => {
+            "css"            => {
+                "dsdoc.css" => FILE,
+            },
+        },
+    };
+}
+
+
+sub unpack_files {
+    my ($node, $root) = @_;
+    $root ||= '.';
+
+    my $manifest_name = catfile($root => 'MANIFEST');
+    open my $manifest, ">>", $manifest_name or die $!;
+    
+    # create a closure, so we do not need to get $root passed as
+    # argument on _create_node
+    my $add_to_manifest = sub {
+        my $file = shift;
+        $file =~ s{^$root/?}{};
+        print $manifest "$file\n";
+    };
+    
+    _create_node($add_to_manifest, $node, $root);
+    close $manifest;
+}
+
+sub _create_node {
+    my ($add_to_manifest, $node, $root) = @_;
+
+    my $templates = &templates;
+    
+    while ( my ($path, $thing) = each %$node )
+    {
+	next unless defined $thing;
+	
+        $path = catfile($root, $path);
+	
+        if ( ref $thing eq 'HASH' )
+	{
+            safe_mkdir($path);
+            _create_node($add_to_manifest, $thing, $path);
+        }
+	elsif ( ref $thing eq 'CODE' )
+	{
+            # The content is a coderef, which, given the path to the file it
+            # should create, will do the appropriate thing:
+            $thing->($path);
+            $add_to_manifest->($path);
+	}
+	else
+	{
+            my $file = basename($path);
+            my $dir  = dirname($path);
+            my $ex = ($file =~ s/^\+//); # look for '+' flag (executable)
+            my $template = $templates->{$file};
+	    
+            $path = catfile($dir, $file); # rebuild the path without the '+'
+                                          # flag 
+	    
+	    if ( $thing eq FILE )
+	    {
+		my $vars = { PERL_INTERPRETER => $PERL_INTERPRETER };
+		write_file($path, $template, $vars);
+		chmod 0755, $path if $ex;
+		$add_to_manifest->($path);
+	    }
+	    
+	    elsif ( $thing eq REMOVE )
+	    {
+		unlink($path);
+	    }
+        }
+    }
+}
+
+sub safe_mkdir {
+    my ($dir) = @_;
+    if (not -d $dir) {
+        print "+ $dir\n";
+        mkpath $dir or die "could not mkpath $dir: $!";
+    }
+    else {
+        print "  $dir\n";
+    }
+}
+
+sub read_file {
+
+    my ($path, $contents_ref) = @_;
+    
+    my $infile;
+    
+    unless ( open $infile, "<", $path )
+    {
+	warn $!;
+	return;
+    }
+    
+    while (<$infile>)
+    {
+	$$contents_ref .= $_;
+    }
+    
+    close $infile or warn $!;
+}
+
+sub write_file {
+    my ($path, $template, $vars) = @_;
+    warn "no template found for $path" unless defined $template;
+
+    # if file already exists, ask for confirmation
+    if (-f $path && (not $DO_OVERWRITE_ALL)) {
+        print "! $path exists, overwrite? [N/y/a]: ";
+        my $res = <STDIN>; chomp($res);
+        $DO_OVERWRITE_ALL = 1 if $res eq 'a';
+        return 0 unless ($res eq 'y') or ($res eq 'a');
+    }
+
+    $template =~ s| <<% \s* (\w+) \s* %>> | $vars->{$1} |xmge;
+    
+    print "+ $path\n";
+    
+    my $fh;
+    open $fh, '>', $path or die "unable to open file `$path' for writing: $!";
+    print $fh $template;
+    close $fh;
+}
+
+sub send_http_request {
+    my $url = shift;
+    my $ua = LWP::UserAgent->new;
+    $ua->timeout(10);
+    $ua->env_proxy();
+
+    my $response = $ua->get($url);
+
+    if ($response->is_success) {
+        return $response->content;
+    }
+    else {
+        return;
+    }
+}
+
+sub version_check {
+    my $latest_version = 0;
+    
+    my $resp = send_http_request('http://search.cpan.org/api/module/Web::DataService');
+
+    if ($resp) {
+        if ( $resp =~ /"version" (?:\s+)? \: (?:\s+)? "(\d\.\d+)"/x ) {
+            $latest_version = $1;
+        } else {
+            die "Can't understand search.cpan.org's reply.\n";
+        }
+    }
+
+    return if $WDS_VERSION =~  m/_/;
+
+    if ($latest_version > $WDS_VERSION) {
+        print qq|
+The latest stable Dancer release is $latest_version, you are currently using $WDS_VERSION.
+Please check http://search.cpan.org/dist/Dancer/ for updates.
+
+|;
+    }
+}
+
+# make_program ( )
+# 
+# Create a new script called $TARGET_NAME, in the same directory as this
+# one, but with the string __TEMPLATES_GO_HERE__ replaced by the contents of
+# each of the files listed in the app_tree hash (see below).  These files are
+# copied from the directory "./files".
+
+sub make_program {
+    
+    # First get all of the contents.
+    
+    my $contents = '';
+    process_tree( &dancer_app_tree, 'files', \$contents );
+    
+    my $source_name = $0;
+    my $target_name = $source_name;
+    $target_name =~ s{ [^/]+ $ }{ $TARGET_NAME }xe;
+    
+    open my $source, "<", $source_name or die "File $source_name: $!";
+    open my $target, ">", $target_name or die "File $target_name: $!";
+    
+    while (<$source>)
+    {
+	if ( /^#_TEMPLATES_GO_HERE/ )
+	{
+	    print $target $contents;
+	}
+	
+	else
+	{
+	    print $target $_;
+	}
+    }
+    
+    close $source or die "File $source_name: $!";
+    close $target or die "File $target_name: $!";
+    
+    chmod(0755, $target_name) or die "File $target_name: $!";
+}
+
+sub process_tree {
+    
+    my ($node, $root, $contents_ref) = @_;
+    
+    while ( my ($name, $thing) = each %$node )
+    {
+	next unless defined $thing;
+	
+	$name =~ s/ ^ \+ //x;
+        $path = catfile($root, $name);
+	
+	if ( ref $thing eq 'HASH' )
+	{
+	    process_tree($thing, $path, $contents_ref);
+	}
+	
+	elsif ( ref $thing eq 'CODE' )
+	{
+	    $thing->($path);
+	}
+	
+	elsif ( $thing eq FILE )
+	{
+	    $$contents_ref .= "    '$name' => << 'END_END_END',\n";
+	    my $content = read_file($path, $contents_ref);
+	    $$contents_ref .= "END_END_END\n";
+	}
+    }
+}
+
+sub templates {
+
+    return {
+
+#_TEMPLATES_GO_HERE
+
+    };
+}
+
+
+=pod
+
+=head1 NAME
+
+dancer - helper script to create new Dancer applications
+
+=head1 SYNOPSIS
+
+dancer [options] -a <appname>
+
+=head1 OPTIONS
+
+    -h, --help            : print what you are currently reading
+    -a, --application     : the name of your application
+    -p, --path            : the path where to create your application
+                              (current directory if not specified)
+    -x, --no-check        : don't check for the latest version of Dancer
+                              (checking version implies internet connection)
+    -v, --version         : print the version of dancer being used
+
+=head1 DESCRIPTION
+
+Helper script for providing a bootstrapping method to quickly and easily create
+the framework for a new Dancer application.
+
+=head1 EXAMPLE
+
+Here is an application created with dancer:
+
+    $ dancer -a mywebapp
+    + mywebapp
+    + mywebapp/bin
+    + mywebapp/bin/app.pl
+    + mywebapp/config.yml
+    + mywebapp/environments
+    + mywebapp/environments/development.yml
+    + mywebapp/environments/production.yml
+    + mywebapp/views
+    + mywebapp/views/index.tt
+    + mywebapp/views/layouts
+    + mywebapp/views/layouts/main.tt
+    + mywebapp/lib
+    + mywebapp/lib/mywebapp.pm
+    + mywebapp/public
+    + mywebapp/public/css
+    + mywebapp/public/css/style.css
+    + mywebapp/public/css/error.css
+    + mywebapp/public/images
+    + mywebapp/public/500.html
+    + mywebapp/public/404.html
+    + mywebapp/public/dispatch.fcgi
+    + mywebapp/public/dispatch.cgi
+    + mywebapp/public/javascripts
+    + mywebapp/public/javascripts/jquery.js
+    + mywebapp/Makefile.PL
+    + mywebapp/t
+    + mywebapp/t/002_index_route.t
+    + mywebapp/t/001_base.t
+
+The application is ready to serve:
+
+    $ cd mywebapp
+    $ ./mywebapp.pl
+    >> Listening on 127.0.0.1:3000
+    == Entering the development dance floor ...
+
+=head1 AUTHOR
+
+This script has been written by Sebastien Deseille
+<sebastien.deseille@gmail.com> and Alexis Sukrieh
+<sukria@cpan.org>.
+
+=head1 SOURCE CODE
+
+See L<Dancer> for more information.
+
+=head1 LICENSE
+
+This module is free software and is published under the same
+terms as Perl itself.
+
+=cut

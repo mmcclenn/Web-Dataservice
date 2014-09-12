@@ -1,0 +1,171 @@
+
+=head1 NAME
+
+Web::DataService::Tutorial - how to build an application using Web::DataService
+
+=head1 SYNOPSIS
+
+This file explains the process of creating a Web::DataService application,
+using the example code provided as part of this distribution.  The sections
+below will include instructions for setting up an example Web::DataService
+application, along with a description of what each part does.  You can the use
+this as a basis for your own data service application.
+
+=head1 GETTING STARTED
+
+In order to build an application using Web::DataService, you must start with a
+I<foundation framework>.  The only one currently available is L<Dancer>,
+though we hope to soon release plugins that will enable Web::DataService
+applications to be written on top of other frameworks such as C<Catalyst>,
+C<Mojolicious>, C<Dancer2>, etc.
+
+=over 
+
+=item 1.
+
+The first step, therefore, is to make sure that L<Dancer> is installed on your
+system.  You will also want to install L<Template>, which is used for
+displaying documentation pages.
+
+=item 2.
+
+Next, create a new Dancer project using the script C<dancer> which is included
+with that module:
+
+    mkdir mydataservice
+    cd mydataservice
+    dancer
+
+This will install into the newly created directory all the necessary files for
+a Dancer application.
+
+=item 2.
+
+Next, use the script C<dsdancerfiles>, which is included with the current
+module, to add the necessary files for the example data service:
+
+    dsdancerfiles -a Main
+
+This invocation will create the main application as F<lib/Main.pl>.  The stub
+program used to invoke the data service is F<bin/dataservice.pl>.
+
+=item 3.
+
+Run this application, and verify that it executes without error.  It will
+listen for requests on port 3000, unless you override this using the "Port"
+directive in the configuration file.
+
+    ./bin/dataservice.pl
+
+Once it is running, you can open a web browser and view the documentation for
+this service under the following URL:
+
+    http://localhost:3000/data1.0/
+
+You can test the data service by sending some requests such as:
+
+    http://localhost:3000/data1.0/single.json?state=NY
+    http://localhost:3000/data1.0/list.json?region=NE,MW&show=hist,total
+
+=item 4.
+
+You can now use this example project as a base for creating your own data
+service.  The various pieces of the code are described below, along with the
+function of each and some ideas for how you might want to modify them.
+
+=head1 OVERVIEW
+
+Under the Web::DataService framework, a data service application consists of
+the components listed below.  In order to create your own data service using this
+framework, you will have to write each of the following:
+
+=over
+
+=item Main application
+
+The main application, written using a foundation framework such as L<Dancer>,
+is responsible for initializing all of the necessary elements to define a data
+service and for providing the basic response loop.  It must start by creating
+a new instance of Web::DataService and then define a variety of data service
+elements (see L<Web::DataService::Configuration>) in order to configure the
+Web::DataService code to respond in the appropriate way to each incoming
+request.
+
+The main application must also include a response loop, which in the case of
+Dancer means defining one or more L<routes|Dancer::Introduction/USAGE> that
+specify the response to each incoming request.  In the simplest case, as shown
+in the L<example application|/dataservice.pl>, the route code reduces to the
+following:
+
+    return $ds->handle_request(request);
+
+Finally, the main application is responsible for error handling.  The example
+application hands off all errors to the Web::DataService code, rather than
+using the native Dancer error response.
+
+=item Configuration file
+
+The foundation framework includes a configuration file (L</config.yml> in the
+case of Dancer) in which you can specify many of the attributes of your data
+service.  Specifying them here rather than putting them in the code will allow
+others to easily find and change them as necessary during the process of
+developing and maintaining your data service.
+
+=item Data service roles and methods
+
+The "meat" of your data service consists of subroutines that talk to the
+backend data store to fetch and/or store the necessary data.  You will need to
+write one of these for each different operation provided by your data service.
+These are called I<operation methods> and, as the name suggests, are called as
+methods of a L<Web::DataService::Request> object.
+
+These methods must be organized into one or more modules that can function as
+L<Moo> L<roles|Moo::Role>.  These modules will then be automatically composed
+into appropriate subclasses of Web::DataService::Request.  Your role files
+may include any other code that you wish, and your operation methods may also
+call any of the methods provided by L<Web::DataService::Request>.  For more
+information, see L</Example.pm>.
+
+=item Documentation templates
+
+Each feature of your data service should be documented by an appropriate file.
+Fortunately, Web::DataService provides facilities for auto-generating most of
+the necessary documentation based on the data service element definitions in
+your application.
+
+The documentation files take the form of templates, which can include a
+variety of predefined elements that on template evaluation are replaced by
+various sections of auto-generated documentation.  The only templating system
+currently supported is L<Template Toolkit|Template>.  We plan to include
+others in the near future.
+
+=back
+
+=head1 FILES
+
+In this section we will go over the files from the example data service one at
+a time, hilighting the important features of each.  You can use these files,
+and this example application, as a basis for your own projects.
+
+=head2 config.yml
+
+=head2 bin/dataservice.pl
+
+=head2 lib/Example.pm
+
+=head2 doc/doc_defs.tt
+
+=head2 doc/doc_fooer.tt
+
+=head2 doc/doc_header.tt
+
+=head2 doc/doc_not_found.tt
+
+=head2 doc/index.tt
+
+=head2 doc/special_doc.tt
+
+=head3 public/css/dsdoc.css
+
+=head3 data/population_data.txt
+
