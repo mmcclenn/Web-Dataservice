@@ -47,6 +47,7 @@ if ( defined $ARGV[0] and lc $ARGV[0] eq 'get' )
     set show_errors => 0;
     
     Web::DataService->set_mode('debug', 'one_request');
+    $DB::single = 1;
 }
 
 
@@ -65,12 +66,18 @@ my $ds = Web::DataService->new(
 # Web::DataService::Plugin::Text.
 
 $ds->define_format(
-    { name => 'json', content_type => 'application/json',
-      doc_node => 'formats/json', title => 'JSON' },
+    { name => 'json', doc_node => 'formats/json', title => 'JSON' },
 	"The JSON format is intended primarily to support client applications.",
-    { name => 'txt', content_type => 'text/plain',
-      doc_node => 'formats/txt', title => 'Plain text' },
-	"The plain text format is intended for direct responses to humans, or for loading into a spreadsheet");
+    { name => 'txt', doc_node => 'formats/text', title => 'Plain text' },
+	"The plain text format is intended for direct responses to humans,",
+	"or for loading into a spreadsheet.  Data is formatted as lines of",
+        "comma-separated values.",
+    { name => 'csv', doc_node => 'formats/text', title => 'Comma Separated Values' },
+	"The csv text format is identical to plain text, except that ",
+	"most browsers will offer to save it as a download",
+    { name => 'tsv', doc_node => 'formats/text', title => 'Tab Separated Values' },
+	"The tsv text format returns data as lines of tab-separated values.",
+	"Most browsers will offer to save it as a download.");
 
 
 # We then define a hierarchy of data service nodes.  These nodes define the
@@ -82,7 +89,6 @@ $ds->define_node({ path => '/',
 		   title => 'Main Documentation',
 		   public_access => 1,
 		   doc_default_op_template => 'operation.tt',
-		   role => 'Example',
 		   output => 'basic' });
 
 
@@ -99,17 +105,20 @@ $ds->define_node(
       title => 'Single States',
       output => 'basic',
       optional_output => 'extra',
+      role => 'PopulationData',
       method => 'single' },
 	"Returns information about a single U.S. state.",
     { path => 'list',
       title => 'Multiple States',
       output => 'basic',
       optional_output => 'extra',
+      role => 'PopulationData',
       method => 'list' },
 	"Returns information about all of the states matching specified criteria.",
     { path => 'regions',
       title => 'Regions',
       output => 'regions',
+      role => 'PopulationData',
       method => 'regions' },
 	"Returns the list of region codes used by this data set.");
 
@@ -121,7 +130,7 @@ $ds->define_node(
       title => 'Output formats' },
     { path => 'formats/json',
       title => 'JSON format' },
-    { path => 'formats/txt',
+    { path => 'formats/text',
       title => 'Plain text format' },
     { path => 'special',
       title => 'Special parameters' });

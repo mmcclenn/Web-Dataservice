@@ -702,7 +702,7 @@ sub generate_doc {
     if ( $Web::DataService::ONE_REQUEST )
     {
 	my $role = $ds->node_attr($path, 'role');
-	$ds->initialize_role($role);
+	$ds->initialize_role($role) if $role;
     }
     
     # If the output format is not already set, then try to determine what
@@ -819,11 +819,12 @@ sub generate_doc {
 	    $parser->parse_pod($doc_string);
 	    
 	    my $url_generator = sub {
-		if ($_[0] =~ qr{ ^ (node|path) : (.*) }xs )
+		if ($_[0] =~ qr{ ^ (node|path) : ( [^#]* ) (?: [#] (.*) )? }xs )
 		{
 		    my $arg = $1 eq 'node' ? 'documentation' : 'operation';
 		    my $path = $2 || '/';
-		    return $ds->generate_url({ type => 'site', $arg => $path });
+		    $DB::single = 1;
+		    return $ds->generate_url({ type => 'site', $arg => $path, fragment => $3 });
 		}
 		else
 		{
@@ -1240,7 +1241,7 @@ sub error_result {
     # If we know the format and if the corresponding format class knows how to
     # generate error messages, then take advantage of that functionality.
     
-    my $format_class = $ds->{format}{$format}{class} if $format;
+    my $format_class = $ds->{format}{$format}{package} if $format;
     
     if ( defined $format_class && $format_class->can('emit_error') )
     {

@@ -460,6 +460,19 @@ sub special_exists {
 }
 
 
+# default_limit ( )
+# 
+# Return the default result limit, if any.  Return undefined otherwise.
+
+sub default_limit {
+    
+    my ($self) = @_;
+    
+    my $path = $self->{node_path};
+    return $self->{ds}->node_attr($path, 'default_limit');
+}
+
+
 sub set_scratch {
     
     my ($self, $key, $value) = @_;
@@ -490,6 +503,7 @@ sub warnings {
     my ($self) = @_;
     
     return @{$self->{warnings}} if ref $self->{warnings} eq 'ARRAY';
+    return;
 }
 
 

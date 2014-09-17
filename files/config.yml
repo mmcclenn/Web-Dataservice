@@ -4,6 +4,7 @@
 # These settings are read by Web::DataService
 
 title: "Web::DataService Example"
+data_source: "U.S. Bureau of the Census"
 data_file: "data/population_data.txt"
 contact_name: "J. A. Perlhacker"
 contact_email: "japh@example.com"

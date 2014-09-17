@@ -516,6 +516,11 @@ sub decode_content {
 			$content[-1] = $1;
 			$cn->{target} = $2;
 		    }
+		    else
+		    {
+			$cn->{target} = $content[-1];
+			@content = ();
+		    }
 		}
 		
 		if ( @content == 0 ) {
@@ -1024,14 +1029,14 @@ sub generate_html_content {
 	    if ( $href =~ qr{ ^ node: | ^ path: }xs )
 	    {
 		my $target = $self->{url_generator}->($href) // '';
-		
+		$subcontent ||= $target;
 		return qq{<a class="pod_link" href="$target">$subcontent</a>};
 	    }
 	    
 	    else
 	    {
 		my $window = $href =~ qr{ ^ \w+ : }xs ? 'target="_blank"' : '';
-		
+		$subcontent ||= $href;
 		return qq{<a class="pod_link" $window href="$href">$subcontent</a>};
 	    }
 	}

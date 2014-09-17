@@ -193,6 +193,20 @@ sub clean_param_hash {
 }
 
 
+# param_exists ( )
+# 
+# Return true if the specified parameter was included in this request, whether
+# or not it was given a valid value.  Return false otherwise.
+
+sub param_exists {
+
+    my ($self, $name) = @_;
+    
+    return unless ref $self->{valid};
+    return exists $self->{valid}{raw}{$name};
+}
+
+
 # output_field_list ( )
 # 
 # Return the output field list for this request.  This is the actual list, not

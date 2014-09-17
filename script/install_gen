@@ -112,6 +112,9 @@ sub dancer_app_tree {
 	    "app.pl" => REMOVE,
         },
         "config.yml"         => FILE,
+	"data" => {
+	    "population_data.txt" => FILE,
+	},
 	"doc" => {
 	    "doc_defs.tt"    => FILE,
 	    "doc_header.tt"  => FILE,
@@ -119,6 +122,11 @@ sub dancer_app_tree {
 	    "operation.tt"   => FILE,
 	    "index.tt"       => FILE,
             "special_doc.tt" => FILE,
+	    "formats" => {
+	        "json_doc.tt" => FILE,
+		"text_doc.tt" => FILE,
+		"index.tt" => FILE,
+	    },
 	},
         "public" => {
             "css"            => {
@@ -216,7 +224,7 @@ sub read_file {
     
     unless ( open $infile, "<", $path )
     {
-	warn $!;
+	warn "Cannot read $path: $!\n";
 	return;
     }
     

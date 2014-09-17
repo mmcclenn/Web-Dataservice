@@ -625,11 +625,6 @@ before 'use Web::DataService' (and make sure that Dancer is installed)\n";
 	$self->{doc_path_regex} = qr{ ^ ( .* [^/] ) (?: / $self->{doc_index} | / $ }xs;
     }
     
-    # The attribute "default_header" defaults to true unless otherwise
-    # specified. 
-    
-    $self->{default_header} //= 1;
-    
     # Create a new HTTP::Validate object so that we can do parameter
     # validations. 
     
@@ -923,6 +918,8 @@ sub is_mode {
 # type		Specifies the type of URL to generate: 'absolute' for an
 #		absolute URL, 'relative' for a relative URL, 'site' for
 #		a site-relative URL (starts with '/').  Defaults to 'site'.
+# 
+# fragment	Specifies a fragment identifier to add to the generated URL
 
 sub generate_url {
 
@@ -1058,6 +1055,11 @@ sub generate_url {
 	{
 	    $url .= shift(@params) . '=' . shift(@params) . '&';
 	}
+    }
+    
+    if ( $attrs->{fragment} )
+    {
+	$url .= "#$attrs->{fragment}";
     }
     
     return $url;
@@ -1235,12 +1237,14 @@ before using it as a secondary role for '$primary_role'"
 
 # documentation_class ( primary_role )
 # 
-# This method is called to create a class in which we can process
-# documentation requests.  We need to create one of these for each primary
-# role used in the application.
+# This method is called to create a class into which we can bless an object
+# that represents a documentation request.  This will potentially be called
+# once for each different primary role in the data service application, plus
+# once to create a generic documentation class not based on any role.
 # 
-# The reason we need these classes is so that the documentation can call
-# methods from the primary role if necessary.
+# The classes created here must include all of the methods necessary for
+# generating documentation, including all of the methods in the indicated
+# role(s).
 
 sub documentation_class {
 
@@ -1248,28 +1252,47 @@ sub documentation_class {
     
     no strict 'refs';
     
-    croak "you must first load the module '$primary_role' before using it as a primary role"
-	if $primary_role && ! %{ "${primary_role}::" };
+    # First check to see if the necessary class has already been created.
+    # Return immediately if so, because we have nothing left to do.  If no
+    # primary role was specified, the name of the class will be "DOC".
     
     my $request_class = $primary_role ? "DOC::$primary_role" : "DOC";
     
-    # First check to see if this class has already been created.  Return
-    # immediately if so.
-    
     return $request_class if exists ${ "${request_class}::" }{_CREATED};
     
-    # Otherwise create the new class and compose in Web::DataService::Request
-    # and the primary role.  Then compose in any secondary roles, one at a time.
+    # Make sure that a package corresponding to the specified primary role
+    # actually exists.
     
+    croak "you must first load the module '$primary_role' before using it as a primary role"
+	if $primary_role && ! %{ "${primary_role}::" };
+    
+    # If the primary role has not yet been initialized, do so.  This will also
+    # cause any uninitialized secondary roles to be initialized.
+    
+    $self->initialize_role($primary_role) if $primary_role;
+    
+    # Now create the new class and compose into it both
+    # Web::DataService::Request and the primary role.  By doing these together
+    # we will generate an error if there are any method conflicts between
+    # these packages.  Also compose in any secondary roles, one at a time.
+    # Any method conflicts here will be silently resolved in favor of the
+    # primary role and/or Web::DataService::Request.
+    
+    my $primary_with = "";
     my $secondary_roles = "";
     
-    foreach my $role ( @{ "${primary_role}::REQUIRES_ROLE" } )
+    if ( $primary_role )
     {
-	croak "create_request_class: you must first load the module '$role' \
-before using it as a secondary role for '$primary_role'"
-	    unless %{ "${role}::" };
+	$primary_with = ", '$primary_role'";
 	
-	$secondary_roles .= "with '$role';\n";
+	foreach my $role ( @{ "${primary_role}::REQUIRES_ROLE" }  )
+	{
+	    croak "create_request_class: you must first load the module '$role' \
+before using it as a secondary role for '$primary_role'"
+		unless %{ "${role}::" };
+	    
+	    $secondary_roles .= "with '$role';\n";
+	}
     }
     
     my $string =  " package $request_class;
@@ -1278,18 +1301,12 @@ before using it as a secondary role for '$primary_role'"
 			use namespace::clean;
 			
 			use base 'Web::DataService::Request';
-			with 'Web::DataService::IDocument', '$primary_role';
+			with 'Web::DataService::IDocument' $primary_with;
 			$secondary_roles
 			
 			our(\$_CREATED) = 1";
     
     my $result = eval $string;
-    
-    # Now initialize the primary role, unless of course it has already been
-    # initialized.  This will also cause any uninitialized secondary roles to
-    # be initialized.
-    
-    $self->initialize_role($primary_role);
     
     return $request_class;
 }
@@ -1307,6 +1324,8 @@ sub initialize_role {
     my ($self, $role) = @_;
     
     no strict 'refs';
+    
+    # 
     
     # If we have already initialized this role, there is nothing else we need
     # to do.

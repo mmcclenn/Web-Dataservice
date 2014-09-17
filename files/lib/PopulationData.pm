@@ -1,8 +1,9 @@
 # 
 # PopulationData.pm
 # 
-# This class is used by the example data service application that comes with
-# Web::DataService.
+# This module is used by the example data service application that comes with
+# Web::DataService.  It provides the "primary role" for all of the data
+# service requests supported by that application.  
 # 
 # You can use this as a base for your own data service application.
 # 
@@ -22,12 +23,12 @@ use Carp qw(carp croak);
 use Moo::Role;
 
 
-# This 'initialize' method is called automatically at application startup.  It
-# is passed a reference to the Web::DataService object, which can then be used
-# to read data, define output blocks, define rulesets, etc.  If you are using
-# a backend database, and if the relevant information has been added to the
-# file config.yml, you can call the get_connection method if necessary to
-# obtain a handle by which you can make queries.
+# The following 'initialize' method is called automatically at application
+# startup.  It is passed a reference to the Web::DataService object, which can
+# then be used to read data, define output blocks, define rulesets, etc.  If
+# you are using a backend database, and if the relevant information has been
+# added to the file config.yml, you can call the get_connection method if
+# necessary to obtain a handle by which you can make queries.
 
 # You can define the necessary output blocks and rulesets either here or in
 # the main application file, or in a separate file, depending upon how you
@@ -40,8 +41,8 @@ sub initialize {
     my ($class, $ds) = @_;
     
     # First read in the data that we will be serving, and put it in the data
-    # service scratchpad for use by the data service operations.  A more
-    # complex data service application might instead set up a database
+    # service scratchpad for use by the various data service operations.  A
+    # more complex data service application might instead set up a database
     # connection and read from it as necessary to satisfy each operation.
     
     my $datafile = $ds->config_value('data_file');
@@ -85,7 +86,7 @@ sub initialize {
     $ds->define_block( 'regions' =>
 	{ output => 'value', name => 'code' },
 	    "Region code",
-	{ output => 'doc', name => 'description' },
+	{ output => 'doc_string', name => 'description' },
 	    "Region description");
     
     # This map selects additional optional information that can be selected
@@ -149,7 +150,7 @@ sub initialize {
 	"^You can also use any of the L<special parameters|node:special> with this request");
     
     $ds->define_ruleset( 'list' =>
-	{ optional => 'name', valid => $valid_state, list => ',' },
+	{ optional => 'state', valid => $valid_state, list => ',' },
 	    "Return information about the specified state or states.",
 	    "You may specify either the full names or standard abbreviations,",
 	    "and you may specify more than one separated by commas.",
@@ -250,7 +251,8 @@ sub list {
     my $order = $request->clean_param('order');
     my $totals = $request->has_output_block('total');
     
-    my $return_all; $return_all = 1 unless %$name_filter || %$region_filter;
+    my $return_all; $return_all = 1 unless $request->param_exists('state') ||
+	$request->param_exists('region');
     
     # Put any names that were specified into upper-case.
     

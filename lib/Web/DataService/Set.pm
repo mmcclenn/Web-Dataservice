@@ -201,7 +201,7 @@ sub document_set {
 	my $rec = $vs->{value}{$name};
 	
 	$doc .= "=item $rec->{value}\n\n";
-	$doc .= "$rec->{doc}\n\n" if defined $rec->{doc} && $rec->{doc} ne '';
+	$doc .= "$rec->{doc_string}\n\n" if defined $rec->{doc_string} && $rec->{doc_string} ne '';
     }
     
     $doc .= "=back";
@@ -247,9 +247,13 @@ sub set_values {
     foreach my $v ( @{$set->{value_list}} )
     {
 	next if $set->{value}{$v}{undocumented};
-	push @list, { value => $set->{value}{$v}{value},
-		      maps_to => $set->{value}{$v}{maps_to},
-		      doc => $set->{value}{$v}{doc} };
+	
+	my $sr = $set->{value}{$v};
+	my $r = { value => $sr->{value} };
+	$r->{maps_to} = $sr->{maps_to} if defined $sr->{maps_to};
+	$r->{doc_string} = $sr->{doc_string} if defined $sr->{doc_string};
+	
+	push @list, $r;
     }
     
     return @list;

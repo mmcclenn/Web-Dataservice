@@ -1677,7 +1677,7 @@ sub _generate_single_result {
     # Determine the output format and figure out which class implements it.
     
     my $format = $request->output_format;
-    my $format_class = $ds->{format}{$format}{class};
+    my $format_class = $ds->{format}{$format}{package};
     
     die "could not generate a result in format '$format': no implementing module was found"
 	unless $format_class;
@@ -1723,26 +1723,20 @@ sub _generate_single_result {
 
 # _generate_compound_result ( request )
 # 
-# This function is called after an operation is executed and returns a
-# statement handle or list of records.  Return each record in turn formatted
-# according to the specified output format.  If the option "can_stream" is
-# given, and if the size of the output exceeds the threshold for streaming,
-# set up to stream the rest of the output.
+# This function is called after an operation is executed.  It serializes each
+# result record according to the specified output format and returns the
+# resulting string.  If $streaming_threshold is specified, and if the size of
+# the output exceeds this threshold, this routine then sets up to stream the
+# rest of the output.
 
 sub _generate_compound_result {
 
     my ($ds, $request, $streaming_threshold) = @_;
     
-    # $$$ init output...
-    
-    
-    # $$$ process result set?
-    
-
     # Determine the output format and figure out which class implements it.
     
     my $format = $request->output_format;
-    my $format_class = $ds->{format}{$format}{class};
+    my $format_class = $ds->{format}{$format}{package};
     
     die "could not generate a result in format '$format': no implementing module was found"
 	unless $format_class;
@@ -1811,8 +1805,10 @@ sub _generate_compound_result {
 	# Keep count of the output records, and stop if we have exceeded the
 	# limit.
 	
-	last if $request->{result_limit} ne 'all' && 
-	    ++$request->{actual_count} >= $request->{result_limit};
+	if ( defined $request->{result_limit} && $request->{result_limit} ne 'all' )
+	{
+	    last if ++$request->{actual_count} >= $request->{result_limit};
+	}
 	
 	# If streaming is a possibility, check whether we have passed the
 	# threshold for result size.  If so, then we need to immediately
@@ -1897,7 +1893,7 @@ sub _stream_compound_result {
     # Determine the output format and figure out which class implements it.
     
     my $format = $request->output_format;
-    my $format_class = $ds->{format}{$format}{class};
+    my $format_class = $ds->{format}{$format}{package};
     
     croak "could not generate a result in format '$format': no implementing class"
 	unless $format_class;
@@ -1969,7 +1965,7 @@ sub _next_record {
     # If the result limit is 0, return nothing.  This prevents any records
     # from being returned.
     
-    return if $request->{result_limit} eq '0';
+    return if defined $request->{result_limit} && $request->{result_limit} eq '0';
     
     # If we have a 'main_result' array with something in it, return the next
     # item in it.
@@ -2006,7 +2002,7 @@ sub _generate_empty_result {
     # Determine the output format and figure out which class implements it.
     
     my $format = $request->output_format;
-    my $format_class = $ds->{format}{$format}{class};
+    my $format_class = $ds->{format}{$format}{package};
     
     croak "could not generate a result in format '$format': no implementing class"
 	unless $format_class;

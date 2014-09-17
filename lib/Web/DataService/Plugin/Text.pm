@@ -48,7 +48,8 @@ sub emit_header {
 	foreach my $key ( $request->data_info_keys )
 	{
 	    next unless $info->{$key};
-	    $output .= $class->emit_line($request, "Data Source:", $info->{$key});
+	    my $label = generate_label($key);
+	    $output .= $class->emit_line($request, $label, $info->{$key});
 	}
 	
 	$output .= $class->emit_line($request, "Parameters:");
@@ -124,6 +125,23 @@ sub emit_header {
     # Return the text that we have generated.
     
     return $output;
+}
+
+
+# generate_label ( key )
+# 
+# Turn a field identifier (key) into a text label by turning underscores into
+# spaces and capitalizing words.
+
+sub generate_label {
+    
+    my ($key) = @_;
+    
+    my @components = split(/_/, $key);
+    foreach ( @components ) { s/^url$/URL/ }
+    my $label = join(' ', map { ucfirst } @components);
+    
+    return $label;
 }
 
 
