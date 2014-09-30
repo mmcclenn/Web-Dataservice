@@ -154,6 +154,18 @@ sub get_params {
 }
 
 
+# get_param ( param )
+# 
+# Return the specified raw parameter value for the current request.
+
+sub get_param {
+    
+    my ($plugin, $request, $param) = @_;
+    
+    return Dancer::params->{$param};
+}
+
+
 # set_cors_header ( request, arg )
 # 
 # Set the CORS access control header according to the argument.

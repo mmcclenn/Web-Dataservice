@@ -31,7 +31,7 @@ sub emit_header {
     
     # Check if we have been asked to report the data source and parameters.
     
-    if ( $request->display_source )
+    if ( $request->display_datainfo )
     {
 	my $info = $request->data_info;
 	

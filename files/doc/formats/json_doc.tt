@@ -35,11 +35,11 @@ value will be the number of records matched by the main query.
 
 This field will be present if the paramter L<count|node:special> was specified.  Its
 value will be the number of records actually returned.
-<% if request.default_limit %>
+<%- IF request.default_limit %>
 This may be less than the total number of records found, because the
 size of the result set is limited by default to <% request.default_limit %>.
 You can override this using the L<limit|node:special> parameter.
-<% endif %>
+<%- END %>
 
 =item C<record_offset>
 
@@ -130,7 +130,7 @@ For example, consider the following URL path:
 
 =item *
 
-L</data1.0/single.json?state=WI>
+L<op:single.json?state=WI>
 
 =back
 
@@ -158,7 +158,7 @@ Many URL paths will, of course, return multiple records.  For example:
 
 =item *
 
-L</data1.0/list.json?state=wi,mn,il&count>
+L<op:list.json?state=wi,mn,il&count>
 
 =back
 
@@ -198,7 +198,7 @@ Finally, consider the following URL:
 
 =item *
 
-L</data1.0/list.json?state=WI,IX&foo=1>
+L<op:list.json?state=WI,IX&foo=1>
 
 =back
 

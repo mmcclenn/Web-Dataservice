@@ -1026,11 +1026,12 @@ sub generate_html_content {
 	    # URIs of the form "node:..." or "path:..." are turned into site-relative
 	    # URLs.
 	    
-	    if ( $href =~ qr{ ^ node: | ^ path: }xs )
+	    if ( $href =~ qr{ ^ (?: node|op|path ) (abs|rel|site )? [:] }xs )
 	    {
 		my $target = $self->{url_generator}->($href) // '';
+		my $blank = defined $1 && $1 eq 'abs' ? 'target="_blank"' : '';
 		$subcontent ||= $target;
-		return qq{<a class="pod_link" href="$target">$subcontent</a>};
+		return qq{<a class="pod_link" ${blank}href="$target">$subcontent</a>};
 	    }
 	    
 	    else

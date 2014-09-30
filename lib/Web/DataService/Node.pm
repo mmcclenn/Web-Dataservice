@@ -22,6 +22,7 @@ our (%NODE_DEF) = ( path => 'ignore',
 		    disabled => 'single',
 		    undocumented => 'single',
 		    title => 'single',
+		    usage => 'single',
 		    collapse_tree => 'single',
 		    file_dir => 'single',
 		    file_path => 'single',
@@ -64,6 +65,7 @@ our (%NODE_DEF) = ( path => 'ignore',
 
 our (%NODE_NONHERITABLE) = ( title => 1,
 			     doc_template => 1,
+			     example => 1,
 			   );
 
 our (%NODE_ATTR_DEFAULT) = ( default_header => 1 );

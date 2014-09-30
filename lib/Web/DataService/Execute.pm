@@ -217,6 +217,16 @@ sub handle_request {
 
     my ($ds, $outer, $attrs) = @_;
     
+    # If this was called as a class method rather than as an instance method,
+    # then call 'select' to figure out the appropriate data service.
+    
+    unless ( ref $ds eq 'Web::DataService' )
+    {
+	$ds = Web::DataService->select($outer);
+    }
+    
+    # Generate a new request object, then execute it.
+    
     my $request = $ds->new_request($outer, $attrs);
     return $ds->execute_request($request);
 }
@@ -233,7 +243,7 @@ sub execute_request {
     my ($ds, $request) = @_;
     
     my $path = $request->node_path;
-    my $format = $request->output_format;
+    my $format = $request->response_format;
     
     # $DB::single = 1;
     
@@ -440,7 +450,7 @@ sub configure_request {
     # If the output format is not already set, then try to determine what
     # it should be.
     
-    unless ( $request->output_format )
+    unless ( $request->response_format )
     {
 	# If the special parameter 'format' is enabled, check to see if a
 	# value for that parameter was given.
@@ -458,10 +468,14 @@ sub configure_request {
 	
 	$format //= $ds->node_attr($path, 'default_format');
 	
+	# Otherwise, use the first format defined.
+	
+	$format //= ${$ds->{format_list}}[0];
+	
 	# If we have successfully determined a format, then set the result
 	# object's output format attribute.
 	
-	$request->output_format($format) if $format;
+	$request->response_format($format) if $format;
     }
     
     # Next, determine the result limit and offset, if any.  If the special
@@ -492,19 +506,19 @@ sub configure_request {
     my $source_value = $request->special_value('datainfo') //
 	$ds->node_attr($path, 'default_datainfo');
     
-    $request->display_source($source_value) if defined $source_value;
+    $request->display_datainfo($source_value) if defined $source_value;
     
     my $count_value = $request->special_value('count') //
 	$ds->node_attr($path, 'default_count');
     
     $request->display_counts($count_value) if defined $count_value;
     
-    my $output_linebreak = $request->special_value('linebreak') ||
+    my $response_linebreak = $request->special_value('linebreak') ||
 	$ds->node_attr($path, 'default_linebreak') || 'crlf';
     
-    $request->output_linebreak($output_linebreak);
+    $request->response_linebreak($response_linebreak);
     
-    my $save_specified = $request->special_exists('save');
+    my $save_specified = $request->special_given('save');
     my $save_value = $request->special_value('save') || '';
     
     if ( $save_specified && $save_value !~ qr{ ^ (?: no | off | 0 | false ) $ }xsi )
@@ -519,7 +533,7 @@ sub configure_request {
     
     my $vocab_value = $request->special_value('vocab');
     
-    $request->output_vocab($vocab_value) if defined $vocab_value;
+    $request->response_vocab($vocab_value) if defined $vocab_value;
     
     # If an after_config_hook is defined for this path, call it.
     
@@ -543,7 +557,7 @@ sub generate_result {
 	unless $request->{_configured};
     
     my $path = $request->node_path;
-    my $format = $request->output_format;
+    my $format = $request->response_format;
     
     my $method = $ds->node_attr($path, 'method');
     my $arg = $ds->node_attr($path, 'arg');
@@ -566,12 +580,12 @@ sub generate_result {
     # the data service, which will be the default vocabulary if none were
     # explicitly defined.
     
-    unless ( my $vocab_value = $request->output_vocab )
+    unless ( my $vocab_value = $request->response_vocab )
     {
 	$vocab_value = $ds->{format}{$format}{default_vocab} //
 	    $ds->{vocab_list}[0];
 	
-	$request->output_vocab($vocab_value);
+	$request->response_vocab($vocab_value);
     }
     
     # If the format indicates that the output should be returned as an
@@ -687,7 +701,7 @@ sub generate_doc {
     my ($ds, $request) = @_;
     
     my $path = $request->node_path;
-    my $format = $request->output_format;
+    my $format = $request->response_format;
     
     # If this is not a valid request, then return a 404 error.
     
@@ -721,7 +735,7 @@ sub generate_doc {
 	
 	$format ||= 'html';
 	
-	$request->output_format($format);
+	$request->response_format($format);
     }
     
     # We start by determining the values necessary to fill in the documentation
@@ -819,12 +833,22 @@ sub generate_doc {
 	    $parser->parse_pod($doc_string);
 	    
 	    my $url_generator = sub {
-		if ($_[0] =~ qr{ ^ (node|path) : ( [^#]* ) (?: [#] (.*) )? }xs )
+		if ( $_[0] =~ qr{ ^ (node|op|path) (abs|rel|site)? [:] ( [^#?]* ) (?: [?] ( [^#]* ) )? (?: [#] (.*) )? }xs )
 		{
-		    my $arg = $1 eq 'node' ? 'documentation' : 'operation';
-		    my $path = $2 || '/';
-		    $DB::single = 1;
-		    return $ds->generate_url({ type => 'site', $arg => $path, fragment => $3 });
+		    my $arg = $1;
+		    my $type = $2 || 'site';
+		    my $path = $3 || '/';
+		    my $params = $4;
+		    my $frag = $5;
+		    my $format;
+		    
+		    if ( $path =~ qr{ (.*) [.] ([^.]+) $ }x )
+		    {
+			$path = $1; $format = $2;
+		    }
+		    
+		    return $request->generate_url({ $arg => $path, type => $type, format => $format, 
+						    params => $params, fragment => $frag });
 		}
 		else
 		{
@@ -832,8 +856,11 @@ sub generate_doc {
 		}
 	    };
 	    
-	    my $doc_html = $parser->generate_html({ css => $ds->{doc_stylesheet}, 
-						    tables => 1, base_url => $ds->base_url,
+	    my $stylesheet = $ds->node_attr($path, 'doc_stylesheet') || 
+		$ds->generate_site_url({ path => 'css/dsdoc.css' });
+	    
+	    my $doc_html = $parser->generate_html({ css => $stylesheet,
+						    tables => 1, base_url => $request->base_url,
 						    url_generator => $url_generator });
 	    
 	    $ds->_set_content_type($request, 'text/html');
@@ -909,7 +936,7 @@ sub _set_content_type {
     
     unless ( $ct )
     {
-	my $format = $request->output_format;
+	my $format = $request->response_format;
 	$ct = $ds->{format}{$format}{content_type} || 'text/plain';
     }
     
@@ -935,7 +962,7 @@ sub _set_content_disposition {
     
     unless ( $filename =~ qr{ [^.] [.] \w+ $ }xs )
     {
-	$filename .= '.' . $request->output_format;
+	$filename .= '.' . $request->response_format;
     }
     
     $ds->{foundation_plugin}->set_header($request, 'Content-Disposition' => 
@@ -1036,7 +1063,7 @@ sub determine_output_names {
 }
 
 
-# determine_output_format ( outer, inner )
+# determine_response_format ( outer, inner )
 # 
 # This method is called by the error reporting routine if we do not know the
 # output format.  We are given (possibly) both types of objects and need to
@@ -1046,7 +1073,7 @@ sub determine_output_names {
 # This method need only return a value if that value is not 'html', because
 # that is the default.
 
-sub determine_output_format {
+sub determine_response_format {
 
     my ($ds, $outer, $inner) = @_;
     
@@ -1119,8 +1146,6 @@ sub error_result {
 
     my ($ds, $error, $request) = @_;
     
-    $DB::single = 1;
-    
     # If we are in 'debug' mode, then print out the error message.
     
     if ( Web::DataService->is_mode('debug') )
@@ -1184,8 +1209,8 @@ sub error_result {
     # Next, try to determine the format of the result
     
     my $format;
-    $format ||= $inner->output_format if $inner;
-    $format ||= $ds->determine_output_format($outer, $inner);
+    $format ||= $inner->response_format if $inner;
+    $format ||= $ds->determine_response_format($outer, $inner);
     
     my ($code);
     my (@errors, @warnings);

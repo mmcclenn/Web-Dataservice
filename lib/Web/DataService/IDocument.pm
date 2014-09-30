@@ -96,6 +96,52 @@ sub document_http_methods {
 }
 
 
+# document_usage ( )
+# 
+# Return a documentation string in POD format describing the usage examples
+# (if any) given for this node.
+
+sub document_usage {
+    
+    my ($request) = @_;
+    
+    my $ds = $request->{ds};
+    my $path = $request->node_path;
+    my $usage = $request->node_attr('usage');
+    my $default_format = $request->node_attr('default_format');
+    
+    my @usage_list = ref $usage eq 'ARRAY' ? @$usage : $usage;
+    my @urls;
+    
+    foreach my $example ( @usage_list )
+    {
+	next unless defined $example && ref $example eq 'HASH';
+	
+	my $args = { op => $path, format => $example->{format} || $default_format };
+	$args->{params} = $example->{params} if $example->{params};
+	$args->{fragment} = $example->{fragment} if $example->{fragment};
+	$args->{type} = $example->{type} if $example->{type};
+	
+	my $url = $request->generate_url($args);
+	
+	push @urls, $url if $url;
+    }
+    
+    return unless @urls;
+    
+    my $doc_string = "=over\n\n";
+    
+    foreach my $url ( @urls )
+    {
+	$doc_string .= "=item *\n\nL<$url>\n\n";
+    }
+    
+    $doc_string .= "=back\n";
+    
+    return $doc_string;
+}
+
+
 # document_params ( )
 # 
 # Return a documentation string in POD format describing the parameters

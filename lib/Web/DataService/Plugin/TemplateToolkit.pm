@@ -90,17 +90,17 @@ sub render_template {
     # First, determine the list of templates to render, by unpacking the
     # $templates hash.
     
-    my @templates;
+    my $base = '';
     
-    push @templates, $templates->{defs} if $templates->{defs};
-    push @templates, $templates->{header} if $templates->{header};
-    push @templates, $templates->{main} if $templates->{main};
-    push @templates, $templates->{footer} if $templates->{footer};
+    $base .= "<% PROCESS '$templates->{defs}' %>\n" if $templates->{defs};
+    $base .= "<% PROCESS '$templates->{header}' %>\n" if $templates->{header};
+    $base .= "<% PROCESS '$templates->{main}' %>\n" if $templates->{main};
+    $base .= "<% PROCESS '$templates->{footer}' %>\n" if $templates->{footer};
     
     # Then construct a special template to render them in order.
     
-    my $list = join(' + ', @templates);
-    my $base = "<% PROCESS $list %>";
+    #my $list = join(' + ', @templates);
+    #my $base = "<% PROCESS $list %>";
     
     # Process it and return the result.
     

@@ -22,4 +22,16 @@ charset: "UTF-8"
 show_errors: 1
 log: "warning"
 
+# If you wish to access a backend datastore via DBI, you can uncomment the following and substitute the
+# appropriate settings.  You will need to make sure that your main application requires the module
+# Dancer::Plugin::Database.  Then, you can use the method 'get_connection' to retrieve a database handle
+# whenever you need one.
+
+# plugins:
+#     Database:
+#       driver: 'mysql'
+#       database: 'my_database'
+#       host: 'localhost:mysql_socket=my_socket_path'
+#       username: 'my_username'
+#       password: 'my_password'
 

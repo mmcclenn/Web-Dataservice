@@ -22,7 +22,7 @@ use Dancer ':syntax';		# This module is required for
 				# backend database via DBI (the example
 				# application does not need it).
 
-use Template;			# This is required in order to generate
+eval { require Template; };	# This is required in order to generate
                                 # documentation pages.
 
 use Web::DataService;		# Bring in Web::DataService.
@@ -47,7 +47,6 @@ if ( defined $ARGV[0] and lc $ARGV[0] eq 'get' )
     set show_errors => 0;
     
     Web::DataService->set_mode('debug', 'one_request');
-    $DB::single = 1;
 }
 
 
@@ -88,6 +87,7 @@ $ds->define_format(
 $ds->define_node({ path => '/', 
 		   title => 'Main Documentation',
 		   public_access => 1,
+		   default_format => 'json',
 		   doc_default_op_template => 'operation.tt',
 		   output => 'basic' });
 
@@ -103,6 +103,8 @@ $ds->define_node({ path => 'css',
 $ds->define_node(
     { path => 'single',
       title => 'Single States',
+      usage => [ { params => 'state=wi', format => 'json' },
+      		 { params => 'state=tx&show=hist&header=no', format => 'txt' } ],
       output => 'basic',
       optional_output => 'extra',
       role => 'PopulationData',
@@ -110,6 +112,8 @@ $ds->define_node(
 	"Returns information about a single U.S. state.",
     { path => 'list',
       title => 'Multiple States',
+      usage => [ { params => 'region=ne&show=total', format => 'json' },
+		 { params => 'region=we&show=hist,total&count&datainfo', format => 'txt' } ],
       output => 'basic',
       optional_output => 'extra',
       role => 'PopulationData',
@@ -117,6 +121,7 @@ $ds->define_node(
 	"Returns information about all of the states matching specified criteria.",
     { path => 'regions',
       title => 'Regions',
+      usage => { format => 'json' },
       output => 'regions',
       role => 'PopulationData',
       method => 'regions' },
@@ -131,7 +136,7 @@ $ds->define_node(
     { path => 'formats/json',
       title => 'JSON format' },
     { path => 'formats/text',
-      title => 'Plain text format' },
+      title => 'Plain text formats' },
     { path => 'special',
       title => 'Special parameters' });
 
@@ -145,17 +150,9 @@ $ds->define_node(
 # your application, you are free to add additional routes to process
 # certain URLs differently.
 
-my $request;
-
-any qr{/data1\.0.*}xs => sub {
+any qr{.*}xs => sub {
     
-    return $ds->handle_request(request);
-};
-
-
-any qr{.*} => sub {
-    
-    die "404\n";
+    return Web::DataService->handle_request(request);
 };
 
 
@@ -173,4 +170,4 @@ hook after_error_render => sub {
     $ds->error_result(var('error'), var('wds_request'));
 };
 
-dance;
+1;

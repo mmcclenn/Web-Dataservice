@@ -22,8 +22,7 @@ the suffix C<.txt> instead.
 
 =item C<.tsv>
 
-Generate a download file in tab-separated text format.  If you wish to see the result in
-a browser tab instead, include the parameter L<textresult|node:special>.
+Generate a download file in tab-separated text format.
 
 =item C<.txt>
 
@@ -121,10 +120,12 @@ value in the second column will be the number of records that matched the main q
 =item C<Records Returned:>
 
 This line will be present if the paramter L<count|node:special> was specified.  The value
-in the second column will be the number of records actually returned.  This may be less than
-the total number of records found, because the size of the result set is
-limited by default to 500.  You can override this using the L<limit|node:special>
-parameter.
+in the second column will be the number of records actually returned.
+<%- IF request.default_limit %>
+This may be less than the total number of records found, because the
+size of the result set is limited by default to <% request.default_limit %>.
+You can override this using the L<limit|node:special> parameter.
+<%- END %>
 
 =item C<Record Offset:>
 
@@ -152,13 +153,14 @@ the first data line.  This header line will contain the name of each column.
 
 The data records will follow this header material, one record per line until the end of the file.
 
-For example, the following URL will produce the following output, looking very similar to a PBDB Classic download:
+For example, the following URL will produce the following output, consisting of a single data record
+with accompanying header line:
 
 =over
 
 =item *
 
-L</data1.0/single.txt?state=WI>
+L<op:single.txt?state=WI>
 
 =back
 
@@ -171,7 +173,7 @@ By contrast, the following URL includes some additional header information, term
 
 =item *
 
-L</data1.0/list.txt?state=wi,mn,il&count>
+L<op:list.txt?state=wi,mn,il&count>
 
 =back
 
@@ -192,7 +194,7 @@ The following URL returns an HTTP error response instead of a data response:
 
 =item *
 
-L</data1.0/list.txt?state=WI,IX&foo=1>
+L<op:list.txt?state=WI,IX&foo=1>
 
 =back
 
@@ -210,7 +212,7 @@ Lastly, the following URL generates just the data records with no header informa
 
 =item *
 
-L</data1.0/list.txt?region=NE&header=no>
+L<op:list.txt?region=NE&header=no>
 
 =back
 

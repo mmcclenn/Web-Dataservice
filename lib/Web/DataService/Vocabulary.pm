@@ -92,6 +92,18 @@ sub define_vocab {
 }
 
 
+# list_vocabs ( )
+# 
+# Return the list of names of all the vocabularies that have been defined for
+# this data service.
+
+sub list_vocabs {
+
+    my ($ds) = @_;
+    return @{$ds->{vocab_list}};
+}
+
+
 # valid_vocab ( )
 # 
 # Return a code reference (actually a reference to a closure) that can be used

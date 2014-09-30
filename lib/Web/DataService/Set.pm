@@ -144,7 +144,10 @@ sub valid_set {
     
     unless ( ref $vs eq 'Web::DataService::Set' )
     {
-	print STDERR "WARNING: unknown set '$set_name'";
+	unless ( $Web::DataService::QUIET || $ENV{WDS_QUIET} )
+	{
+	    warn "WARNING: unknown set '$set_name'";
+	}
 	return \&bad_set_validator;
     }
     

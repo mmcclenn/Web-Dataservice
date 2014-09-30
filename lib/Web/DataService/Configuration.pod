@@ -1,4 +1,3 @@
-
 =head1 NAME
 
 Web::DataService::Configuration - configuration attributes and how to use them
@@ -30,10 +29,10 @@ documentation strings as a I<definition list>.
 	    "The XML format is intended primarily to support data interchange with",
 	    "other databases, using the Darwin Core element set.");
 
-For example, the above call defines two output formats: one named 'json' and
+For example, the above call defines two response formats: one named 'json' and
 the other named 'xml'.  Each of these formats is defined by the set of
 attributes contained in a hashref.  All of the documentation strings are
-automatically collected (joined by newlines) as the attribute "doc" of the
+automatically collected (joined by newlines) as the attribute C<doc_string> of the
 object whose definition they immediately follow.
 
 =head2 Attribute value syntax
@@ -45,7 +44,7 @@ whitespace.  For example, the following are identical:
    output => 'basic , extra'
    output => 'basic,extra'
 
-=head1 ATTRIBUTES
+=head1 CONFIGURATION PROCESS
 
 In order to fully define a data service using this framework, your code must
 carry out the following steps (see the example data service application for
@@ -56,13 +55,12 @@ more about this):
 =item 1)
 
 Load one or more modules ("operation modules") that can serve as L<Moo>
-L<Roles|Moo::Role>.  The subroutines that implement your data service
+L<roles|Moo::Role>.  The subroutines that implement your data service
 operations must be placed in these modules.
 
 =item 2)
 
-Generate a new L<instance of Web::DataService|/Data service instantiation>,
-using C<new>.
+Generate a new L<instance of Web::DataService|/Data service instantiation>.
 
 =item 3)
 
@@ -73,7 +71,7 @@ used if you do not specify any.
 
 =item 4)
 
-Define one or more L<output formats|/Output format definitions> using
+Define one or more L<response formats|/Response format definitions> using
 C<define_format>.  This must follow any vocabulary definitions, and must
 precede the node definitions.
 
@@ -120,6 +118,8 @@ together, either in the main application file or in some subsidiary module, so
 that the hierarchical relationships will be apparent.  Exactly how you
 structure your applicaton is up to you.
 
+=head1 CONFIGURATION DETAILS
+
 The attributes that you can use in defining these different types of elements
 are listed in the following sections.
 
@@ -157,6 +157,8 @@ some attribute values but not others.
     data2.0:
         default_limit: 1200
 
+=head2 Data service attributes
+
 In the list below, entries indicated by C<[req]> are required attributes.
 Those indicated by C<[inst]> must be specified in the call to C<new> rather
 than in the configuration file.  Those indicated by C<[mod]> have default
@@ -166,8 +168,6 @@ service is instantiated.
 All of the data service attributes have identically-named accessor methods.
 These are all read-only; the attributes may only be set at the time of
 instantiation.
-
-=head2 Data service attributes
 
 =head3 name [req] [inst]
 
@@ -192,11 +192,9 @@ while the following will enable just 'format_suffix' and 'documentation':
 
 The individual features are as follows:
 
-=over
-
 =head4 format_suffix
 
-This feature causes the output format of any request to be set from the suffix
+This feature causes the response format of any request to be set from the suffix
 on the URL path.  If enabled, a request with the URL path "/my/operation.json"
 will select the operation corresponding to the data service node
 "my/operation" and will render the output using the "json" format.
@@ -248,8 +246,6 @@ service which can produce large responses, because otherwise the process of
 marshalling such responses will take up large amounts of server memory and CPU
 time, and may cause excessive paging.
 
-=back
-
 =head3 special_params [req] [inst]
 
 The Web::DataService module can process certain request parameters in special
@@ -275,8 +271,6 @@ Once a set of special parameters is chosen, clients of the data service may
 include any of them (or none) in any request.  The special parameters are as
 follows:
 
-=over
-
 =head4 selector
 
 If enabled, this special parameter is used to select which version of the data
@@ -293,10 +287,10 @@ of your service is selected to respond to each request.
 
 =head4 format
 
-If enabled, this special parameter is used to select the output format for the
+If enabled, this special parameter is used to select the response format for the
 request.  It is forbidden to enable this parameter and the feature
 L</"format_suffix"> for the same data service.  You can enable it if you
-prefer your clients to select the output format by means of a parameter rather
+prefer your clients to select the response format by means of a parameter rather
 than through a suffix on the URL path.
 
 =head4 show
@@ -374,7 +368,7 @@ provide the appropriate headers, but it is up to the web browser or other
 client software to decide how to handle them.  If this parameter is provided
 with a value other than C<yes>, C<no>, C<on>, C<off>, C<1>, C<0>, C<true>, or
 C<false>, then this value will be used as the default filename with the
-selected output format appended as a suffix.  You can also use the attribute
+selected response format appended as a suffix.  You can also use the attribute
 L</default_filename> to provide a default in case no filename was specified by
 the client.
 
@@ -386,8 +380,6 @@ client can use this to override the default vocabulary for the selected output
 format, or to select a vocabulary if the format does not specify a default.
 Obviously, this special parameter should only be enabled if you have defined
 additional output vocabularies.
-
-=back
 
 =head3 foundation_plugin [req] [inst] [mod]
 
@@ -641,6 +633,42 @@ for any documentation generated about the node.  If not specified, the node
 path will be used instead.  This attribute is B<not inherited>.  Best practice
 is to define a specific and informative title for each node.
 
+=head3 doc_string
+
+You can set this attribute either directly or by including one or more
+documentation strings after the node attribute hash in the call to
+C<define_node>.  The default documentation templates use this value as the
+main description on each documentation page.  If you wish to use a longer
+description than can be easily conveyed in a call to C<define_node>, then
+create a specific documentation template for this node.
+
+=head3 usage
+
+The value of this attribute must be either a hashref or an array of hashrefs.
+Its purpose is to generate a list of example URLs as part of the node
+documentation.  Each hash should have at least one of the following keys:
+
+=over
+
+=item format
+
+This specifies the response format that the example URL will request.  If not
+specified, the default format (if any) will be used.
+
+=item params
+
+This should either be an array of URL parameters or a string.  For example, 
+C<[ 'state=ak', 'count' ]> or C<'state=ak&count'>.
+
+=item fragment
+
+This should specify a URL fragment (without the C<#>) to be added on the end.
+
+=back
+
+Any invalid items will be simply ignored.  If no valid items are found, the
+section will be omitted completely.
+
 =head3 method
 
 A node that has both this attribute and the attribute L</role> is considered
@@ -739,7 +767,7 @@ that you always set this to true for the root node.
 =head3 default_format
 
 The value of this attribute must be the name of one of the formats defined for
-this data service.  If no output format can be determined from the request URL
+this data service.  If no response format can be determined from the request URL
 and/or parameters, then the specified format will be used for any operation
 request matching this node.  If the data service will only be returning data
 in a single format, then you should set the value of this attribute in the
@@ -803,7 +831,7 @@ match this node, unless overridden by the special parameter C<linebreak>.
 The value of this attribute will used for the 'content-disposition' header of
 the response message for requests matching this node, if the special parameter
 C<save> is given with a basic 'true' value and not a filename.  The name of
-the requested output format will automatically be appended as a suffix, so no
+the requested response format will automatically be appended as a suffix, so no
 suffix should be included in the attribute value.  For requests given through
 a web browser, most browsers will offer to save the file under this name.
 
@@ -828,7 +856,7 @@ are allowed.
 =head3 allow_format
 
 This is a set-valued attribute.  The individual values must be the names of
-output formats defined for this data service, specifying which ones are valid
+response formats defined for this data service, specifying which ones are valid
 for requests matching this node.  If not specified, then all defined formats
 are allowed.
 
@@ -872,15 +900,6 @@ of this attribute will be tried as a final default.  The contents of this
 template might say something like "no documentation can be found".  If not
 specified, the default value is 'doc_not_found' followed by the appropriate
 suffix for the selected templating engine (i.e. '.tt' for Template Toolkit).
-
-=head3 doc_string
-
-You can set this attribute either directly or by including one or more
-documentation strings after the node attribute hash in the call to
-C<define_node>.  The default documentation templates use this value as the
-main description on each documentation page.  If you wish to use a longer
-description than can be easily conveyed in a call to C<define_node>, then
-create a specific documentation template for this node.
 
 =head3 doc_defs
 
@@ -939,9 +958,9 @@ pattern for this data service for the node path "/css/dsdoc.css".  The default
 installation of this framework includes an appropriate CSS file under that
 name, which you can edit however you choose.
 
-=head2 Output format definitions
+=head2 Response format definitions
 
-Each data service must define one or more output formats.  These are defined
+Each data service must define one or more response formats.  These are defined
 using the C<define_format> method of the data service object.  This must be be
 done at data service startup time, before any nodes are defined (so that the
 'default_format' and 'allow_format' node attributes can be interpreted
@@ -968,7 +987,7 @@ not be available.  The corresponding call for this example would be:
 
     $ds->define_node(
 	{ path => 'formats',
-	  title => 'Output formats' },
+	  title => 'Response formats' },
 	{ path => 'formats/json',
 	  title => 'JSON format' },
 	{ path => 'formats/txt',
@@ -976,11 +995,9 @@ not be available.  The corresponding call for this example would be:
 
 See the next section for descriptions of the various attributes.
 
-=over
-
 =head4 json
 
-This output format serializes operation results using
+This format serializes operation results using
 L<JSON|https://en.wikipedia.org/wiki/JSON> (JavaScript Object Notation).  It
 sets the content type of the response to "application/json", and its default
 documentation node is "formats/json".  The module used is
@@ -988,7 +1005,7 @@ L<Web::DataService::Plugins::JSON>.
 
 =head4 txt
 
-This output format serializes operation results as lines of L<comma-separated
+This format serializes operation results as lines of L<comma-separated
 values|https://en.wikipedia.org/wiki/Comma-separated_values> separated by the
 specified L<linebreak sequence|/default_linebreak>.  Its content type is
 "text/plain", and its default documentation node is "formats/txt".  The module
@@ -996,12 +1013,12 @@ used is L<Web::DataService::Plugins::Text>.
 
 =head4 csv
 
-This output format is identical to L</txt>, except that it sets the content
+This format is identical to L</txt>, except that it sets the content
 type of the response to "text/csv".
 
 =head4 tsv
 
-This output format serializes operation results as lines of L<tab-separated
+This format serializes operation results as lines of L<tab-separated
 values|https://en.wikipedia.org/wiki/Tab-separated_values> separated by the
 specified L<linebreak sequence|/default_linebreak>.  Its content type is
 "text/tab-separated-values", and its default documentation node is
@@ -1009,13 +1026,11 @@ specified L<linebreak sequence|/default_linebreak>.  Its content type is
 
 =head4 xml
 
-This output format serializes operation results as XML.  Its content type is
+This format serializes operation results as XML.  Its content type is
 "text/xml", and its default documentation node is "formats/xml".  The module
 used is L<Web::DataService::Plugins::XML>.
 
-=back
-
-=head2 Output format attributes
+=head2 Response format attributes
 
 With the exception of C<name>, each of these attributes is optional for
 predefined formats.  Those which are required for custom (i.e. not predefined)
@@ -1116,8 +1131,6 @@ expressed in that vocabulary.
 
 With the exception of C<name>, each of these attributes is optional.  
 
-=over
-
 =head3 name
 
 Each vocabulary defined for a given data service must have a unique name.
@@ -1162,8 +1175,6 @@ If this attribute is given a true value, the vocabulary will be available to
 be selected in the usual way, but it will never appear in any auto-generated
 documentation list.
 
-=back
-
 =head2 Set definitions
 
 Each data service may define one or more sets of elements, which can be used
@@ -1188,8 +1199,6 @@ Each element in a set definition must be a hashref specifying one or more of
 the following attributes.  With the exception of C<value>, each of these is
 optional.
 
-=over
-
 =head3 value
 
 This attribute is required for each element.  Its value must be a string, and
@@ -1213,8 +1222,6 @@ it occurs is completely ignored.
 If this attribute is given a true value, then the element is accepted as a
 valid value for the set in which it is defined.  However, it will not appear
 in any auto-generated documentation about the set.
-
-=back
 
 =head2 Output block definitions
 

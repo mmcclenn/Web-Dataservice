@@ -12,22 +12,17 @@ Support for client applications written in Javascript
 
 =item *
 
-Export of data to other databases using the Darwin Core standard
+Downloads of data in text format for use in spreadsheets
 
 =item *
 
-Downloads of data in text format for use in research projects
-
-=item *
-
-Processing of data by a custom R module (available soon).
+Viewing of data in browser tabs.
 
 =back
 
 Each format has a default vocabulary in which its data is expressed.  The
 available formats and vocabularies are discussed below.
 
-<% INCLUDE ALL_FORMATS %>
+<% INCLUDE FORMATS opt_extended=1 %>
 
-<% INCLUDE ALL_VOCABULARIES %>
-
+<% INCLUDE VOCABULARIES opt_extended=1 opt_all=1 %>

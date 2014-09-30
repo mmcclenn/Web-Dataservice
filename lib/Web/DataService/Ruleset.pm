@@ -351,6 +351,13 @@ sub generate_special_doc {
 	    "Specifies a data service operation to perform.";
     }
     
+    elsif ( $param eq 'document' )
+    {
+	push @doc,
+	     "If a request includes this parameter, then a documentation page is",
+	     "returned instead of an operation being executed.";
+    }
+    
     elsif ( $param eq 'show' )
     {
 	push @doc,
@@ -466,6 +473,14 @@ sub generate_special_doc {
     }
     
     return @doc;
+}
+
+
+sub ruleset_defined {
+    
+    my ($ds, $rs_name) = @_;
+    
+    return $ds->{validator}->ruleset_defined($rs_name);
 }
 
 

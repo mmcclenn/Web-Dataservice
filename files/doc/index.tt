@@ -9,8 +9,6 @@ You can use this code as a basis for building your own data services.
 
 The following data service operations are available:
 
-=for pp_table_header documentation / description
-
 =over
 
 =item L<Single state|node:single>
@@ -21,11 +19,15 @@ Returns information about a single state.
 
 Returns information about a list of states matching the specified criteria.
 
+=item L<Regions|node:regions>
+
+Returns the list of regions defined by this data service.
+
 =back
 
-<% INCLUDE FORMATS opt_extended=1 %>
+<% FORMATS(opt_extended=1) %>
 
-<% INCLUDE VOCABULARIES opt_extended=1 opt_all=1 %>
+<% VOCABULARIES(opt_extended=1, opt_all=1) %>
 
 
 

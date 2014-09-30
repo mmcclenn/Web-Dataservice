@@ -17,41 +17,6 @@ use Moo;
 use namespace::clean;
 
 
-=head1 NAME
-
-Web::DataService::Request - base class for data service request objects
-
-=head1 SYNOPSIS
-
-Under the Web::DataService framework, each incoming data service request
-generates an object to represent it.  Each of these objects belongs to
-a subclass of this one, and inherits all of the methods documented here.
-
-
-
-
-
-This module provides a framework for you to use in building data service
-applications for the World Wide Web.  Such applications sit between a data
-storage and retrieval system on one hand and the Web on the other, and fulfill
-HTTP-based data requests by fetching the appropriate data from the backend and
-serializing it in an output format such as JSON or XML.
-
-Using the methods provided by this module, you start by defining a set of
-output formats, output blocks, vocabularies, and parameter rules, followed by
-a set of data service nodes representing the various operations to be provided
-by your service.  Each of these objects is configured by a set of attributes,
-optionally including documentation strings.
-
-You continue by writing one or more classes whose methods will handle the
-"meat" of each operation: talking to the backend data system and storing
-and/or fetching the relevant data, based on the parameter values provided in a
-data service request.  This module then handles the rest of the work necessary
-for handling each data service request, including serializing the result in
-the appropriate output format.
-
-=cut
-
 # The required attribute 'ds' is the data service with which this request is
 # associated.
 
@@ -83,11 +48,11 @@ has is_invalid_request => ( is => 'rw' );
 
 has is_doc_request => ( is => 'rw' );
 
-has output_format => ( is => 'rw' );
+has response_format => ( is => 'rw' );
 
-has output_vocab => ( is => 'rw' );
+has response_vocab => ( is => 'rw' );
 
-has output_linebreak => ( is => 'rw' );
+has response_linebreak => ( is => 'rw' );
 
 has result_limit => ( is => 'rw' );
 
@@ -95,7 +60,7 @@ has result_offset => ( is => 'rw' );
 
 has display_header => ( is => 'rw' ); #, lazy => 1, builder => sub { $_[0]->_init_value('header') } );
 
-has display_source => ( is => 'rw' );
+has display_datainfo => ( is => 'rw' );
 
 has display_counts => ( is => 'rw' );
 
@@ -196,7 +161,7 @@ sub _match_node {
 	    if ( $node_path =~ qr{ ^ (.+) [.] (.+) }xs )
 	    {
 		$node_path = $1;
-		$self->{output_format} = $2;
+		$self->response_format($2);
 	    }
 	    
 	    else
@@ -206,7 +171,7 @@ sub _match_node {
 	}
 	
 	# If the feature 'doc_paths' is enabled and the specified path ends in
-	# '_doc', remove that string and set the 'doc_path' attribute for this
+	# '_doc', remove that string and set the 'is_doc_request' flag for this
 	# request.  Under this feature, the path "abc/def_doc" indicates a
 	# request for doumentation about the path "abc/def".
 	
@@ -233,6 +198,16 @@ sub _match_node {
 	    {
 		$self->{is_doc_request} = 1;
 	    }
+	}
+	
+	# Otherwise, if the special parameter 'document' is enabled and
+	# present then set the 'is_doc_request' flag for this request.
+	
+	elsif ( my $document_param = $ds->special_param('document') )
+	{
+	    my $params = $ds->{foundation_plugin}->get_params($self->{outer});
+	    
+	    $self->{is_doc_request} = 1 if defined $params->{$document_param};
 	}
 	
 	# We then lop off components as necessary until we get to a node that has
@@ -368,6 +343,28 @@ sub path_prefix {
 }
 
 
+# generate_url ( attrs )
+# 
+# Generate a URL based on the specified attributes.  This routine calls
+# Web::DataService::generate_url to create a site-relative URL, then applies
+# the base URL from the current request if asked to do so.
+
+sub generate_url {
+    
+    my ($self, $attrs) = @_;
+    
+    my $url = $self->{ds}->generate_site_url($attrs);
+    
+    if ( defined $attrs->{type} && $attrs->{type} eq 'abs' )
+    {
+	$url =~ s{^/}{};
+	$url = $self->base_url . $url;
+    }
+    
+    return $url;
+}
+
+
 # data_info ( )
 # 
 # Return a hash of information about the request.
@@ -385,11 +382,12 @@ sub data_info {
     my $node_path = $self->node_path;
     my $base_url = $self->base_url;
     
-    my $doc_url = $ds->generate_url({ type => 'relative', documentation => $node_path });
+    my $doc_url = $self->generate_url({ node => $node_path });
+    $doc_url =~ s{^/}{};
     my $data_url = $self->request_url;
     $data_url =~ s{^/}{};
     
-    $info->{documentation_url} = $base_url . $doc_url;
+    $info->{documentation_url} = $base_url . $doc_url if $ds->{feature}{documentation};
     $info->{data_url} = $base_url . $data_url;
     
     return $info;
@@ -412,6 +410,21 @@ sub contact_info {
 
     my $ds = $self->{ds};
     return $ds->contact_info;
+}
+
+
+# node_attr ( )
+# 
+# Return the specified attribute of the node that matches this request.
+
+sub node_attr {
+    
+    my ($self, $attr) = @_;
+    
+    my $ds = $self->{ds};
+    my $path = $self->node_path;
+    
+    return $ds->node_attr($path, $attr);
 }
 
 # special_value ( param )
@@ -444,12 +457,12 @@ sub special_value {
 }
 
 
-# special_exists ( param )
+# special_given ( param )
 # 
 # Return true if the given special parameter was specified in the request,
 # regardless of its value.
 
-sub special_exists {
+sub special_given {
 
     my ($self, $param) = @_;
     
@@ -516,145 +529,769 @@ sub error_result {
 
 =head1 NAME
 
-Web::DataService::Request - interface for handling a single request
+Web::DataService::Request - object class for data service requests
 
 =head1 SYNOPSIS
 
-The way that you handle a result using Web::DataService is as follows:
+As each incoming request is handled by the Web::DataService framework, a
+request object is created to represent it.  This object is blessed into a
+subclass of Web::DataService::Request which provides the methods listed here
+and also includes a L<Role|Moo::Role> with methods that you have written for
+evaluating the request and doing the appropriate fetching/storing on the
+backend data system.
 
-    my $request = $ds->new_request(undef, $path);
-    $request->execute;
+The simplest way for the main application to handle a request is as follows:
 
-The C<new_request> method creates a new C<Web::DataService::Request> object,
-whose attributes are set according to the given path.
+    $ds->handle_request(request);
 
-The C<execute> method then processes the request as indicated by these
-attributes; if you have specified C<class> and C<method>, then the appropriate
-method is called.
+This call uses the C<request> function provided by Dancer to get the "outer"
+object representing this request from the point of view of the foundation
+framework, and then passes it to the C<handle_request> method of the data
+service instance.  In the process of handling the request, a new "inner"
+request object is generated and blessed into an appropriate subclass of
+Web::DataService::Request.
+
+If you wish more control over this process, you can substitute the following:
+
+    my $inner = $ds->new_request(request);
+    
+    # You can put code here to check the attributes of $inner and possibly
+    # alter them...
+    
+    $inner->execute;
+
+Whichever of these code fragments you use should go into a Dancer route handler.
+
+=head2 Request handling process
+
+The request handling process carried out by C<handle_request> works as follows:
+
+=over
+
+=item 1.
+
+The request URL path and parameters are parsed according to the active set of
+data service features and special parameters. Depending upon the set of data
+service features that are active, the path may be processed before moving on
+to the next step.  The following is not an exhaustive list, but illustrates
+the kinds of processing that are done:
+
+=over
+
+=item *
+
+If the data service has the attribute "path_prefix", this prefix is removed
+from the path.
+
+=item *
+
+If the feature 'format_suffix' is active and the path ends in a format suffix
+such as C<.json>, then that suffix is removed and later used to set the
+"format" attribute of the request.
+
+=item *
+
+If the feature 'doc_paths' is active and the path ends in '_doc' or in
+'/index' then this suffix is removed and the "is_doc_request" attribute of the
+request is set.
+
+=item *
+
+If the special parameter 'document' is active and this parameter was included
+with the request, then the "is_doc_request" attribute of the request is set.
+
+=back
+
+=item 2.
+
+The modified request path is matched against the set of data service node
+paths.  Nodes with either of the attributes C<file_dir> or C<collapse_tree>
+match as prefixes, all others must match exactly.  If none of the nodes match,
+then the request is rejected with a HTTP 404 error.  Otherwise, a new request
+object is created and configured using the attributes of the matching node.
+
+=back
+
+If you used C<new_request> instead of C<handle_request>, then you get control
+at this point and can modify the request before calling C<<$request->execute>> to finish the process.
+
+=over
+
+=item 3.
+
+If the matching node has the C<file_path> attribute, then the contents of the
+specified file are returned using the foundation framework (i.e. Dancer).  If
+the node has the C<file_dir> attribute instead, then the remainder of the
+request path is applied as a relative path to that directory.  The result of
+the request will be either the contents of a matching file or a HTTP 404
+error.
+
+=item 4.
+
+Otherwise, the new request will be blessed into an automatically generated
+subclass of Web::DataService::Request.  These subclasses are generated
+according to the value of the "role" attribute of the matching node.  Each
+different role generates two subclasses, one for documentation requests and
+one for operation requests.  These classes are composed so that they contain
+the necessary methods for documentation rendering and operation execution,
+respectively, along with all of the definitions from the primary role (this
+role module must be written by the application author).
+
+=item 5.
+
+If the "is_doc_request" attribute has been set, or if the matching node does
+not have a value for the "method" attribute, then the documentation directory
+is checked for a template corresponding to the matching node.  If not found,
+the appropriate default template is used.  This template is rendered to
+produce a documentation page, which is returned as the result of the request.
+
+=item 6.
+
+Otherwise, we can assume that the node has a "method" attribute.  The request
+parameters are then checked against the ruleset named by the "ruleset"
+attribute, or the ruleset corresponding to the node path if this attribute is
+not set.
+
+=item 7.
+
+The output is then configured according to the output blocks(s) indicated by the
+"output" attribute plus those indicated by "optional_output" in conjunction
+with the special parameter "show".
+
+=item 8.
+
+The method specified by the node attribute "method" is then called.  This
+method (which must be written by the application author) is responsible for
+fetching and/or storing data using the backend system and specifying what the
+result of the operation should be.
+
+=item 9.
+
+If the result of the operation is one or more data records, these records are
+processed according to the specification contained in the selected output
+blocks, and are then serialized by the module corresponding to the selected
+output format.  If "count" or "datainfo" were requested, or if any warnings or
+errors were generated during the execution of the request, this material is
+included in an appropriate way by the serialization module.  The resulting
+response body is returned using the foundation framework.
+
+=item 10.
+
+If the result of the operation is instead a piece of non-record data (i.e. an
+image or other binary data), it is returned as the response body using the
+foundation framework.
+
+=back
 
 =head1 METHODS
 
-=head3 new ( ds, outer, path )
+=head2 Constructor
 
-You will probably not call this method directly; instead, call the
-C<new_request> method of L<Web::DataService>, which calls it internally after
-carrying out other processing such as selecting among sub-services.
+=head3 new ( attributes... )
 
-If you do call it directly, the parameter C<ds> must be an instance of
-C<Web::DataService>. The parameter C<outer> should be a reference to the
-request object generated by the underlying Web Application Framework
-(i.e. L<Dancer>). The parameter C<path> must be the path corresponding to the
-selected operation.
+You will probably not call this method directly; instead, you should call the
+C<handle_request> method of L<Web::DataService>, which calls it internally after
+carrying out other processing.
 
-Returns a new instance of C<Web::DataService::Request>, whose attributes are
-set from the given path.
+=head2 Execution
 
 =head3 execute ( )
 
-Executes this request, and sends a result message using the foundation
+Executes this request, and returns the serialized response data.  If your main
+application uses C<handle_request>, then you will not need to call it because
+C<handle_request> calls it internally.
+
+=head3 error_result ( error )
+
+Aborts processing of the request and causes a HTTP error response to be
+returned to the client.  The parameter can be any of the following:
+
+=over
+
+=item *
+
+A HTTP error code, such as "404" or "500".
+
+=item *
+
+An error message, which will be written to the log.  For security reasons, the
+client will just get back a HTTP 500 response that tells them a server error
+occurred and they should contact the server administrator.
+
+=item *
+
+A validation result object from L<HTTP::Validate>.  The client will get back a
+HTTP 400 response containing the error and warning messages contained within
+it.
+
+=back
+
+=head2 Attribute accessors
+
+=head3 ds
+
+Returns a reference to the data service instance with which this request is
+associated.
+
+=head3 outer
+
+Returns a reference to the "outer" request object defined by the foundation
 framework.
+
+=head3 path
+
+Returns the raw path associated with the request.
+
+=head3 node_path
+
+Returns the path of the node that matches this request.
+
+=head3 rest_path
+
+If the node path matches the processed request path as a prefix, this accessor returns
+the remainder of the path.  Otherwise, it returns C<undef>.
+
+=head3 is_invalid_request
+
+Returns true if this request could not be matched to a node, or is otherwise
+invalid.  Returns false otherwise.
+
+=head3 is_doc_request
+
+Returns true if this request has been determined to be a request for
+documentation, according to the features and special parameters enabled for
+this data service.  Returns false otherwise.
+
+=head3 is_node_path
+
+Returns true if the request path I<exactly> matches the path of a data service
+node, false otherwise.
+
+=head3 request_url
+
+Returns the complete request URL.
+
+=head3 base_url
+
+Returns the base component of the request URL, of the form
+"http://some.host/" or something similar.
+
+=head3 root_url
+
+Returns the base URL plus the path prefix (if any) for this data service.
+
+=head3 path_prefix
+
+Returns the path prefix (if any) for this data service.
+
+=head3 data_info
+
+Returns a hash containing information about the request and the data to be
+returned.  The hash keys will include some or all of the following, depending
+upon the configuration of the data service.
+
+=over
+
+=item title, data_provider, data_source, data_license, license_url
+
+The values of these keys will be the corresponding attributes of the data
+service.  They may be undefined if no value was specified for them either when
+the data service was instantiated or in the configuration file maintained by
+the foundation framework.
+
+=item access_time
+
+The current time.
+
+=item data_url
+
+The complete request URL.
+
+=item documentation_url
+
+A URL that will return a documentation page describing the selected data
+service node.
+
+=back
+
+=head3 data_info_keys
+
+Returns a list of the keys documented for C<data_info>, in a canonical order
+for use by the serialization modules.
+
+=head3 contact_info
+
+Returns a hash whose keys are C<name> and C<email>.  The values will be the
+values of the data service attributes C<contact_name> and C<contact_email>,
+respectively.
+
+=head3 generate_url ( attrs )
+
+This method returns a URL generated from the specified attributes, which must be given
+either as a hashref or as separate arguments:
+
+    $url = $ds->generate_site_url( operation => 'abc/def', format => 'json' );
+    $url = $ds->generate_site_url( { operation => 'abc/def', format => 'json' } );
+
+The attributes are as follows:
+
+=over
+
+=item node
+
+Generate a URL which will request documentation using the node path given by
+the value of this attribute.
+
+=item op
+
+Generate a URL which will request a data service operation using the node path
+given by the value of this attribute.
+
+=item path
+
+Generate a URL which will request the exact path given.  This is used to
+generate URLs for requesting files, such as CSS files.
+
+=item format
+
+The generated URL will request output in the specified format.  Depending upon
+the features enabled for this data service, that may mean either adding the
+specified value as a suffix to the URL path, or adding a special parameter.
+
+=item params
+
+Configure the URL to include the specified parameters.  The value of this
+attribute must be either an arrayref with an even number of elements or
+a single URL parameter string such as C<"foo=1&bar=2">.
+
+=item type
+
+The value of this attribute must be either C<abs>, C<rel>, or C<site>.  If
+"abs" is given, then the generated URL will begin with
+"http[s]://hostname[:port]/.  If "site", then the generated URL will begin
+with "/" followed by the path prefix for this data service (if any).  If
+"relative", no prefix will be added to the generated URL.  In this case, you
+should make sure to specify a path that will work properly relative to the URL
+of the page on which you intend to display it.
+
+If this attribute is not specified, it defaults to "site".
+
+=back
+
+=head3 node_attr ( name )
+
+Returns the value of the specified attribute of the node matching this
+request, or I<undef> if the attribute is not defined for that node.
+
+=head3 special_value ( param )
+
+Returns the value of the specified special parameter, if it is enabled for
+this data service and if it was included with this request.  Returns I<undef>
+otherwise.
+
+=head3 special_given ( param )
+
+Returns true if the specified special parameter was included in this request
+and is enabled for this data service, regardless of its value.  Returns false
+otherwise.
+
+=head3 default_limit
+
+Returns the default result limit, if any.  This is used in generating
+documentation.
+
+=head2 Documentation methods
+
+The following methods are only available with documentation requests.  They can
+be called from documentation templates as follows:
+
+    <% result = request.method_name(args) %>
+
+or, to include the result directly in the rendered output:
+
+    <% request.method_name(args) %>
+
+In either case, "request" is a variable automatically provided to the
+templating engine.  The string "result" should be replaced by whatever
+variable you wish to assign the result to, and "method_name" and "args" by the
+desired method and arguments.
+
+These methods are all packaged up in blocks defined by doc_defs.tt, so you
+will not need to call them directly unless you want to make substantive
+changes to the look of the documentation pages.
+
+=head3 document_node
+
+Returns the documentation string for the node matching this request, or the
+empty string if none was defined.
+
+=head3 list_navtrail
+
+Returns a list of navigation trail components for the current request, in Pod
+format.  These are generated componentwise from the node path.
+
+=head3 list_http_methods
+
+Returns a list of HTTP methods that are allowed for this request path.
+
+=head3 document_http_methods
+
+Returns a string in Pod format documenting the HTTP methods that are allowed
+for this request path.
+
+=head3 document_usage
+
+Returns a string in Pod format listing the URLs generated from the node
+attribute "usage", if any were given for this node.
+
+=head3 document_params
+
+Returns a string in Pod format documenting the parameters available for this
+request.  This is automatically generated from the corresponding ruleset, if
+one was defined.
+
+=head3 document_response
+
+Returns a string in Pod format documenting the all of the fields that might be
+included in the result.
+
+=head3 output_label
+
+Returns the value of the node attribute "output_label", or the default value
+"basic" if none was defined.
+
+=head3 optional_output
+
+Returns the value of the node attribute "optional_output", if this attribute
+was defined.
+
+=head3 document_formats ( options )
+
+Returns a string in Pod format documenting the formats allowed for this
+node.  If a parameter is specified, it must be a hashref.  If this includes
+the key 'all' with a true value, then all formats defined for this
+data service are included.  If it includes the key 'extended' with a true value, then
+a description of each format is included.
+
+=head3 default_format
+
+Return the name of the default format (if any was specified) for this node.
+
+=head3 document_vocabs ( options )
+
+Return a string in Pod format documenting the vocabularies allowed for this
+node.  If a parameter is specified, it must be a hashref.  If this includes
+the key 'all' with a true value, then all vocabularies defined for this
+data service are included.  If it includes the key 'extended' with a true value, then
+a description of each vocabulary is included.
+
+=head3 response_format
+
+You can use this method to check whether the response is to be rendered into
+HTML or returned as Pod text.  The values returned are C<html> and <pod>
+respectively.
+
+=head2 Operation methods
+
+The following methods are only available with operation requests.  They can be
+called from the operation methods written by the application author and
+included in the role module(s).
+
+=head3 get_connection
+
+This method can only be used if you explicitly specified a backend plugin when
+instantiating the data service, or if the module L<Dancer::Plugin::Database>
+was required in your main application before Web::DataService.
+
+Assuming that the proper connection information is present in the application
+configuration file, this method will return a connection to your backend data
+store.
 
 =head3 clean_param ( param )
 
 Returns the cleaned value of the specified parameter, or undefined if the
-parameter was not specified.  If more than one parameter value was given, the
-result will be an array ref.
+parameter was not included in the request.  If more than one parameter value was
+given, the result will be an array ref.
 
 =head3 clean_param_list ( param )
 
-Returns a list of one or more values of the specified parameter, or undefined
-if the parameter was not specified.
+Returns a list of all the cleaned values of the specified parameter (one or
+more), or empty if the parameter was not included in the request.
 
-=head3 result_limit ( )
+=head3 clean_param_hash ( param )
 
-If the attribute C<limit_param> was specified for the data service, and if it
-was specified with this request, then the given value is returned.  If the
-parameter was given a value of C<all>, then this method returns undefined.
+Returns a hashref whose keys are all of the cleaned values of the specified
+parameter, or an empty hashref if the parameter was not included in the
+request.
 
-If the parameter was not specified at all, or if C<limit_param> was never
-specified, then the C<default_limit> attribute of the data service is
-returned.
+=head3 param_given ( param )
+
+Returns true if the specified parameter was included in there request, whether
+or not it had a valid value.  Returns false otherwise.
+
+=head3 params_for_display
+
+Returns a list of (parameter, value) pairs for use in responding to the
+'datainfo' special parameter.  This result list leaves out any special
+parameters that do not affect the content of the result.  Multiple values are
+concatenated together using commas.
+
+=head3 has_output_block ( block )
+
+Returns true if the specified output block was selected for this request.  The
+parameter can be either the name of the block or the parameter value by which
+it would be selected.
+
+=head3 select_list ( subst )
+
+Returns a list of strings derived from the 'select' configuration records
+found in the output blocks selected for this request.  You can use these
+records to specify which fields need to be retrieved from the backend data
+store.  Any given string will only appear once in the list, even if it occurs
+in multiple 'select' records.
+
+The optional argument should be a hashref, indicating substitutions to be
+made.  For example, given the following code,
+
+    $ds->define_block( 'block1' => 
+        { select => '$a.name', '$a.value', 'c.size' },
+        ... );
+    
+    # ...and in a different subroutine...
+    
+    my @fields = $request->select_list( { a => 'table1', b => 'table2' } )
+
+The result will include C<table1.name>, C<table1.value>, and C<c.size>.
+
+If you are using an SQL-based backend, and if you set up the 'select' records
+properly, you can use this method (or see C<select_string> below) to build a
+SELECT statement that will fetch exactly the information needed for the
+selected set of output blocks.  This is important if your application allows
+optional output blocks that can be selected arbitrarily by the client.  If you
+are using a non-SQL backend, you are free to use this in any way that makes
+sense given the backend interface.
+
+=head3 select_hash ( subst )
+
+Returns the same set of strings as C<select_list>, but as the keys in a
+hash. The values will all be 1.
+
+=head3 select_string ( subst )
+
+Returns the same set of strings as C<select_list>, but joined into a single
+string with each item separated by a comma and a space.
+
+=head3 tables_hash
+
+Returns a hashref whose keys are derived from the 'select' configuration
+records found in the output blocks selected for this request.  The keys from
+this hash will be the values specified by any 'tables' attributes in those
+configuration records.  The values will all be 1.
+
+If you are using an SQL-based backend, and if you set up the 'select' records
+properly, you can use this method to keep track of which database tables will
+be needed in order to build a query that can satisfy all of the data blocks
+included in this request.  You can use the set of keys to constuct an
+appropriate list of table joins.  If you are using a non-SQL backend, you can
+use this in any way that makes sense given the backend interface.
+
+If you call this method multiple times, you will get a reference to the same
+hash each time.  This means that you can safely add and remove keys during
+your own processing.
+
+=head3 filter_hash
+
+Returns a hashref whose keys are derived from the 'filter' configuration
+records found in the output blocks selected for this request.  The values will
+all be 1.
+
+If you are using an SQL-based backend, and if you set up the 'filter' records
+properly, you can use this method to get a list of (unique) filter expressions
+to use in building a query that can satisfy all of the data blocks included in
+this request.  (Note: you will almost always need to add other filter
+expressions derived from parameter values as well).  If you are using a
+non-SQL backend, you can use this in any way that makes sense given the
+backend interface.
+
+If you call this method multiple times, you will get a reference to the same
+hash each time.  This means that you can safely add and remove keys during
+your own processing.
+
+=head3 result_limit
+
+Returns the result limit specified for this request, or undefined if none was
+given or if C<all> was specified.  Even though Web::DataService will always
+truncate the result set if a limit was given, you may want to include this
+limit value in any queries you make to the backend so as to prevent your
+server from doing unnecessary work.
 
 =head3 result_offset ( will_handle )
 
-If the attribute C<offset_param> was specified for the data sevice, and if it
-was specified with this request with a non-zero value, the given value is
-returned.  Otherwise, the method returns 0.
+Returns true if a result offset was specified for this request, or zero if
+none was specified.  If the argument value is true, then Web::DataService
+assumes that you will handle the process of offsetting the data result,
+e.g. by using modifying your backend query appropriately (see
+C<sql_limit_clause> below).
 
-If C<will_handle> is true, then no further processing is done on the result.
-If C<will_handle> is false, or if C<result_offset> is never called for this
-request, then (if the request includes the parameter whose name is specified
-by C<offset_param>, with a numeric value) that number of result records will
-be dropped before any output is generated.
-
-If the attribute C<offset_param> is not specified for this data service, or if
-that parameter is not included in the request, then no dropping of records
-will occur.
+If the argument is false, or if you never call either this method or
+C<sql_limit_clause>, then (if an offset was specified for this request)
+Web::DataService will automatically discard the corresponding number of
+records from the beginning of the result set before serializing the results.
 
 =head3 sql_limit_clause ( will_handle )
 
-Returns an SQL C<LIMIT> clause which will reflect the values of C<limit_param>
-and C<offset_param>, if one or both were specified for this data service and
-if the corresponding parameter(s) were included in this request.  Otherwise,
-returns the empty string.
+Returns a string whose value is an LIMIT clause that can be added to an SQL
+query to generate a result set in accordance with result limit and offset (if
+any) specified for this request.  If the argument is true, then
+Web::DataService assumes that you will actually do this.
 
-The argument C<will_handle> is treated exactly as with L</result_offset> above.
+If the argument is false, or if you never call either this method or
+C<result_offset>, then (if an offset was specified for this request)
+Web::DataService will automatically discard the corresponding number of
+records from the beginning of the result set before serializing the results.
+
+If a result limit was specified for this request, and if the result set you
+generate exceeds this size, Web::DataService will always truncate it to match
+the specified limit.
 
 =head3 sql_count_clause ( )
 
-If the attribute C<count_param> was defined for this data service, and if the
-corresponding parameter was included in this request, returns the string
-"SQL_CALC_FOUND_ROWS".  Otherwise, returns the empty string.
+Returns a string that can be added to an SQL statement to generate a result
+count in accordance with the request parameters.  If the special parameter
+"count" was specified for this request, the result will be
+C<SQL_CALC_FOUND_ROWS>.  Otherwise, it will be the empty string.
 
-=head3 sql_count_rows ( )
-
-If the attribute C<count_param> was defined for this data service, and if the
-corresponding parameter was included in this request, executes the SQL
-statement "SELECT FOUND_ROWS()" and stores the result for later use in
-generating a response header.  Otherwise, it does nothing.
+If you are using a non-SQL backend, you can still use this as a boolean
+variable to determine if the result should include a count of the number of
+records found.
 
 =head3 set_result_count ( count )
 
-This method can be used as an alternative to L</sql_count_rows>.  In your own
-operation methods, you can check for the size of the result set in whatever
-way is appropriate for your backend and call this method with the resulting
-number.  If you wish, you can do this only if the parameter C<count_param> was
-included with this request.
+Use this method to tell Web::DataService the result count if you are using
+C<sth_result>.  In this case, you will generally need to execute a separate query
+such as "SELECT FOUND_ROWS()" after your main query.
+
+=head3 response_format
+
+Returns the name of the response format selected for this request.
+
+=head3 response_vocab
+
+Returns the name of the response vocabulary selected for this request.  If no
+vocabularies have been defined for this data service, it will return "null",
+the name of the default vocabulary.
+
+=head3 response_linebreak
+
+Returns the string to be inserted between output lines in text-based response
+formats.  This will be either a carriage return, a linefeed, or both.
+
+=head3 result_limit
+
+Returns the limit (if any) specified for the size of the result set.
+
+=head3 result_offset
+
+Returns the offset (if any) specified for the start of the result set.
+
+=head3 display_header
+
+Returns true if header material is to be displayed in text-based response
+formats, false otherwise.
+
+=head3 display_datainfo
+
+Returns true if a description of the dataset is to be included in
+the response, false otherwise.
+
+=head3 display_counts
+
+Returns true if result counts and elapsed time are to be included in the
+response, false otherwise.
+
+=head3 save_output
+
+Returns true if the special parameter 'save' was included in the request.
+
+=head3 get_config
+
+Returns a hashref providing access to the attributes defined in the
+application configuration file.  Allows you to include application-specific
+directives in the file and retrieve them as needed from your operation
+methods.
+
+=head3 set_content_type
+
+Specify the value for the "Content-type" HTTP response header.  You will
+probably not need to call this, since it is set automatically based on the
+selected response format.
+
+=head2 Result methods
+
+These methods are also available with operation requests.  I<You will need to
+call at least one of them from each of your operation methods.>  These methods
+are how you tell Web::DataService the result of each operation.
+
+You can make more than one of these calls from a single operation, but note
+that each call (except for C<add_result> in some cases) wipes out any result
+specified by previous calls.
+
+=head3 single_result ( record )
+
+The argument must be a hashref representing a single data record.  The result
+of this operation will be that single record.
+
+=head3 list_result ( record... )
+
+You can call this method either with a single arrayref argument whose members
+are hashrefs, or with a list of hashrefs.  Either way, the result of this
+operation will be the specified list of records.
+
+=head3 add_result ( record... )
+
+Adds the specified record(s) to a result set previously specified by
+C<list_result>.  All arguments must be hashrefs.
+
+=head3 sth_result ( sth )
+
+The argument must be a valid DBI statement handle that has already been
+executed.  Once your operation method returns, Web::DataService will then
+fetch the result records from this sth one by one, process them according to
+the selected set of output blocks for this request, and serialize the result.
+
+If you use this result method, you will need to call either C<display_counts>
+or C<sql_count_clause> to determine if a result count is needed.  If so,
+execute a "SELECT FOUND_ROWS()" query (or the equivalent) and use
+C<set_result_count> to tell Web::DataService how many records were found.
+
+=head3 data_result ( data )
+
+The argument must be either a scalar or a reference to a scalar.  In either
+case, this data will be returned as the result of the operation without any
+further processing.  You can use this, for example, to return images or other
+binary data.  You can use C<set_content_type> to set the result content type,
+or you can rely on the suffix of the URL path if appropriate.
+
+=head3 clear_result
+
+This call clears any results that have been specified for this operation by
+any of the other methods in this section.
 
 =head3 add_warning ( message )
 
 Add the specified warning message to this request.  The warnings will be
 automatically included in the result, in a manner appropriate for the selected
-output format.
+response format.
 
 =head3 warnings ( )
 
 Return a list of the warning messages (if any) that have been added to this
-request. 
+request.
 
-=head3 output_format ( )
+=head3 debug
 
-Return the output format that has been selected for this request.
-
-=head3 get_request_url ( )
-
-Return the raw (unparsed) URL for this request.
-
-=head3 get_base_url ( )
-
-Return the base of the URL for this request.  This will generally be of the
-form C<http://domain.name/>.
-
-=head3 get_request_path ( )
-
-Return the remainder of the URL path after the base (but without the format
-suffix, if any).
-
-=head3 set_content_type ( content_type )
-
-Set the response content type.  You will probably not need to call this
-method, since the content type is generally set automatically based on the
-selected output format.
+Returns true if the 'debug' mode of the data service is active.  You can use
+this to control printing of extra information to STDERR for use in debugging.
 
 =head1 AUTHOR
 

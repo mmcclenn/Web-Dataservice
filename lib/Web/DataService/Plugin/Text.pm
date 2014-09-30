@@ -41,7 +41,7 @@ sub emit_header {
     # If the user has specified that the source of this data be shown, add
     # some header lines to convey this.
     
-    if ( $request->display_source )
+    if ( $request->display_datainfo )
     {
 	my $info = $request->data_info;
 	
@@ -227,7 +227,7 @@ sub emit_line {
     
     my $linebreak = $request->linebreak;
     
-    if ( $request->output_format eq 'tsv' )
+    if ( $request->response_format eq 'tsv' )
     {
 	return join("\t", map { tsv_clean($_) } @_) . $linebreak;
     }

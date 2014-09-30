@@ -17,7 +17,9 @@ use LWP::UserAgent;
 use Web::DataService;
 
 use constant FILE => 1;
-use constant REMOVE => 2;
+use constant EXEC => 2;
+use constant REMOVE => 4;
+
 
 # options
 my $help = 0;
@@ -38,10 +40,10 @@ GetOptions(
 
 # main
 
-my $PERL_INTERPRETER = -r '/usr/bin/env' ? '#!/usr/bin/env perl' : "#!$^X";
+my $PERL_INTERPRETER = -r '/usr/bin/env' ? '!/usr/bin/env perl -T' : "!$^X -T";
 my $DO_OVERWRITE_ALL = 0;
 
-my $TARGET_NAME = 'dsinstallfiles';
+my $TARGET_NAME = 'wdsinstallfiles';
 
 if ( $make )
 {
@@ -81,7 +83,7 @@ if ( -r "environments" && -r "public/404.html" )
     }
     
     version_check() unless $no_check;
-    unpack_files( &dancer_app_tree );
+    unpack_files( &dancer_app_tree, &templates, '.' );
     exit 0;
 }
 
@@ -105,10 +107,12 @@ sub dancer_app_tree {
     return {
         "lib" => {
             "Example.pm" => FILE,
+	    "Example2.pm" => FILE,
 	    "PopulationData.pm" => FILE,
         },
         "bin" => {
-            "+dataservice.pl" => FILE,
+            "dataservice.pl" => EXEC,
+	    "dataservice2.pl" => EXEC,
 	    "app.pl" => REMOVE,
         },
         "config.yml"         => FILE,
@@ -117,8 +121,10 @@ sub dancer_app_tree {
 	},
 	"doc" => {
 	    "doc_defs.tt"    => FILE,
+	    "doc_strings.tt" => FILE,
 	    "doc_header.tt"  => FILE,
 	    "doc_footer.tt"  => FILE,
+	    "doc_not_found.tt" => FILE,
 	    "operation.tt"   => FILE,
 	    "index.tt"       => FILE,
             "special_doc.tt" => FILE,
@@ -138,68 +144,50 @@ sub dancer_app_tree {
 
 
 sub unpack_files {
-    my ($node, $root) = @_;
-    $root ||= '.';
-
-    my $manifest_name = catfile($root => 'MANIFEST');
-    open my $manifest, ">>", $manifest_name or die $!;
     
-    # create a closure, so we do not need to get $root passed as
-    # argument on _create_node
-    my $add_to_manifest = sub {
-        my $file = shift;
-        $file =~ s{^$root/?}{};
-        print $manifest "$file\n";
-    };
+    my ($node, $templates, $file_root, $template_root) = @_;
     
-    _create_node($add_to_manifest, $node, $root);
-    close $manifest;
-}
-
-sub _create_node {
-    my ($add_to_manifest, $node, $root) = @_;
-
-    my $templates = &templates;
-    
-    while ( my ($path, $thing) = each %$node )
+    while ( my ($name, $thing) = each %$node )
     {
 	next unless defined $thing;
 	
-        $path = catfile($root, $path);
+        my $file_path = catfile($file_root, $name);
+	my $template_path = $template_root ? "$template_root/$name" : $name;
 	
         if ( ref $thing eq 'HASH' )
 	{
-            safe_mkdir($path);
-            _create_node($add_to_manifest, $thing, $path);
+            safe_mkdir($file_path);
+            unpack_files($thing, $templates, $file_path, $template_path);
         }
+	
 	elsif ( ref $thing eq 'CODE' )
 	{
             # The content is a coderef, which, given the path to the file it
             # should create, will do the appropriate thing:
-            $thing->($path);
-            $add_to_manifest->($path);
+            $thing->($file_path);
 	}
+	
 	else
 	{
-            my $file = basename($path);
-            my $dir  = dirname($path);
-            my $ex = ($file =~ s/^\+//); # look for '+' flag (executable)
-            my $template = $templates->{$file};
-	    
-            $path = catfile($dir, $file); # rebuild the path without the '+'
-                                          # flag 
-	    
-	    if ( $thing eq FILE )
+	    if ( $thing eq FILE || $thing eq EXEC )
 	    {
+		my $template = $templates->{$template_path};
+		
+		unless ( defined $template )
+		{
+		    warn "no template found for $template_path";
+		    next;
+		}
+		
 		my $vars = { PERL_INTERPRETER => $PERL_INTERPRETER };
-		write_file($path, $template, $vars);
-		chmod 0755, $path if $ex;
-		$add_to_manifest->($path);
+		
+		write_file($file_path, $template, $vars);
+		chmod 0755, $file_path if $thing eq EXEC;
 	    }
 	    
 	    elsif ( $thing eq REMOVE )
 	    {
-		unlink($path);
+		unlink($file_path);
 	    }
         }
     }
@@ -238,8 +226,7 @@ sub read_file {
 
 sub write_file {
     my ($path, $template, $vars) = @_;
-    warn "no template found for $path" unless defined $template;
-
+    
     # if file already exists, ask for confirmation
     if (-f $path && (not $DO_OVERWRITE_ALL)) {
         print "! $path exists, overwrite? [N/y/a]: ";
@@ -310,7 +297,7 @@ sub make_program {
     # First get all of the contents.
     
     my $contents = '';
-    process_tree( &dancer_app_tree, 'files', \$contents );
+    pack_files( &dancer_app_tree, \$contents, './files' );
     
     my $source_name = $0;
     my $target_name = $source_name;
@@ -338,31 +325,26 @@ sub make_program {
     chmod(0755, $target_name) or die "File $target_name: $!";
 }
 
-sub process_tree {
+sub pack_files {
     
-    my ($node, $root, $contents_ref) = @_;
+    my ($node, $contents_ref, $file_root, $template_root) = @_;
     
     while ( my ($name, $thing) = each %$node )
     {
 	next unless defined $thing;
 	
-	$name =~ s/ ^ \+ //x;
-        $path = catfile($root, $name);
+	my $file_path = "$file_root/$name";
+	my $template_path = $template_root ? "$template_root/$name" : $name;
 	
 	if ( ref $thing eq 'HASH' )
 	{
-	    process_tree($thing, $path, $contents_ref);
+	    pack_files($thing, $contents_ref, $file_path, $template_path);
 	}
 	
-	elsif ( ref $thing eq 'CODE' )
+	elsif ( $thing eq FILE || $thing eq EXEC )
 	{
-	    $thing->($path);
-	}
-	
-	elsif ( $thing eq FILE )
-	{
-	    $$contents_ref .= "    '$name' => << 'END_END_END',\n";
-	    my $content = read_file($path, $contents_ref);
+	    $$contents_ref .= "    '$template_path' => << 'END_END_END',\n";
+	    my $content = read_file($file_path, $contents_ref);
 	    $$contents_ref .= "END_END_END\n";
 	}
     }
@@ -382,77 +364,104 @@ sub templates {
 
 =head1 NAME
 
-dancer - helper script to create new Dancer applications
+wdsinstallfiles - helper script to create new Web::DataService applications
 
 =head1 SYNOPSIS
 
-dancer [options] -a <appname>
+wdsinstallfiles [options]
 
 =head1 OPTIONS
 
     -h, --help            : print what you are currently reading
-    -a, --application     : the name of your application
-    -p, --path            : the path where to create your application
+    -p, --path            : the path where application will be created
                               (current directory if not specified)
-    -x, --no-check        : don't check for the latest version of Dancer
+    -x, --no-check        : don't check for the latest version of Web::DataService
                               (checking version implies internet connection)
-    -v, --version         : print the version of dancer being used
+    -v, --version         : print the version of Web::DataService being used
 
 =head1 DESCRIPTION
 
-Helper script for providing a bootstrapping method to quickly and easily create
-the framework for a new Dancer application.
+This script is designed to be run inside the main directory of a newly-created
+Dancer application.  It adds the files necessary for the Web::DataService
+example application (see L<Web::DataService::Tutorial>) which you can then use
+as a basis for your own project.
 
 =head1 EXAMPLE
 
-Here is an application created with dancer:
+Here is an application created using dancer and wdsinstallfiles:
 
-    $ dancer -a mywebapp
-    + mywebapp
-    + mywebapp/bin
-    + mywebapp/bin/app.pl
-    + mywebapp/config.yml
-    + mywebapp/environments
-    + mywebapp/environments/development.yml
-    + mywebapp/environments/production.yml
-    + mywebapp/views
-    + mywebapp/views/index.tt
-    + mywebapp/views/layouts
-    + mywebapp/views/layouts/main.tt
-    + mywebapp/lib
-    + mywebapp/lib/mywebapp.pm
-    + mywebapp/public
-    + mywebapp/public/css
-    + mywebapp/public/css/style.css
-    + mywebapp/public/css/error.css
-    + mywebapp/public/images
-    + mywebapp/public/500.html
-    + mywebapp/public/404.html
-    + mywebapp/public/dispatch.fcgi
-    + mywebapp/public/dispatch.cgi
-    + mywebapp/public/javascripts
-    + mywebapp/public/javascripts/jquery.js
-    + mywebapp/Makefile.PL
-    + mywebapp/t
-    + mywebapp/t/002_index_route.t
-    + mywebapp/t/001_base.t
+    $ dancer -a dstest
+    + dstest
+    + dstest/bin
+    + dstest/bin/app.pl
+    + dstest/config.yml
+    + dstest/environments
+    + dstest/environments/development.yml
+    + dstest/environments/production.yml
+    + dstest/views
+    + dstest/views/index.tt
+    + dstest/views/layouts
+    + dstest/views/layouts/main.tt
+    + dstest/lib
+    + dstest/lib/dstest.pm
+    + dstest/public
+    + dstest/public/css
+    + dstest/public/css/style.css
+    + dstest/public/css/error.css
+    + dstest/public/images
+    + dstest/public/500.html
+    + dstest/public/404.html
+    + dstest/public/dispatch.fcgi
+    + dstest/public/dispatch.cgi
+    + dstest/public/javascripts
+    + dstest/public/javascripts/jquery.js
+    + dstest/Makefile.PL
+    + dstest/t
+    + dstest/t/002_index_route.t
+    + dstest/t/001_base.t
+    
+    $ cd dstest
+    $ wdsinstallfiles
+    ! ./config.yml exists, overwrite? [N/y/a]: a
+    + ./config.yml
+      ./bin
+    + bin/dataservice.pl
+      ./public
+      public/css
+    + public/css/dsdoc.css
+      ./lib
+    + lib/PopulationData.pm
+    + lib/Example.pm
+      ./doc
+    + doc/doc_footer.tt
+    + doc/doc_not_found.tt
+    + doc/index.tt
+    + doc/doc_header.tt
+      doc/formats
+    + doc/formats/index.tt
+    + doc/formats/json_doc.tt
+    + doc/formats/text_doc.tt
+    + doc/doc_defs.tt
+    + doc/special_doc.tt
+    + doc/operation.tt
+    + doc/doc_strings.tt
+      ./data
+    + data/population_data.txt
 
 The application is ready to serve:
 
-    $ cd mywebapp
-    $ ./mywebapp.pl
-    >> Listening on 127.0.0.1:3000
+    $ bin/dataservice.pl
+    >> Listening on 0.0.0.0:3000
     == Entering the development dance floor ...
 
 =head1 AUTHOR
 
-This script has been written by Sebastien Deseille
-<sebastien.deseille@gmail.com> and Alexis Sukrieh
-<sukria@cpan.org>.
+This script has been written by Michael McClennen <mmcclenn@cpan.org>, based on
+the "dancer" script from the L<Dancer> distribution.
 
 =head1 SOURCE CODE
 
-See L<Dancer> for more information.
+See L<Web::DataService> for more information.
 
 =head1 LICENSE
 

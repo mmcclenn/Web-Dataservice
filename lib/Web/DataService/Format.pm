@@ -148,6 +148,18 @@ sub define_format {
 }
 
 
+# list_formats ( )
+# 
+# Return the list of names of all the formats that have been defined for this
+# data service.
+
+sub list_formats {
+    
+    my ($ds) = @_;
+    return @{$ds->{format_list}};
+}
+
+
 # valid_format ( )
 # 
 # Return a code reference (actually a reference to a closure) that can be used

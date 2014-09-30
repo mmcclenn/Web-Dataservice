@@ -23,35 +23,39 @@ Version 0.20
 This module provides a framework for you to use in building data service
 applications for the World Wide Web.  Such applications sit between a data
 storage and retrieval system on one hand and the Web on the other, and fulfill
-HTTP-based data requests by fetching the appropriate data from the backend and
-serializing it in an output format such as JSON or XML.
+HTTP-based data requests.  Each valid request is handled by fetching or
+storing the appropriate data using the backend data system and serializing the
+output in a format such as JSON, CSV, or XML.
 
-Using the methods provided by this module, you start by defining a set of
-output formats, output blocks, vocabularies, and parameter rules, followed by
-a set of data service nodes representing the various operations to be provided
-by your service.  Each of these objects is configured by a set of attributes,
-optionally including documentation strings.
+Using the methods provided by this module, you start by defining a set of data
+service elements: output formats, output blocks, vocabularies, and parameter
+rules, followed by a set of data service nodes representing the various
+operations to be provided by your service.  Each of these objects is
+configured by a set of attributes, optionally including documentation strings.
+You continue by writing one or more roles whose methods will handle the
+"meat" of each operation: talking to the backend data system to fetch and/or
+store the relevant data, based on the parameter values provided in a data
+service request.
 
-You continue by writing one or more classes whose methods will handle the
-"meat" of each operation: talking to the backend data system and storing
-and/or fetching the relevant data, based on the parameter values provided in a
-data service request.  This module then handles the rest of the work necessary
-for handling each data service request, including serializing the result in
-the appropriate output format.
+This module then handles the rest of the work necessary for handling each
+request, including checking the parameter values, determining the output
+format, and serializing the result.  It also generates appropriate error
+messages when necessary.  Finally, it auto-generates documentation pages for
+each operation based on the elements you have defined, so that your data
+service is always fully and correctly documented.
 
 =cut
-
-use lib '/Users/mmcclenn/Sites/Web-DataService/lib';
 
 package Web::DataService;
 
 our $VERSION = '0.20';
 
-use Carp qw( croak confess );
+use Carp qw( carp croak confess );
 use Scalar::Util qw( reftype blessed weaken );
 use POSIX qw( strftime );
 use Try::Tiny;
 use Sub::Identify;
+use HTTP::Validate;
 
 use Web::DataService::Node;
 use Web::DataService::Set;
@@ -78,7 +82,7 @@ with 'Web::DataService::Node', 'Web::DataService::Set',
 
 our (@CARP_NOT) = qw(Web::DataService::Request Moo);
 
-HTTP::Validate->VERSION(0.35);
+HTTP::Validate->VERSION(0.45);
 
 
 our @HTTP_METHOD_LIST = ('GET', 'HEAD', 'POST', 'PUT', 'DELETE');
@@ -96,7 +100,8 @@ our @FEATURE_ALL = ('format_suffix', 'documentation', 'doc_paths',
 		    'send_files', 'strict_params', 'stream_output');
 
 our %SPECIAL_PARAM = (selector => 'v', format => 'format', path => 'op', 
-		      show => 'show', limit => 'limit', offset => 'offset', 
+		      document => 'document', show => 'show',
+		      limit => 'limit', offset => 'offset', 
 		      count => 'count', vocab => 'vocab', 
 		      datainfo => 'datainfo', linebreak => 'lb', 
 		      header => 'header', save => 'save');
@@ -107,18 +112,24 @@ our @SPECIAL_STANDARD = ('show', 'limit', 'offset', 'header', 'datainfo',
 our @SPECIAL_SINGLE = ('selector', 'path', 'format', 'show', 'header', 
 		       'datainfo', 'vocab', 'linebreak', 'save');
 
-our @SPECIAL_ALL = ('selector', 'path', 'format', 'show', 'limit', 'offset', 
-		    'header', 'datainfo', 'count', 'vocab', 'linebreak', 
-		    'save');
+our @SPECIAL_ALL = ('selector', 'path', 'document', 'format', 'show',
+		    'limit', 'offset', 'header', 'datainfo', 'count', 
+		    'vocab', 'linebreak', 'save');
+
+my (@DI_KEYS) = qw(data_provider data_source data_license license_url
+		   documentation_url data_url access_time title);
+
 
 # Execution modes
 
-our ($DEBUG, $ONE_REQUEST, $CHECK_LATER);
+our ($DEBUG, $ONE_REQUEST, $CHECK_LATER, $QUIET);
 
 
-# Map of keys to data service instances (global)
+# Variables for keeping track of data service instances
 
-my (%KEY_MAP);
+my (%KEY_MAP);		
+my (@WDS_INSTANCES);
+my ($FOUNDATION);
 
 
 # Attributes of a Web::DataService object
@@ -165,32 +176,6 @@ has doc_index => ( is => 'lazy', builder => sub { $_[0]->_init_value('doc_index'
 has doc_template_dir => ( is => 'lazy', builder => sub { $_[0]->_init_value('doc_template_dir') } );
 
 has output_template_dir => ( is => 'lazy', builder => sub { $_[0]->_init_value('output_template_dir') } );
-
-# has doc_defs => ( is => 'lazy', builder => sub { $_[0]->_init_value('doc_defs') } );
-
-# has doc_header => ( is => 'lazy', builder => sub { $_[0]->_init_value('doc_header') } );
-
-# has doc_footer => ( is => 'lazy', builder => sub { $_[0]->_init_value('doc_footer') } );
-
-# has doc_stylesheet => ( is => 'lazy', builder => sub { $_[0]->_init_value('doc_stylesheet') } );
-
-# has doc_default_template => ( is => 'lazy', builder => sub { $_[0]->_init_value('doc_default_template') } );
-
-# has doc_default_op_template => ( is => 'lazy', builder => sub { $_[0]->_init_value('doc_default_op_template') } );
-
-# has default_limit => ( is => 'lazy', builder => sub { $_[0]->_init_value('default_limit') } );
-
-# has default_header => ( is => 'lazy', builder => sub { $_[0]->_init_value('default_header') } );
-
-# has default_datainfo => ( is => 'lazy', builder => sub { $_[0]->_init_value('default_datainfo') } );
-
-# has default_count => ( is => 'lazy', builder => sub { $_[0]->_init_value('default_count') } );
-
-# has default_linebreak => ( is => 'lazy', builder => sub { $_[0]->_init_value('default_linebreak') } );
-
-# has default_save_filename => ( is => 'lazy', builder => sub { $_[0]->_init_value('default_save_filename') } );
-
-# has stream_threshold => ( is => 'lazy', builder => sub { $_[0]->_init_value('stream_threshold') } );
 
 has data_source => ( is => 'lazy', builder => sub { $_[0]->_init_value('data_source') } );
 
@@ -353,15 +338,31 @@ sub BUILD {
     croak "you may not specify the feature 'format_suffix' together with the special parameter 'format'"
 	if $self->{feature}{format_suffix} && $self->{special}{format};
     
+    croak "you may not specify the feature 'doc_paths' together with the special parameter 'document'"
+	if $self->{feature}{doc_paths} && $self->{special}{document};
+    
     $self->{feature}{doc_paths} = 0 unless $self->{feature}{documentation};
     
     # Check and configure the foundation plugin
     # -----------------------------------------
     
-    # If a foundation plugin was specified in the initialization, make sure
-    # that it is correct.
+    # It is necessary that each application uses a single foundation
+    # framework, no matter how many data service instances it includes.  So if
+    # a foundation plugin was already specified, make sure that the current
+    # definition does not conflict.
     
-    if ( my $foundation_plugin = $self->foundation_plugin )
+    my $foundation_plugin = $self->foundation_plugin;
+    
+    if ( $FOUNDATION )
+    {
+	croak "conflicting foundation plugin $foundation_plugin - already set to $FOUNDATION\n"
+	    if $foundation_plugin && $FOUNDATION ne $foundation_plugin;
+    }
+    
+    # If this is the first instance to be defined and a foundation plugin was
+    # specified in the initialization, make sure that it is correct.
+    
+    elsif ( $foundation_plugin )
     {
 	eval "require $foundation_plugin" or croak $@;
 	
@@ -375,8 +376,10 @@ sub BUILD {
     elsif ( $INC{'Dancer.pm'} )
     {
 	require Web::DataService::Plugin::Dancer or croak $@;
-	$self->{foundation_plugin} = 'Web::DataService::Plugin::Dancer';
+	$foundation_plugin = 'Web::DataService::Plugin::Dancer';
     }
+    
+    # Checks for other foundation frameworks will go here.
     
     # Otherwise, we cannot proceed.  Give the user some idea of what to do.
     
@@ -386,17 +389,22 @@ sub BUILD {
 before 'use Web::DataService' (and make sure that Dancer is installed)\n";
     }
     
-    # Let the plugin do whatever initialization it needs to.
+    # Now store this value and initialize the plugin.
     
+    $FOUNDATION ||= $foundation_plugin;
+    $self->{foundation_plugin} ||= $FOUNDATION;
     $self->_plugin_init('foundation_plugin');
     
     # From this point on, we will be able to read the configuration file
     # (assuming that a valid one is present).  So do so.
     
-    $self->{foundation_plugin}->read_config($self);
+    $FOUNDATION->read_config($self);
     
     # Check and configure the templating plugin
     # -----------------------------------------
+    
+    # Note that unlike the foundation plugin, different data service instances
+    # may use different templating plugins.
     
     # If a templating plugin was explicitly specified, either in the code
     # or in the configuration file, check that it is valid.
@@ -424,8 +432,11 @@ before 'use Web::DataService' (and make sure that Dancer is installed)\n";
     {
 	if ( $self->{feature}{documentation} )
 	{
-	    warn "WARNING: no templating engine was specified, so documentation pages\n";
-	    warn "    and templated output will not be available.\n";
+	    unless ( $QUIET || $ENV{WDS_QUIET} )
+	    {
+		warn "WARNING: no templating engine was specified, so documentation pages\n";
+		warn "    and templated output will not be available.\n";
+	    }
 	    $self->{feature}{documentation} = 0;
 	    $self->{feature}{doc_paths} = 0;
 	}
@@ -460,9 +471,12 @@ before 'use Web::DataService' (and make sure that Dancer is installed)\n";
 	    
 	    elsif ( $self->{feature}{documentation} )
 	    {
-		warn "WARNING: no document template directory was found, so documentation pages\n";
-		warn "    will not be available.  Try putting them in the directory 'doc',\n";
-		warn "    or specifying the attribute 'doc_template_dir'.\n";
+		unless ( $QUIET || $ENV{WDS_QUIET} )
+		{
+		    warn "WARNING: no document template directory was found, so documentation pages\n";
+		    warn "    will not be available.  Try putting them in the directory 'doc',\n";
+		    warn "    or specifying the attribute 'doc_template_dir'.\n";
+		}
 		$self->{feature}{documentation} = 0;
 		$self->{feature}{doc_paths} = 0;
 	    }
@@ -494,10 +508,6 @@ before 'use Web::DataService' (and make sure that Dancer is installed)\n";
 	    $self->{doc_footer} //= $self->check_doc("doc_footer${doc_suffix}");
 	    $self->{doc_default_template} //= $self->check_doc("doc_not_found${doc_suffix}");
 	    $self->{doc_default_op_template} //= $self->check_doc("doc_op_template${doc_suffix}");
-	    
-	    # If no stylesheet URL path was specified, use the default.
-	    
-	    $self->{doc_stylesheet} //= $self->generate_url({ type => 'site', path => 'css/dsdoc.css' });
 	}
 	
 	# we were given a directory for output templates, initialize an
@@ -553,10 +563,10 @@ before 'use Web::DataService' (and make sure that Dancer is installed)\n";
     
     $self->_plugin_init('backend_plugin');
     
-    # Register the key, if one was specified
-    # --------------------------------------
+    # Register this instance so that we can select for it later
+    # ---------------------------------------------------------
     
-    $self->_register_key;
+    $self->_register_instance;
     
     # Check and set some attributes
     # -----------------------------
@@ -769,14 +779,20 @@ sub valid_name {
 }
 
 
-# _register_key ( )
+# _register_instance ( )
 # 
-# Register this service's key so that the application code can later locate the
-# appropriate service for handling each request.
+# Register this instance's key and path prefix so that the application code can
+# later locate the appropriate service for handling each request.
 
-sub _register_key {
+sub _register_instance {
 
     my ($self) = @_;
+    
+    # Add this to the list of defined data service instances.
+    
+    push @WDS_INSTANCES, $self;
+    
+    # If the attribute 'key' was defined, add it to the key map.
     
     if ( my $key = $self->key )
     {
@@ -788,70 +804,88 @@ sub _register_key {
 }
 
 
-# find_by_key ( key )
+# select ( outer )
 # 
-# Return the data service instance corresponding to the specified key.  You
-# can call this either as a class method or an instance method.
+# Return the data service instance that is appropriate for this request, or
+# return an error if no instance could be matched.  This should be called as a
+# class method.
 
-sub find_by_key {
+sub select {
     
-    my ($class, $key) = @_;
+    my ($class, $outer) = @_;
     
-    return $KEY_MAP{$key};
+    my $param;
+    
+    # Throw an error unless we have at least one data service instance to work with.
+    
+    croak "No data service instances have been defined" unless @WDS_INSTANCES;
+    
+    my $instance = $WDS_INSTANCES[0];
+    
+    # If the special parameter 'selector' is active, then we will use its
+    # value to determine the appropriate data service instance.  We check the
+    # first instance defined because all instances in this application should
+    # either enable or disable this parameter alike.
+    
+    if ( $param = $instance->{special}{selector} )
+    {
+	my $key = $FOUNDATION->get_param($outer, $param);
+	
+	# If the parameter value matches a data service instance, return that.
+	
+	if ( defined $key && $KEY_MAP{$key} )
+	{
+	    return $KEY_MAP{$key};
+	}
+	
+	# Otherwise, if the URL path is empty or just '/', return the first
+	# instance defined.
+	
+	my $path = $FOUNDATION->get_request_path($outer);
+	
+	if ( !defined $path || $path eq '' || $path eq '/' )
+	{
+	    return $instance;
+	}
+	
+	# Otherwise, return an error message specifying the proper values.
+	
+	my @keys = sort keys %KEY_MAP;
+	my $good_values = join(', ', map { "v=$_" } @keys);
+	
+	if ( defined $key && $key ne '' )
+	{
+	    die "400 Invalid version '$key' - you must specify one of the following parameters: $good_values\n";
+	}
+	
+	else
+	{
+	    die "400 You must specify a data service version using one of the following parameters: $good_values\n";
+	}
+    }
+    
+    # Otherwise, check the request path against each data service instance to
+    # see if we can figure out which one to use by means of the regexes
+    # stored in the path_re attribute.
+    
+    else
+    {
+	my $path = $FOUNDATION->get_request_path($outer);
+	
+	foreach my $ds ( @WDS_INSTANCES )
+	{
+	    if ( defined $ds->{path_re} && $path =~ $ds->{path_re} )
+	    {
+		return $ds;
+	    }
+	}
+	
+	# If none of the instances match this path, then throw a 404 (Not
+	# Found) exception.
+	
+	die "404";
+    }
 }
-
-
-# define_subservice ( attrs... )
-# 
-# Define one or more subservices of this data service.  This routine cannot be
-# used except as an object method.
-
-# sub define_subservice { 
-
-#     my ($self) = shift;
-    
-#     my ($last_node);
-    
-#     # Start by determining the class of the parent instance.  This will be
-#     # used for the subservice as well.
-    
-#     my $class = ref $self;
-    
-#     croak "define_subservice: must be called on an existing data service instance\n"
-# 	unless $class;
-    
-#     # We go through the arguments one by one.  Hashrefs define new
-#     # subservices, while strings add to the documentation of the subservice
-#     # whose definition they follow.
-    
-#     foreach my $item (@_)
-#     {
-# 	# A hashref defines a new subservice.
-	
-# 	if ( ref $item eq 'HASH' )
-# 	{
-# 	    $item->{parent} = $self;
-	    
-# 	    $last_node = $class->new($item)
-# 		unless defined $item->{disabled};
-# 	}
-	
-# 	elsif ( not ref $item )
-# 	{
-# 	    $self->add_node_doc($last_node, $item);
-# 	}
-	
-# 	else
-# 	{
-# 	    croak "define_subservice: the arguments must be a list of hashrefs and strings\n";
-# 	}
-#     }
-    
-#     croak "define_subservice: arguments must include at least one hashref of attributes\n"
-# 	unless $last_node;
-    
-#     return $last_node;
-# }
 
 
 
@@ -874,7 +908,7 @@ sub set_mode {
     {
 	if ( $mode eq 'debug' )
 	{
-	    $DEBUG = 1;
+	    $DEBUG = 1 unless $QUIET || $ENV{WDS_QUIET};
 	}
 	
 	elsif ( $mode eq 'one_request' )
@@ -885,6 +919,11 @@ sub set_mode {
 	elsif ( $mode eq 'late_path_check' )
 	{
 	    $CHECK_LATER = 1;
+	}
+	
+	elsif ( $mode eq 'quiet' )
+	{
+	    $QUIET = 1;
 	}
     }
 }
@@ -897,6 +936,7 @@ sub is_mode {
     return 1 if $mode eq 'debug' && $DEBUG;
     return 1 if $mode eq 'one_request' && $ONE_REQUEST;
     return 1 if $mode eq 'late_path_check' && $CHECK_LATER;
+    return 1 if $mode eq 'quiet' && $QUIET;
     return;
 }
 
@@ -905,23 +945,23 @@ sub is_mode {
 # 
 # Generate a URL according to the specified attributes:
 # 
+# node		Generates a documentation URL for the specified data service node
+# 
+# op		Generates an operation URL for the specified data service node
+# 
 # path		Generates a URL for this exact path (with the proper prefix added)
-# 
-# operation	Generates an operation URL for the specified data service node
-# 
-# documentation	Generates a documentation URL for the specified data service node
 # 
 # format	Specifies the format to be included in the URL
 # 
 # params	Species the parameters, if any, to be included in the URL
 # 
-# type		Specifies the type of URL to generate: 'absolute' for an
-#		absolute URL, 'relative' for a relative URL, 'site' for
-#		a site-relative URL (starts with '/').  Defaults to 'site'.
-# 
 # fragment	Specifies a fragment identifier to add to the generated URL
+# 
+# type		Specifies the type of URL to generate: 'abs' for an
+#		absolute URL, 'rel' for a relative URL, 'site' for
+#		a site-relative URL (starts with '/').  Defaults to 'site'.
 
-sub generate_url {
+sub generate_site_url {
 
     my $self = shift;
     
@@ -939,17 +979,38 @@ sub generate_url {
     # Otherwise, construct the URL according to the feature set of this data
     # service.
     
-    my $path = $attrs->{documentation} || $attrs->{operation} || $attrs->{path};
+    my $path = $attrs->{node} || $attrs->{op} || $attrs->{path} || '';
     my $format = $attrs->{format};
+    my $type = $attrs->{type} || 'site';
     
-    croak "generate_url: you must specify a URL path\n" unless defined $path;
+    unless ( defined $path )
+    {
+	carp "generate_url: you must specify a URL path\n";
+    }
     
-    $format = 'html' if $attrs->{documentation} && ! (defined $format && $format eq 'pod');
+    elsif ( ! $attrs->{path} && $path =~ qr{ (.*) [.] ([^.]+) $ }x )
+    {
+	$path = $1;
+	$format = $2;
+    }
     
-    my @params;
-    # if ( defined $attrs->{documentation} && ref $attrs->{documentation} eq 'ARRAY' )
+    $format = 'html' if $attrs->{node} && ! (defined $format && $format eq 'pod');
+    
+    my @params = ref $attrs->{params} eq 'ARRAY' ? @{$attrs->{params}}
+               : defined $attrs->{params}        ? split(/&/, $attrs->{params})
+		                                 : ();
+    
+    my ($has_format, $has_selector);
+    
+    foreach my $p ( @params )
+    {
+	$has_format = 1 if $self->{special}{format} && $p =~ qr{ ^ $self->{special}{format} = \S }x;
+	$has_selector = 1 if $self->{special}{selector} && $p =~ qr{ ^ $self->{special}{selector} = \S }xo;
+    }
+    
+    # if ( defined $attrs->{node} && ref $attrs->{node} eq 'ARRAY' )
     # {
-    # 	push @params, @{$attrs->{documentation}};
+    # 	push @params, @{$attrs->{node}};
     # 	croak "generate_url: odd number of parameters is not allowed\n"
     # 	    if scalar(@_) % 2;
     # }
@@ -960,15 +1021,15 @@ sub generate_url {
     
     if ( $self->{feature}{fixed_paths} )
     {
-	if ( $attrs->{documentation} )
+	if ( $attrs->{node} )
 	{
-	    push @params, $self->{special}{document}, $path unless $path eq '/';
+	    push @params, $self->{special}{document} . "=$path" unless $path eq '/';
 	    $path = $self->{doc_url_path};
 	}
 	
-	elsif ( $attrs->{operation} )
+	elsif ( $attrs->{op} )
 	{
-	    push @params, $self->{special}{operation}, $path;
+	    push @params, $self->{special}{op} . "=$path";
 	    $path = $self->{operation_url_path};
 	}
     }
@@ -982,7 +1043,7 @@ sub generate_url {
 	# the "doc_paths" feature is on.  Also add the format.  But not if the
 	# path is '/'.
 	
-	if ( $attrs->{documentation} && $path ne '/' )
+	if ( $attrs->{node} && $path ne '/' )
 	{
 	    $path .= $self->{doc_suffix} if $self->{feature}{doc_paths};
 	    $path .= ".$format";
@@ -991,7 +1052,7 @@ sub generate_url {
 	# If this is an operation URL, we just add the format if one was
 	# specified.
 	
-	elsif ( $attrs->{operation} )
+	elsif ( $attrs->{op} )
 	{
 	    $path .= ".$format" if $format;
 	}
@@ -1004,56 +1065,74 @@ sub generate_url {
     
     elsif ( $self->{feature}{doc_paths} )
     {
-	if ( $attrs->{documentation} && $path ne '/' )
+	if ( $attrs->{node} && $path ne '/' )
 	{
 	    $path .= $self->{doc_suffix};
 	}
     }
     
-    # If the special parameter 'format' is enabled, then we modify the parameters.
+    # If the special parameter 'format' is enabled, then we need to add it
+    # with the proper format name.
     
-    if ( $self->{special}{format} )
+    if ( $self->{special}{format} && ! $has_format )
     {
 	# If this is a documentation URL, then add a format parameter unless
 	# the format is either 'html' or empty.
 	
-	if ( $attrs->{documentation} && $format && $format ne 'html' )
+	if ( $attrs->{node} && $format && $format ne 'html' )
 	{
-	    push @params, $self->{special}{format}, $format;
+	    push @params, $self->{special}{format} . "=$format";
 	}
 	
-	# Same if this is an operation URL.
+	# If this is an operation URL, we add the format unless it is empty.
 	
-	elsif ( $attrs->{operation} )
+	elsif ( $attrs->{op} )
 	{
-	    push @params, $self->{special}{format} if $format;
+	    push @params, $self->{special}{format} . "=$format" if $format;
 	}
 	
 	# A path URL is not modified.
+    }
+    
+    # If the special parameter 'selector' is enabled, then we need to add it
+    # with the proper data service key.
+    
+    if ( $self->{special}{selector} && ! $has_selector )
+    {
+	my $key = $self->key;
+	push @params, $self->{special}{selector} . "=$key";
     }
     
     # If the path is '/', then turn it into the empty string.
     
     $path = '' if $path eq '/';
     
-    # Now assemble the URL and return it.
+    # Now assemble the URL.  If the type is not 'relative' then we start with
+    # the path prefix.  Otherwise, we start with the given path.
     
-    my $type = $attrs->{type};
+    my $url;
     
-    my $url = $type eq 'absolute' ? $self->base_url :
-	      $type eq 'site'     ? '/'
-				  : '';
+    if ( $type ne 'rel' )
+    {
+	$url = '/' . $self->{path_prefix} . $path;
+    }
     
-    $url .= $self->{path_prefix} if $self->{path_prefix};
-    $url .= $path;
+    else
+    {
+	$url = $path;
+    }
+    
+    # Add the parameters and fragment, if any.
     
     if ( @params )
     {
 	$url .= '?';
+	my $sep = '';
 	
 	while ( @params )
 	{
-	    $url .= shift(@params) . '=' . shift(@params) . '&';
+	    $url .= $sep . shift(@params);
+	    $sep = '&';
 	}
     }
     
@@ -1061,6 +1140,8 @@ sub generate_url {
     {
 	$url .= "#$attrs->{fragment}";
     }
+    
+    # Return the resulting URL.
     
     return $url;
 }
@@ -1110,6 +1191,10 @@ sub base_url {
     
     my ($self) = @_;
     
+    carp "CALL: base_url\n";
+    
+    #return $FOUNDATION->get_base_url;
+    
     my $hostname = $self->{hostname} // '';
     my $port = $self->{port} ? ':' . $self->{port} : '';
     
@@ -1125,6 +1210,10 @@ sub base_url {
 sub root_url {
 
     my ($self) = @_;
+    
+    carp "CALL: root_url\n";
+    
+    #return $FOUNDATION->get_base_url . $self->{path_prefix};
     
     my $hostname = $self->{hostname} // '';
     my $port = $self->{port} ? ':' . $self->{port} : '';
@@ -1403,7 +1492,6 @@ sub data_info {
     my $data_source = $self->data_source;
     my $data_license = $self->data_license;
     my $license_url = $self->license_url;
-    my $root_url = $self->root_url;
     
     my $result = { 
 	title => $title,
@@ -1411,17 +1499,20 @@ sub data_info {
 	data_source => $data_source,
 	data_license => $data_license,
 	license_url => $license_url,
-	root_url => $root_url,
 	access_time => $access_time };
     
     return $result;
 }
 
 
+# data_info_keys
+# 
+# Return a list of keys into the data_info hash, in the proper order to be
+# listed in a response message.
+
 sub data_info_keys {
     
-    return qw(data_provider data_source data_license license_url
-	      documentation_url data_url access_time title);
+    return @DI_KEYS;
 }
 
 
@@ -1614,56 +1705,13 @@ Returns the root URL of this data service, in the form
 L<path prefix|Web::DataService::Configuration/"path_prefix"> defined for this
 data service.
 
-=head3 generate_url ( attrs )
+=head3 generate_site_url
 
-Returns a URL generated from the specified attributes, which must be given
-either as a hashref or as separate arguments:
+This method works the same as the L<generate_url|Web::DataService::Request/"generate_url ( attrs )">
 
-    $url = $ds->generate_url( operation => 'abc/def', format => 'json' );
-    $url = $ds->generate_url( { operation => 'abc/def', format => 'json' } );
-
-The attributes are as follows:
-
-=over
-
-=item operation
-
-Generate a URL which will request a data service operation using the node path
-given by the value of this attribute.
-
-=item documentation
-
-Generate a URL which will request documentation using the node path given by
-the value of this attribute.
-
-=item path
-
-Generate a URL which will request the exact path given.  This is used to
-generate URLs for requesting files, such as CSS files.
-
-=item format
-
-Configure the URL to request output in the specified format.  Depending upon
-the features enabled for this data service, that may mean either adding the
-specified value as a suffix to the URL path, or adding a special parameter.
-
-=item params
-
-Configure the URL to include the specified parameters.  The value of this
-attribute must be an arrayref with an even number of elements.
-
-=item type
-
-The value of this attribute must be either C<absolute>, C<relative>, or
-C<site>.  If "absolute" is given, then the generated URL will begin with
-"http[s]://hostname[:port]/.  If "site", then the generated URL will begin
-with "/".  If "relative", no prefix will be added to the generated URL.  In
-this case, you should make sure to specify a path that will work properly
-relative to the URL of the page on which you intend to display it.
-
-If this attribute is not specified, it defaults to "site".
-
-=back
+method of L<Web::DataService::Request>.  However, it can only generate URLs of
+type "rel" or "site".  If you want to generate an absolute URL, use the latter
+method.
 
 =head3 accessor methods
 

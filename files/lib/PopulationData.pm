@@ -23,6 +23,8 @@ use Carp qw(carp croak);
 use Moo::Role;
 
 
+my ($data, $states);
+
 # The following 'initialize' method is called automatically at application
 # startup.  It is passed a reference to the Web::DataService object, which can
 # then be used to read data, define output blocks, define rulesets, etc.  If
@@ -49,11 +51,7 @@ sub initialize {
     croak "no data file was specified: add the configuration directive 'data_file' to the file 'config.yml'.\n"
 	unless defined $datafile && $datafile ne '';
     
-    my ($data, $states);
-    
     $class->read_data($datafile, \$data, \$states);
-    
-    $ds->set_scratch('popdata', $data);
     
     # Next we define some output blocks, each of which specifies one or more
     # fields to be displayed as part of the output.
@@ -140,7 +138,7 @@ sub initialize {
 	{ optional => 'SPECIAL(all)' });
     
     $ds->define_ruleset( 'single' =>
-	{ param => 'state', valid => $valid_state },
+	{ param => 'state', valid => $valid_state, clean => 'uc' },
 	    "Return information about the specified state.",
 	    "You may specify either the full name or standard abbreviation.",
 	{ optional => 'SPECIAL(show)', valid => 'extra' },
@@ -150,11 +148,11 @@ sub initialize {
 	"^You can also use any of the L<special parameters|node:special> with this request");
     
     $ds->define_ruleset( 'list' =>
-	{ optional => 'state', valid => $valid_state, list => ',' },
+	{ optional => 'state', valid => $valid_state, list => qr{,}, clean => 'uc' },
 	    "Return information about the specified state or states.",
 	    "You may specify either the full names or standard abbreviations,",
 	    "and you may specify more than one separated by commas.",
-	{ optional => 'region', valid => 'regions', list => ',' },
+	{ optional => 'region', valid => 'regions', list => qr{,}, clean => 'uc' },
 	    "Return information about all of the states in the specified region(s).",
 	    "The regions are as follows:",
 	{ optional => 'order', valid => 'output_order' },
@@ -224,10 +222,9 @@ sub single {
 
     my ($request) = @_;
     
-    # Get the data and the request parameters.
+    # Get the relevant request parameters.
     
-    my $data = $request->get_scratch('popdata');
-    my $name = uc $request->clean_param('state');
+    my $name = $request->clean_param('state');
     
     # Locate the matching record, if any, and return it.
     
@@ -239,25 +236,21 @@ sub single {
 }
 
 
+# Return information about multiple states.
+
 sub list {
 
     my ($request) = @_;
     
-    # Get the data and the request parameters.
+    # Get the relevant request parameters.
     
-    my $data = $request->get_scratch('popdata');
     my $name_filter = $request->clean_param_hash('state');
     my $region_filter = $request->clean_param_hash('region');
     my $order = $request->clean_param('order');
     my $totals = $request->has_output_block('total');
     
-    my $return_all; $return_all = 1 unless $request->param_exists('state') ||
-	$request->param_exists('region');
-    
-    # Put any names that were specified into upper-case.
-    
-    $name_filter->{uc $_} = 1 foreach keys %$name_filter;
-    $region_filter->{uc $_} = 1 foreach keys %$region_filter;
+    my $return_all; $return_all = 1 unless $request->param_given('state') ||
+	$request->param_given('region');
     
     # Filter for matching records.
     
@@ -314,6 +307,8 @@ sub list {
     $request->list_result(\@result);
 }
 
+
+# Return the list of region codes.
 
 sub regions {
     

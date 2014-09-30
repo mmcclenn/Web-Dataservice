@@ -11,11 +11,11 @@ framework for implementing data services for the World Wide Web.
 
 =head1 INTRODUCTION
 
-The goal of this module is to provide a comprehensive framework on which to
-implement web data services.  By this, we mean web services that are primarily
-oriented toward fetching and storing data, including what are usually called
-"APIs".  Such a service can provide controlled access to a backend data system
-via HTTP requests and responses.
+The purpose of Web::DataService is to provide a comprehensive framework on
+which to implement web data services.  By this, we mean web services that are
+primarily oriented toward fetching and storing data, including what are
+usually called "APIs".  Such a service can provide controlled access to a
+backend data system via HTTP requests and responses.
 
 In order to implement a capable web data service (or API), a server needs to be
 able to handle the following tasks:
@@ -97,20 +97,22 @@ systems, etc.
 One basic principle of this framework is that data output is organized around
 the abstract idea of a "record" defined by a set of data fields.  A request is
 satisfied by generating one or more records, each of which is a hash of field
-values.  These records are then passed to a seprate module, which serializes
-them in the selected output format.  This de-coupling of data generation from
-data serialization simplifies the data generation code immensely, and allows a
-user of the service to ask for their output in any of the available formats.
-It also makes it easy for the data service developer to add new output formats
-as needed.
+names and values.  These records are then passed to a seprate module, which
+serializes them in the selected output format.  This de-coupling of data
+generation from data serialization simplifies the data generation code
+immensely, and allows a user of the service to ask for their output in any of
+the available formats.  It also makes it easy for the data service developer
+to add new output formats as needed.
 
-=head3 Integral Documentation
+=head3 Automatically generated documentation
 
 Documentation is an extremely important part of the functionality provided by
 this framework.  To a great extent, the documentation pages for a web data
-service can be auto-generated.  As the various data service elements are
-defined (see below) you have the ability to include documentation strings that
-will be used as the basis for the generated documentation.
+service can be auto-generated.  While defining the various elements of a data
+service (see below) you have the ability to include documentation strings that
+will be used as the basis for the generated documentation sections.  This
+makes it easy to keep the documentation up-to-date as the configuration of the
+data service changes over time.
 
 =head2 Elements of a data service
 
@@ -129,18 +131,18 @@ with one of the other available frameworks).
 
 =head3 Data service instance
 
-Each data service is represented by an instance of the class Web::DataService,
-which serves as the root element.  The basic attributes of the data service
-are either provided at the time of instantiation, or are read from the
-application configuration file provided by the foundation framework.  These
-attributes are documented in
-L<Web::DataService::Configuration|Web::DataService::Configuration/"Data service attributes">.
+Each data service is represented by an instance of the class Web::DataService.
+The basic attributes of the data service are either provided at the time of
+instantiation, or are read from the application configuration file provided by
+the foundation framework.  These attributes are documented in
+L<Web::DataService::Configuration|Web::DataService::Configuration/"Data
+service attributes">.
 
 A data service application starts by creating a new data service instance and
 then calling its methods to define the other elements discussed below.  Once
 this is done, control is turned over to the foundation framework until a data
-service request arrives and is recognized.  For more information, see
-L<Web::DataService::Tutorial>.
+service request arrives and is recognized.  For more information about this
+process, see L<Web::DataService::Tutorial>.
 
 =head3 Data service nodes
 
@@ -157,33 +159,48 @@ unless specifically overridden.  Any attribute values assigned to the root
 node "/" will be inherited by all other nodes except where specifically
 overridden.
 
-Each node in a data service definition will correspond to either a data
-service operation, a documentation page, or both.
+Each node in a data service definition will correspond to one of the following:
 
-=head Output fields
+=over
 
-The data records output by a Web::DataService application are characterized by
-a set of I<output blocks>, generated at startup time by the C<define_block>
-method of the data service application.  Each output block consists of a list
-of field definitions, processing steps, and other auxiliary declarations.  Each
-data service node that represents a data-producing operation must select one
-or more of these output blocks, which are then used to generate the output
-records when this operation is requested.
+=item 1.
+
+A data service operation and its associated documentation page.
+
+=item 2.
+
+A standalone documentation page.
+
+=item 3.
+
+A file or directory of files that can be retrieved upon request (e.g. a
+stylesheet for the documentation pages).
+
+=back
+
+=head3 Output blocks
+
+The data records returned by a Web::DataService application are built from a
+set of I<output blocks>.  These are defined at startup time by the
+C<define_block> method of the data service application.  Each output block
+consists of a list of field definitions, processing steps, and other auxiliary
+declarations.  Each data service node that represents a data-producing
+operation must select one or more of these output blocks, which are then used
+to generate the output records whenever this operation is requested.
 
 =head3 Formats
 
 A data service application must also define one or more I<output formats>,
 using the C<define_format> method of the data service instance.  Each of these
-format definitions configures one of the available serialization modules which
-are used to transform a set of data records into an HTTP response body.
+format definitions configures one of the available serialization modules so
+that it can transform sets of data records into HTTP response bodies.
 
-The Web::DataService module contains three built-in serialization modules:
+The Web::DataService installation includes two built-in serialization modules:
 C<JSON>, which serializes responses using the
-L<JSON|https://en.wikipedia.org/JSON> format, C<XML>, which serializes
-responses using XML, and C<Text>, which can generate either tab-separated or
-comma-separated text responses.  If you wish your data service to generate
-output in other formats, you can easily implement your own plug-in modules
-(see L<Web::DataService::Plugins>).
+L<JSON|https://en.wikipedia.org/JSON> format, and C<Text>, which can generate
+either tab-separated or comma-separated text responses.  If you wish your data
+service to generate output in other formats, you can easily implement your own
+plug-in modules (see L<Web::DataService::Plugins>).
 
 If your data service provides multiple formats, clients can then choose which
 format best meets their needs and can vary the format from request to request
@@ -195,16 +212,16 @@ A data service application may also define one or more I<vocabularies> in
 which to express the output data.  These are created by using the
 C<define_vocab> method of the data service instance.  The output field
 definitions mentioned above can each include multiple field names, one for
-each defined vocabulary.  An output block can also include processing steps as
+each relevant vocabulary.  An output block can also include processing steps as
 necessary to transform the data values into the proper range for each
 vocabulary.
 
 In this way, you can arrange for a single result to be expressed according to
 different data interchange standards.  Each output format can be assigned a
-default vocabulary, or the users of the data service can choose explicitly by
-means of a special request parameter.
+default vocabulary, and the users of the data service can override this if
+they wish by means of a special request parameter.
 
-If no vocabularies are defined, a default vocabulary consisting of the field
+If no vocabularies are defined, a "null" vocabulary consisting of the field
 names and values provided by the backend system will be used.
 
 =head3 Rulesets
@@ -213,13 +230,14 @@ A data service application may also define one or more I<rulesets> for use in
 validating request parameters.  These are created using the C<define_ruleset>
 method of the data service instance, which in turn calls the identically named
 method from L<HTTP::Validate>.  See the documentation of the latter module for
-more information, along with L<Web::DataService::Configuration>.
+more information, along with
+L<Web::DataService::Configuration|Web::DataService::Configuration/Ruleset definitions>.
 
 =head3 Sets and maps
 
 A data service application may also define I<named sets of values> using the
 C<define_set> method of the data service instance.  These have a number of
-different uses.  A set can be used in a ruleset definition, to define the
+different uses.  A set can be used in a ruleset definition, to specify the
 acceptable range of values of some parameter.  A set can include a mapping of
 each value to some other value, and can thus be used to translate data values
 from one output vocabulary to another.  Sets are also used to indicate
@@ -249,8 +267,8 @@ other cleanup as well to make the documentation process as easy as possible.
 
 =head2 Multiple data services
 
-You may wish to arrange for your application to provide multiple data
-services through a single server port.  Reasons for doing this include:
+You may wish to arrange for your application to provide multiple data services
+through a single server.  Reasons for doing this include:
 
 =over
 

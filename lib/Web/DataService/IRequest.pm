@@ -193,12 +193,12 @@ sub clean_param_hash {
 }
 
 
-# param_exists ( )
+# param_given ( )
 # 
 # Return true if the specified parameter was included in this request, whether
 # or not it was given a valid value.  Return false otherwise.
 
-sub param_exists {
+sub param_given {
 
     my ($self, $name) = @_;
     
@@ -388,13 +388,13 @@ sub display_header {
 }
 
 
-# display_source
+# display_datainfo
 # 
 # Return true if the data soruce should be displayed, false otherwise.
 
-sub display_source {
+sub display_datainfo {
     
-    return $_[0]->{display_source};    
+    return $_[0]->{display_datainfo};    
 }
 
 

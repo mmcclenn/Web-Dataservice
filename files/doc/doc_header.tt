@@ -2,5 +2,5 @@
 
 =head1 <% ds.title %>: <% doc_title %>
 
-<% INCLUDE NAVTRAIL %>
+<% NAVTRAIL %>
 
