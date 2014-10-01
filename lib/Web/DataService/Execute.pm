@@ -856,7 +856,7 @@ sub generate_doc {
 	    my $stylesheet = $ds->node_attr($path, 'doc_stylesheet') || 
 		$ds->generate_site_url({ path => 'css/dsdoc.css' });
 	    
-	    my $doc_html = $parser->generate_html({ css => $stylesheet, tables => 0,
+	    my $doc_html = $parser->generate_html({ css => $stylesheet, tables => 1,
 						    url_generator => $url_generator });
 	    
 	    $ds->_set_content_type($request, 'text/html');

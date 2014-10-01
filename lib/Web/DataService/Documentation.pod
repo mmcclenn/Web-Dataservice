@@ -49,11 +49,13 @@ documentation strings and template files.
 The Web::DataService framework provides an easy way to include links from one
 documentation page to another, as well as from a documentation page to an
 operation (i.e. as a usage example).  This is done by using one of the
-following special prefixes.  Any link specified with L<> is checked to see if
+following special prefixes.  Any link specified with LE<lt>E<gt> is checked to see if
 it starts with one of them, and if so then it is replaced by an auto-generated
 URL which includes the appropriate path prefix, selector key, format
 specifier, etc. for this data service instance.  The examples given below are
 for the example application:
+
+=over
 
 =item node:
 

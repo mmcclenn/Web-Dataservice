@@ -508,6 +508,8 @@ Change your stub program to include all of these files.
 You can now start making changes to the "new" versions of your application files, and the "old" version will
 remain active and will respond according to the old definitions.
 
+=back
+
 Of course, you can repeat this pattern whenever a new version is needed.
 
 =head2 Path prefixes
