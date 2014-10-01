@@ -9,17 +9,19 @@ my $builder = Module::Build->new(
     dist_version_from   => 'lib/Web/DataService.pm',
     release_status => 'unstable',
     requires => {
-	'Dancer' => 0,
-	'Moo' => 0,
-        'namespace::clean' => 0,
+	'Dancer' => 1,
+	'Moo' => 1,
+        'namespace::clean' => 0.16,
         'HTTP::Validate' => 0.45,
-	'Try::Tiny' => 0,
-	'JSON' => 0,
+	'JSON' => 2,
 	'YAML' => 0,
     },
     recommends => {
 	'Template' => 0,
 	'Dancer::Plugin::Database' => 0,
+    },
+    configure_requires => {
+	'Module::Build' => 0.42,
     },
     build_requires => {
 	'Module::Build' => 0.42,
@@ -27,7 +29,7 @@ my $builder = Module::Build->new(
     },
     #add_to_cleanup      => [ 'Web-DataService-*' ],
     script_files => {
-	'script/dsinstallfiles' => 1 
+	'script/wdsinstallfiles' => 1 
     },
     create_makefile_pl => 'traditional',
 );

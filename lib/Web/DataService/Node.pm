@@ -11,11 +11,9 @@ use strict;
 package Web::DataService::Node;
 
 use Carp 'croak';
-use Try::Tiny;
 use Scalar::Util 'reftype';
 
 use Moo::Role;
-
 
 
 our (%NODE_DEF) = ( path => 'ignore',

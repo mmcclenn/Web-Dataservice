@@ -53,7 +53,6 @@ our $VERSION = '0.20';
 use Carp qw( carp croak confess );
 use Scalar::Util qw( reftype blessed weaken );
 use POSIX qw( strftime );
-use Try::Tiny;
 use Sub::Identify;
 use HTTP::Validate;
 
@@ -1074,7 +1073,7 @@ sub generate_site_url {
     # If the special parameter 'format' is enabled, then we need to add it
     # with the proper format name.
     
-    if ( $self->{special}{format} && ! $has_format )
+    if ( $self->{special}{format} && ! $has_format && ! $attrs->{path} )
     {
 	# If this is a documentation URL, then add a format parameter unless
 	# the format is either 'html' or empty.

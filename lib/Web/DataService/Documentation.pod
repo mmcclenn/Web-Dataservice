@@ -15,6 +15,79 @@ default in the F<doc> directory.  For now, the only template engine compatible
 with Web::DataService is L<Template-Toolkit|Template>, but this may change in
 the future.
 
+You can create an individual documentation page for each node, by simply
+creating a file in the F<doc> directory whose path corresponds the node path.
+For example, the template corresponding to C<formats/json> is
+F<formats/json_doc.tt>.  The template corresponding to C<formats> is
+F<formats/index.tt>.  If such a file is not found, then Web::DataService will
+try to use one of the common templates.  For an operation node, it will try
+the value of the node attribute C<doc_default_op_template>.  For all other
+nodes, it will try the value of the node attribute C<doc_default_template>.
+
+If the node attributes C<doc_header> and C<doc_footer> are defined (as they
+are by default) then the templates named by these attributes are included as a
+header and footer respectively.  The default values are C<doc_header.tt> and
+C<doc_footer.tt>.  The file C<doc_defs.tt> is included before every template,
+to define all of the elements described below.  It includes the file
+C<doc_strings.tt>, which you are free to edit in any way you choose.
+
+=head2 Documentation format
+
+The main format for Web::DataService documentation pages is L<Pod|perlpod>.
+All documentation is generated first in Pod format, and is then converted to
+HTML by the module L<Web::DataService::PodParser>.  If you want to see the
+actual Pod output, you can get it via URLs like the following:
+
+    http://localhost:3000/data1.0/index.pod
+    http://localhost:3000/data1.0/list_doc.pod
+
+You can include arbitrary Pod commands and formatting codes in both
+documentation strings and template files.
+
+=head2 Embedded links
+
+The Web::DataService framework provides an easy way to include links from one
+documentation page to another, as well as from a documentation page to an
+operation (i.e. as a usage example).  This is done by using one of the
+following special prefixes.  Any link specified with L<> is checked to see if
+it starts with one of them, and if so then it is replaced by an auto-generated
+URL which includes the appropriate path prefix, selector key, format
+specifier, etc. for this data service instance.  The examples given below are
+for the example application:
+
+=item node:
+
+When a link is encountered with this prefix, the remainder is taken to be a
+node path.  This is used to auto-generate a URL that will retrieve the
+documentation page for that node.  For example:
+
+    L<special parameters|node:special>
+    L<JSON format|node:formats/json>
+
+=item op:
+
+When a link is encountered with this prefix, the remainder is parsed to
+determine a node path, format, and optional parameters.  These are then used
+to auto-generate a URL that will carry out the specified operation.  For
+example:
+
+    L<single.json?state=WI>
+    L<regions.txt>
+
+=item path:
+
+When a link is encountered with this prefix, the remainder is used to
+auto-generate a URL that will fetch the specified file from a file node.  For
+example:
+
+    L<css/dsdoc.css>
+
+=back
+
+In this way, you can specify embedded links without worrying about the details
+of path prefix, data service features, etc.  In fact, you can change these
+later and the documentation pages will automatically adjust!
+
 =head1 ELEMENTS
 
 The following elements are available for use in documentation templates.
@@ -150,3 +223,25 @@ Use it as follows:
 or:
 
     <% INCLUDE VOCABULARIES opt_extended=1 opt_all=1 %>
+
+
+
+=head1 AUTHOR
+
+mmcclenn "at" cpan.org
+
+=head1 BUGS
+
+Please report any bugs or feature requests to C<bug-web-dataservice at rt.cpan.org>, or through
+the web interface at L<http://rt.cpan.org/NoAuth/ReportBug.html?Queue=Web-DataService>.  I will be notified, and then you'll
+automatically be notified of progress on your bug as I make changes.
+
+=head1 COPYRIGHT & LICENSE
+
+Copyright 2014 Michael McClennen, all rights reserved.
+
+This program is free software; you can redistribute it and/or modify it
+under the same terms as Perl itself.
+
+=cut
+

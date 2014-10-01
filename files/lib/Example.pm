@@ -88,9 +88,9 @@ $ds->define_node({ path => '/',
 		   title => 'Main Documentation',
 		   public_access => 1,
 		   default_format => 'json',
+		   doc_default_template => 'doc_not_found.tt',
 		   doc_default_op_template => 'operation.tt',
 		   output => 'basic' });
-
 
 # Any URL path starting with /css indicates a stylesheet file:
 

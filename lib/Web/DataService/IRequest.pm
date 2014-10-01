@@ -9,7 +9,6 @@
 package Web::DataService::IRequest;
 
 use Carp 'croak';
-use Try::Tiny;
 use Scalar::Util 'reftype';
 
 use Moo::Role;

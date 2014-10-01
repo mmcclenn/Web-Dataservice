@@ -260,24 +260,21 @@ sub define_ruleset {
 	push @rules_and_doc, $pending_rule, @pending_doc, @final_doc;
     }
     
-    # Now call HTTP::Validate::define_ruleset.  Wrap it in a 'try' block so
+    # Now call HTTP::Validate::define_ruleset.  Wrap it in a 'eval' block so
     # that we can catch any errors and pass them to 'croak'.
     
     my $error_msg;
     
-    try {
+    eval {
 	
 	$ds->{validator}->define_ruleset($ruleset_name, @rules_and_doc);
 
-    }
-	
-    catch {
-	$error_msg = $_;
-	$error_msg =~ s{ at \s / \w .* }{}xs;
     };
     
-    croak "define_ruleset: $error_msg\n"
-	if $error_msg;
+    $error_msg = $@;
+    $error_msg =~ s{ \s at \s (?: \S+ Ruleset.pm ) .* }{}xs;
+    
+    croak "define_ruleset: $error_msg" if $error_msg;
 }
 
 

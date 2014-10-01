@@ -1146,3 +1146,84 @@ sub generate_html_error {
     
     return "\n<!-- ERROR$line: $node->{content} -->\n\n";
 }
+
+1;
+
+
+=head1 NAME
+
+Web::DataService::PodParser - Pod parser module for Web::DataService
+
+=head1 SYNOPSIS
+
+This module provides an engine that can parse Pod and generate HTML, for use
+in generating data service documentation pages.  It is used as follows:
+
+    my $parser = Web::DataService::PodParser->new();
+    
+    $parser->parse_pod($doc_string);
+    
+    my $doc_html = $parser->generate_html({ attributes... });
+
+=head1 METHODS
+
+This module provides the following methods:
+
+=head2 new
+
+This class method creates a new instance of the parser.
+
+=head2 parse_pod
+
+This method takes a single argument, which must be a string containing Pod
+text.  A parse tree is built from this input.
+
+=head2 generate_html
+
+This method uses the parse tree built by C<parse_pod> to create HTML content.
+This content is returned as a single string, which can then be sent as the
+body of a response message.
+
+This method takes an attribute hash, which can include any of the following
+attributes:
+
+=head3 css
+
+The value of this attribute should be the URL of a stylesheet, which will be
+included via an HTML <link> tag.  It may be either an absolute or a
+site-relative URL.
+
+=head3 tables
+
+If this attribute has a true value, then Pod lists will be rendered as HTML
+tables.  Otherwise, they will be rendered as HTML definition lists using the
+tags C<dl>, C<dt>, and C<dd>.
+
+=head3 url_generator
+
+The value of this attribute must be a code reference.  This is called whenever
+an embedded link is encountered with one of the prefixes C<node:>, C<op:>, or
+C<path:>, in order to generate a data service URL corresponding to the
+remainder of the link (see
+L<Web::DataService::Documentation|Web::DataService::Documentation/Embedded links>).
+
+
+=head1 AUTHOR
+
+mmcclenn "at" cpan.org
+
+=head1 BUGS
+
+Please report any bugs or feature requests to C<bug-web-dataservice at rt.cpan.org>, or through
+the web interface at L<http://rt.cpan.org/NoAuth/ReportBug.html?Queue=Web-DataService>.  I will be notified, and then you'll
+automatically be notified of progress on your bug as I make changes.
+
+=head1 COPYRIGHT & LICENSE
+
+Copyright 2014 Michael McClennen, all rights reserved.
+
+This program is free software; you can redistribute it and/or modify it
+under the same terms as Perl itself.
+
+=cut
+

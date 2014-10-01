@@ -1,6 +1,5 @@
 Build.PL
 Changes
-bin/wdsinstallfiles
 files/bin/dataservice.pl
 files/config.yml
 files/data/population_data.txt
@@ -33,7 +32,6 @@ lib/Web/DataService/Plugin/Dancer.pm
 lib/Web/DataService/Plugin/JSON.pm
 lib/Web/DataService/Plugin/TemplateToolkit.pm
 lib/Web/DataService/Plugin/Text.pm
-lib/Web/DataService/Plugin/XML.pm
 lib/Web/DataService/PodParser.pm
 lib/Web/DataService/Render.pm
 lib/Web/DataService/Request.pm
@@ -46,6 +44,7 @@ MANIFEST
 META.json
 META.yml
 README
+script/wdsinstallfiles
 t/00-load.t
 t/01-basic.t
 t/02-request.t

@@ -11,10 +11,7 @@ use strict;
 package Web::DataService::Execute;
 
 use Carp 'croak';
-use Try::Tiny;
 use Scalar::Util qw(reftype weaken);
-
-use Web::DataService::Plugin::JSON qw(json_list_value);
 
 use Moo::Role;
 
@@ -842,7 +839,7 @@ sub generate_doc {
 		    my $frag = $5;
 		    my $format;
 		    
-		    if ( $path =~ qr{ (.*) [.] ([^.]+) $ }x )
+		    if ( $arg ne 'path' && $path =~ qr{ (.*) [.] ([^.]+) $ }x )
 		    {
 			$path = $1; $format = $2;
 		    }
@@ -859,8 +856,7 @@ sub generate_doc {
 	    my $stylesheet = $ds->node_attr($path, 'doc_stylesheet') || 
 		$ds->generate_site_url({ path => 'css/dsdoc.css' });
 	    
-	    my $doc_html = $parser->generate_html({ css => $stylesheet,
-						    tables => 1, base_url => $request->base_url,
+	    my $doc_html = $parser->generate_html({ css => $stylesheet, tables => 0,
 						    url_generator => $url_generator });
 	    
 	    $ds->_set_content_type($request, 'text/html');

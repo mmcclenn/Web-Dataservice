@@ -41,7 +41,7 @@ GetOptions(
 # main
 
 my $PERL_INTERPRETER = -r '/usr/bin/env' ? '!/usr/bin/env perl -T' : "!$^X -T";
-my $DO_OVERWRITE_ALL = 0;
+my $DO_OVERWRITE_ALL = -r 'bin/app.pl';
 
 my $TARGET_NAME = 'wdsinstallfiles';
 
@@ -107,12 +107,10 @@ sub dancer_app_tree {
     return {
         "lib" => {
             "Example.pm" => FILE,
-	    "Example2.pm" => FILE,
 	    "PopulationData.pm" => FILE,
         },
         "bin" => {
             "dataservice.pl" => EXEC,
-	    "dataservice2.pl" => EXEC,
 	    "app.pl" => REMOVE,
         },
         "config.yml"         => FILE,
