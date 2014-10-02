@@ -80,7 +80,7 @@ application to see how the behavior changes.  Here are some things to try:
 
 =item *
 
-Change the path prefix on line 60 of F<Example.pm>.
+Change the path prefix on Line 60 of F<lib/Example.pm>.
 
 =item *
 
@@ -107,7 +107,9 @@ follows.
 
 Change the names and/or docstrings of one or more of the output fields
 specified in lines 59-88 of F<lib/PopulationData.pm>.  You can change the name of
-any field by adding C<name => 'my_new_name'> to its definition hash.
+any field by adding the key C<name> to its definition hash:
+
+    { output => 'pop2010', name => 'current' },
 
 =item *
 
@@ -133,7 +135,7 @@ function of each and some ideas for how you might want to modify them.
 
 =head1 OVERVIEW
 
-Under the Web::DataService framework, a data service application consists of the following list of components.
+Under the Web::DataService framework, a data service application consists of the following components.
 In order to create your own data service using this framework, you will have to write each of the following:
 
 =over
@@ -148,10 +150,9 @@ data service.
 
 The main application must respond appropriately to each incoming request, which in the case of Dancer means
 defining one or more L<route handlers|Dancer::Introduction/USAGE> that specify the response to each possible
-URL path.  In the simplest case, as shown in the L<example application|/lib/Example.pm> below, the route
-handler reduces to the following:
-
-    return Web::DataService->handle_request(request);
+URL path.  In the simplest case, as shown in the L<example application|/lib/Example.pm> below, a single route
+handler simply accepts all requests and passes them off to the C<handle_request> method of
+L<Web::DataService>.
 
 In addition, the main application is responsible for error handling.  The example application hands off all
 errors to the Web::DataService code, rather than using the native Dancer error response.
@@ -165,7 +166,7 @@ developing and maintaining your data service.
 
 =item Data service roles and methods
 
-The "meat" of your data service consists of subroutines that talk to the backend data store to fetch and/or
+The core of your data service consists of subroutines that talk to the backend data store to fetch and/or
 store the necessary data.  You will need to write one of these for each different operation provided by your
 data service.  These are called I<operation methods> and, as the name suggests, are called as methods of a
 L<Web::DataService::Request> object.
@@ -174,12 +175,12 @@ These operation methods must be organized into one or more modules that can func
 L<roles|Moo::Role>.  These modules will then be automatically composed into appropriate subclasses of
 Web::DataService::Request.  Your role files may include any other code that you wish, and your operation
 methods may also call any of the methods provided by L<Web::DataService::Request>.  For more information, see
-L</lib/PopulationData.pm>.
+L<lib/PopulationData.pm|/lib/PopulationData.pm>.
 
 Each of these role modules will typically include a method called C<initialize>, which is called automatically
 at application startup.  This method can then define data service elements relevant to this particular role,
-such as parameters, value sets, and output fields.  A typical data service application will contain several
-role modules, one for each different kind of data to be returned.
+such as parameter rules, value sets, and output fields.  A typical data service application will contain
+several role modules, one for each different kind of data to be returned.
 
 =item Documentation templates
 
@@ -187,10 +188,10 @@ Each feature of your data service should be documented by an appropriate web pag
 Web::DataService provides facilities for auto-generating most of the necessary documentation based on the data
 service element definitions.
 
-The documentation files take the form of templates, which can include a variety of predefined elements.  At
-the time of template evaluation these are replaced by various sections of auto-generated documentation.  The
-only templating system currently supported is L<Template-Toolkit>.  We plan to include others in the
-near future.
+The documentation files take the form of templates, which can include a variety of predefined elements.  See
+L<Web::DataService::Documentation> for more information.  At the time of template evaluation these are
+replaced by various sections of auto-generated documentation.  The only templating system currently supported
+is L<Template-Toolkit>.  We plan to include others in the near future.
 
 =back
 
@@ -315,7 +316,7 @@ Execute any setup tasks that need to be done in order to access the backend data
 
 =item 2.
 
-Define all of the elements that will be referenced in data service node definitions which use this role.
+Define all of the elements that will be referenced by data service node definitions which use this role.
 
 =back
 
@@ -458,11 +459,11 @@ actually work under the new data service definition.
 
 This file documents the plain text output formats.
 
-=head3 public/css/dsdoc.css
+=head2 public/css/dsdoc.css
 
 This file provides a stylesheet for the documentation pages.  You can edit it in whatever way you choose.
 
-=head3 data/population_data.txt
+=head2 data/population_data.txt
 
 This file provides the data for the example application.
 
@@ -491,8 +492,8 @@ Move the route handler(s) to a separate file.  Put them in the same package as y
 
 Duplicate your main application file (without the route handlers), and change the name.  Don't change the
 package name.  The C<name> attribute in the data service instantiation call must differ between the two files.
-You must also set up some means of selecting between the two data service instances, either differing path
-prefixes or version selectors (see below).
+You must also set up some means of selecting between the two data service instances, typically either
+differing path prefixes or version selectors (see below).
 
 =item 3.
 
@@ -535,7 +536,7 @@ defined, so this should always be the most recent one.
 
 You are free to define any other mechanism that you wish for selecting between data service instances.  In
 this case, you will probably need to write your own route handler(s).  The easiest way to do things in this
-case is to put each data service instance into a separate global variable (i.e. C<$ds1>, <$ds2>, <$ds3>, ... )
+case is to put each data service instance into a separate global variable (i.e. C<$ds1>, C<$ds2>, C<$ds3>, ... )
 and write your own code to select which one should be used.  You can then call the C<handle_request> method on
 the proper instance directly.  For example:
 

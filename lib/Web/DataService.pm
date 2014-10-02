@@ -16,7 +16,7 @@ Web::DataService - a framework for building data service applications for the We
 
 =head1 VERSION
 
-Version 0.20
+Version 0.22
 
 =head1 SYNOPSIS
 
@@ -32,23 +32,30 @@ service elements: output formats, output blocks, vocabularies, and parameter
 rules, followed by a set of data service nodes representing the various
 operations to be provided by your service.  Each of these objects is
 configured by a set of attributes, optionally including documentation strings.
-You continue by writing one or more roles whose methods will handle the
-"meat" of each operation: talking to the backend data system to fetch and/or
-store the relevant data, based on the parameter values provided in a data
-service request.
+You continue by writing one or more modules whose methods will carry out the
+core part of each data service operation: talking to the backend data system
+to fetch and/or store the relevant data, based on the parameter values
+provided in a data service request.
 
-This module then handles the rest of the work necessary for handling each
-request, including checking the parameter values, determining the output
-format, and serializing the result.  It also generates appropriate error
-messages when necessary.  Finally, it auto-generates documentation pages for
-each operation based on the elements you have defined, so that your data
-service is always fully and correctly documented.
+The Web::DataService code then takes care of most of the work necessary for
+handling each request, including checking the parameter values, determining
+the response format, calling your operation method at the appropriate time,
+and serializing the result.  It also generates appropriate error messages when
+necessary.  Finally, it auto-generates documentation pages for each operation
+based on the elements you have defined, so that your data service is always
+fully and correctly documented.
+
+A Web::DataService application is built on top of a "foundation framework"
+that provides the basic functionality of parsing HTTP requests and
+constructing responses.  At the present time, the only one that can be used is
+L<Dancer>.  However, we plan to add compatibility with other frameworks such
+as Mojolicious and Catalyst soon.
 
 =cut
 
 package Web::DataService;
 
-our $VERSION = '0.20';
+our $VERSION = '0.22';
 
 use Carp qw( carp croak confess );
 use Scalar::Util qw( reftype blessed weaken );
@@ -165,8 +172,6 @@ has port => ( is => 'lazy', builder => sub { $_[0]->_init_value('port') } );
 has generate_url_hook => ( is => 'rw', isa => \&_code_ref );
 
 has ruleset_prefix => ( is => 'lazy', builder => sub { $_[0]->_init_value('ruleset_prefix') } );
-
-# has public_access => ( is => 'lazy', builder => sub { $_[0]->_init_value('public_access') } );
 
 has doc_suffix => ( is => 'lazy', builder => sub { $_[0]->_init_value('doc_suffix') } );
 
@@ -923,6 +928,7 @@ sub set_mode {
 	elsif ( $mode eq 'quiet' )
 	{
 	    $QUIET = 1;
+	    $DEBUG = 0;
 	}
     }
 }
@@ -1557,26 +1563,37 @@ sub debug {
     return $DEBUG || $self->{DEBUG};
 }
 
+=head1 MORE DOCUMENTATION
+
+This documentation describes the methods of class Web::DataService.  If you
+want a detailed description of this module and its reasons for existence, look
+at L<Web::DataService::Introduction>.  See L<Web::DataService::Tutorial> for a
+step-by-step guide to the example application included with this distribution.
+For a detailed description of how to configure a data service using this
+framework, see L<Web::DataService::Configuration>.  Finally, for an overview
+of the elements used in the documentation templates, see
+L<Web::DataService::Documentation>. 
 
 =head1 METHODS
 
-=head2 CONFIGURATION
-
-The following methods are used to configure a web data service application.
-For a list of the available attributes for each method, see
-L<Web::DataService::Configuration>.  For detailed instructions on how to set
-up a data service application, see L<Web::DataService::Tutorial>.  These
-configuration methods will be called at the start of your data service
-application.  The method C<new> is a class method; the others are all instance
-methods, to be called on the resulting Web::DataService object(s).
+=head2 CONSTRUCTOR
 
 =head3 new ( { attributes ... } )
 
-This class method defines a new data service instance.  Calling it is
-generally the first step in configuring a web dataservice application.  The
-available attributes are described in L<Web::DataService::Configuration>.  The
-attribute C<name> is required; the others are optional, and may be specified
-in the application configuration file instead.
+This class method defines a new data service instance.  Calling it is generally the first step in configuring
+a data service application.  The available attributes are described in
+L<Web::DataService::Configuration/"Data service instantiation:>.  The attribute C<name> is required; the
+others are optional, and some of them may be specified in the application configuration file instead.
+
+Once you have a data service instance, the next step is to configure it by adding various data service
+elements.  This is done by calling the methods listed below.
+
+=head2 CONFIGURATION
+
+The following methods are used to configure a data service application.  For a list of the available
+attributes for each method, and an overview of the calling convention, see
+L<Web::DataService::Configuration>.  For detailed instructions on how to set up a data service application,
+see L<Web::DataService::Tutorial>.
 
 =head3 define_vocab ( { attributes ... }, documentation ... )
 
@@ -1586,7 +1603,7 @@ which to label and express the returned data.
 
 =head3 define_format ( { attributes ... }, documentation ... )
 
-Defines one or more output formats, using the specified attributes and
+Defines one or more response formats, using the specified attributes and
 documentation strings.  Each of these formats represents a configuration of
 one of the available serialization modules.
 
@@ -1606,11 +1623,11 @@ fields and documentation.
 Defines a named set of values, possibly with a mapping to some other list of
 values.  These can be used to specify the acceptable values for request
 parameters, to translate data values into different vocabularies, or to
-specify the available sets of optional output for various kinds of requests.
+specify optional output blocks.
 
 =head3 define_ruleset ( ruleset_name, { attributes ... }, documentation ... )
 
-Define a ruleset with the given name, containing the specified rules and
+Defines a ruleset with the given name, containing the specified rules and
 documentation.  These are used to validate parameter values.
 
 =head2 EXECUTION
@@ -1622,17 +1639,25 @@ that handles incoming requests.  This will typically be inside one or more
 =head3 handle_request ( outer, [ attrs ] )
 
 A call to this method directs the Web::DataService framework to handle the
-current request.  Depending on the request, one of the data service operation
-methods that you have written may be called as part of this process.
+current request.  Depending on how your application is configured, one of the
+data service operation methods that you have written may be called as part of
+this process.
+
+You may call this either as a class method or an instance method.  In the
+former case, if you have defined more than one data service instance, the
+method will choose the appropriate instance based on either the path prefix or
+selector parameter (depending upon which features and special parameters you
+have enabled).  If you know exactly which instance is the appropriate one, you
+may instead call this method on it directly.
 
 The first argument must be the "outer" request object generated by the
 foundation framework.  This allows the Web::DataService code to obtain details
 about the request and to compose the response using the functionality provided
-by that framework.  The Web::DataService code will create an "inner" object of
-class Web::DataService::Request, with attributes derived from the current
-request along with the data service node (if any) that matches it.  If no data
-service node matches the current request, a 404 error response will be
-returned to the client.
+by that framework.  This method will create an "inner" object in a subclass of
+L<Web::DataService::Request>, with attributes derived from the current request
+and from the data service node that matches it.  If no data service node
+matches the current request, a 404 error response will be returned to the
+client.
 
 You may provide a second optional argument, which must be a hashref of request
 attributes (see L<Web::DataService::Request>).  These will be used to
@@ -1643,18 +1668,19 @@ attributes.
 
 If you wish more control over the request-handling process than is provided by
 L<handle_request|/"handle_request ( outer, [ attrs ] )">, you may instead call
-this method.  It returns an object of class Web::DataService::Request, derived
-as described for C<handle_request>.
+this method.  It returns an object blessed into a subclass of
+Web::DataService::Request, derived as described above for C<handle_request>.
 
 You can then examine and possibly alter any of the request attributes, before
-calling L<execute_request|/"execute_request ( request )">.
+calling the request's C<execute> method.  This method may, like
+C<handle_request>, be called either as a class method or an instance method.
 
 =head3 execute_request ( request )
 
-This method may be called to execute a request, once the request object has
-been created and examined.  The argument must be an object of class
-Web::DataService::Request from a previous call to
-L<new_request|/"new_request ( outer, [ attrs ] )">.
+This method may be called to execute a request.  The argument must belong to a
+subclass of L<Web::DataService::Request>, created by a previous call to
+L<new_request|/"new_request ( outer, [ attrs ] )">.  This method may, like
+C<handle_request>, be called either as a class method or an instance method.
 
 =head3 node_attr ( path, attribute )
 
@@ -1670,8 +1696,8 @@ accessor methods of the request object.
 
 =head3 get_connection
 
-If a backend plugin is available, obtains a connection handle from it.  You
-can use this method when initializing your data classes, if your
+If a backend plugin is available, this method obtains a connection handle from
+it.  You can use this method when initializing your operation roles, if your
 initialization process requires communication with the backend.  You are not
 required to use this mechanism, however, and may contact the backend in any
 way you choose.
@@ -1691,23 +1717,9 @@ clients use.  This may be different from the internal name by which this
 parameter is known, but will always be a true value.  Returns false if this
 parameter is not enabled.
 
-=head3 base_url
-
-Returns the base URL of this data service, in the form
-"http[s]://hostname[:port]/".  Most of the URLs included in the documentation
-pages will be relative to this base.
-
-=head3 root_url
-
-Returns the root URL of this data service, in the form
-"http[s]://hostname[:port]/[prefix/] where I<prefix> is the 
-L<path prefix|Web::DataService::Configuration/"path_prefix"> defined for this
-data service.
-
 =head3 generate_site_url
 
 This method works the same as the L<generate_url|Web::DataService::Request/"generate_url ( attrs )">
-
 method of L<Web::DataService::Request>.  However, it can only generate URLs of
 type "rel" or "site".  If you want to generate an absolute URL, use the latter
 method.
@@ -1715,7 +1727,7 @@ method.
 =head3 accessor methods
 
 Each of the data service 
-L<attributes|Web::DataService::Config/"Data service attributes">
+L<attributes|Web::DataService::Configuration/"Data service attributes">
 is provided with an accessor method.  This method returns the attribute value,
 but cannot be used to set it.  All data service attributes must be set when
 the data service object is instantiated with C<new>, either specified

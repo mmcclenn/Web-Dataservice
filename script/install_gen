@@ -1,5 +1,24 @@
 #!/usr/bin/env perl
 
+=head1 NAME
+
+wdsinstallfiles - helper script to create new Web::DataService applications
+
+=head1 SYNOPSIS
+
+wdsinstallfiles [options]
+
+=head1 OPTIONS
+
+    -h, --help            : print what you are currently reading
+    -p, --path            : the path where application will be created
+                              (current directory if not specified)
+    -x, --no-check        : don't check for the latest version of Web::DataService
+                              (checking version implies internet connection)
+    -v, --version         : print the version of Web::DataService being used
+
+=cut
+
 eval 'exec /opt/local/bin/perl5.12  -S $0 ${1+"$@"}'
     if 0; # not running under some shell
 
@@ -100,7 +119,10 @@ else
 }
 
 
-# subs
+# dancer_app_tree ( )
+# 
+# Return the install tree for a Dancer-based application.  Currently this is
+# the only one available, but we will eventually add catalyst_app_tree, etc.
 
 sub dancer_app_tree {
     
@@ -140,6 +162,13 @@ sub dancer_app_tree {
     };
 }
 
+
+# unpack_files ( tree, templates, path )
+# 
+# This subroutine is called recursively to unpack a tree of files.  The tree
+# structure must be passed as the first argument, followed by a hash whose
+# keys are paths from the tree and whose values are the corresponding file
+# contents.  The third argument is the path under which to create the files.
 
 sub unpack_files {
     
@@ -202,6 +231,13 @@ sub safe_mkdir {
     }
 }
 
+
+# read_file ( path, contents_ref )
+# 
+# Read a file using the filename given by $path, and append its contents to the
+# scalar pointed to by $contents_ref.  Change any initial occurrence of = to
+# ), so that files containing Pod are protected from interpretation.
+
 sub read_file {
 
     my ($path, $contents_ref) = @_;
@@ -216,11 +252,23 @@ sub read_file {
     
     while (<$infile>)
     {
+	s{^=}{)};
+	s{^use lib '\.\.}{#use lib '..}m;
 	$$contents_ref .= $_;
     }
     
     close $infile or warn $!;
 }
+
+
+# write_file ( path, template, vars )
+# 
+# Write a file to the filename given by $path, using $template as the file
+# contents.  Substitute any occurrence of <<% var_name %> by looking up
+# 'var_name' in $vars.
+# 
+# Change any occurrence of ) at the beginning of a line to =, to reverse the
+# transformation carried out in &read_file.
 
 sub write_file {
     my ($path, $template, $vars) = @_;
@@ -234,6 +282,7 @@ sub write_file {
     }
 
     $template =~ s| <<% \s* (\w+) \s* %>> | $vars->{$1} |xmge;
+    $template =~ s| ^[)] | "=" |xmge;
     
     print "+ $path\n";
     
@@ -348,34 +397,6 @@ sub pack_files {
     }
 }
 
-sub templates {
-
-    return {
-
-#_TEMPLATES_GO_HERE
-
-    };
-}
-
-
-=pod
-
-=head1 NAME
-
-wdsinstallfiles - helper script to create new Web::DataService applications
-
-=head1 SYNOPSIS
-
-wdsinstallfiles [options]
-
-=head1 OPTIONS
-
-    -h, --help            : print what you are currently reading
-    -p, --path            : the path where application will be created
-                              (current directory if not specified)
-    -x, --no-check        : don't check for the latest version of Web::DataService
-                              (checking version implies internet connection)
-    -v, --version         : print the version of Web::DataService being used
 
 =head1 DESCRIPTION
 
@@ -420,7 +441,6 @@ Here is an application created using dancer and wdsinstallfiles:
     
     $ cd dstest
     $ wdsinstallfiles
-    ! ./config.yml exists, overwrite? [N/y/a]: a
     + ./config.yml
       ./bin
     + bin/dataservice.pl
@@ -467,3 +487,14 @@ This module is free software and is published under the same
 terms as Perl itself.
 
 =cut
+
+
+sub templates {
+
+    return {
+
+#_TEMPLATES_GO_HERE
+
+    };
+}
+

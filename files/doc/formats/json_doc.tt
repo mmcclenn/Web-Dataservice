@@ -13,9 +13,9 @@ databases.  JSON responses are always encoded in UTF-8.
 The body of a response in this format consists of a single JSON object,
 containing one or more of the following fields:
 
-=over
+=for wds_table_no_header Field* | Description
 
-=for pp_table_header Field | Description
+=over
 
 =item C<records>
 

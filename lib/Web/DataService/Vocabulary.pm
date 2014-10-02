@@ -173,11 +173,11 @@ sub document_vocabs {
     
     my @paths = grep { $ds->{vocab}{$_}{doc_node} } @vocabs;
     
-    my $doc = "=over 4\n\n";
     my $ext_header = $options->{extended} || ! @paths ? " | Description" : '';
     my $doc_header = @paths ? " | Documentation" : '';
     
-    $doc .= "=for wds_table_header Vocabulary* | Name | Default for $doc_header $ext_header\n\n";
+    my $doc = "=for wds_table_header Vocabulary* | Name | Default for $doc_header $ext_header\n\n";
+    $doc .= "=over 4\n\n";
     
  VOCABULARY:
     foreach my $name (@vocabs)

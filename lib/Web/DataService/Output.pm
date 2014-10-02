@@ -1324,15 +1324,15 @@ sub document_response {
     
     if ( $field_count > 1 )
     {
-	$doc_string .= "=over 4\n\n";
 	$doc_string .= "=for wds_table_header Field name*/$field_count | Block!anchor(block:) | Description\n\n";
+	$doc_string .= "=over 4\n\n";
 	$doc_string .= "=item $field_string\n\n";
     }
     
     else
     {
-	$doc_string .= "=over 4\n\n";
 	$doc_string .= "=for wds_table_header Field name* | Block | Description\n\n";
+	$doc_string .= "=over 4\n\n";
     }
     
     # Run through each block one at a time, documenting all of the fields in

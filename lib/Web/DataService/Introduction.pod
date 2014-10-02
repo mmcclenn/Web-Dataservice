@@ -22,36 +22,36 @@ able to handle the following tasks:
 
 =over
 
-=item A.
+=item 1.
 
 Parse HTTP requests
 
-=item B.
+=item 2.
 
 Validate parameters
 
-=item C.
+=item 3.
 
 Talk to the backend system (whether it be a data store, instrument, control
 system, etc.)
 
-=item D.
+=item 4.
 
 Assemble representations of data
 
-=item E.
+=item 5.
 
 Serialize those representations in formats such as JSON, XML, etc.
 
-=item F.
+=item 6.
 
 Set HTTP response headers
 
-=item G.
+=item 7.
 
 Generate appropriate error messages
 
-=item H.
+=item 8.
 
 Provide documentation about itself
 
@@ -59,12 +59,13 @@ Provide documentation about itself
 
 Most people who implement data services in Perl base them on web application
 frameworks such as Dancer, Catalyst, etc.  These frameworks provide a good
-start, but then the authors must implement all of the functionality listed
-above.  The basic idea behind this module is the realization that all of the
-steps listed above except (C) can be handled by a common code base, configured
-according to the requirements of a particular data service by a common set of
-directives.  This leaves "Talk to the backend system" as the only part that
-must be implemented using code directly written by the data service author.
+start, but then the authors must then implement most or all of the
+functionality listed above.  The basic idea behind this module is the
+realization that all of the steps listed above except (3) can be handled by a
+common code base, configured according to the requirements of a particular
+data service by a common set of directives.  This leaves "Talk to the backend
+system" as the only part that must be implemented using code directly written
+by the data service author.
 
 The remainder of this document describes the various concepts behind
 Web::DataService.  It is true that this framework is a complicated one, and
@@ -80,11 +81,11 @@ The Web::DataService framework is based on the following fundamental concepts:
 
 =head3 Configurability
 
-The framework is designed to allow you to create a data service that will
-provide exactly the functionality you desire.  The behavior of the data
-service is extremely configurable, and also includes a number of hooks that
-you can use if necessary to further modify the behavior.  For more
-information, see L<Web::DataService::Configuration>.
+It is designed to allow you to create a data service that will provide exactly
+the functionality you desire.  The behavior of the data service is extremely
+configurable, and also includes a number of hooks that you can use if
+necessary to further modify the behavior.  For more information, see
+L<Web::DataService::Configuration>.
 
 =head3 Extensibility
 
@@ -267,7 +268,7 @@ other cleanup as well to make the documentation process as easy as possible.
 
 =head2 Multiple data services
 
-You may wish to arrange for your application to provide multiple data services
+You may want to arrange for your application to provide multiple data services
 through a single server.  Reasons for doing this include:
 
 =over
@@ -302,9 +303,8 @@ vs. "/my/operation.json?v=2.0"
 
 =back
 
-The L<multiple version example|Web::DataService::Tutorial/"Multiple versions">
-presented in L<Web::DataService::Tutorial> shows how to do this.
-
+The section on L<VERSIONING|Web::DataService::Tutorial/"VERSIONING">
+in L<Web::DataService::Tutorial> talks about how to do this.
 
 
 =head1 AUTHOR

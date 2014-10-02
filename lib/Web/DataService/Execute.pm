@@ -35,6 +35,14 @@ sub new_request {
     
     $attrs ||= {};
     
+    # If this was called as a class method rather than as an instance method,
+    # then call 'select' to figure out the appropriate data service.
+    
+    unless ( ref $ds eq 'Web::DataService' )
+    {
+	$ds = Web::DataService->select($outer);
+    }
+    
     # Grab the request parameters from the foundation plugin.
     
     my $request_params = $ds->{foundation_plugin}->get_params($outer);
@@ -242,7 +250,13 @@ sub execute_request {
     my $path = $request->node_path;
     my $format = $request->response_format;
     
-    # $DB::single = 1;
+    # If this was called as a class method rather than as an instance method,
+    # then call 'select' to figure out the appropriate data service.
+    
+    unless ( ref $ds eq 'Web::DataService' )
+    {
+	$ds = Web::DataService->select($request->outer);
+    }
     
     # If a 'before_execute_hook' was defined for this request, call it now.
     

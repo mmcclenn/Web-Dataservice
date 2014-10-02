@@ -1,4 +1,3 @@
-#!perl -T
 
 use Test::More;
 
@@ -18,53 +17,55 @@ if ( $@ )
 
 plan tests => 17;
 
-# Untaint $^X and the path.  Is there a better way to do this?  I am assuming that
-# since this is a test script we do not have to worry about these being compromised.
-
-$^X =~ /(.*)/;
-my $perl = $1;
-
-$ENV{PATH} =~ /(.*)/;
-$ENV{PATH} = $1;
-
 $ENV{DANCER_APPDIR} = '.';
 $ENV{WDS_QUIET} = 1;
 
-my ($result);
+my ($result, $header, $chunk1, $chunk2);
 
 eval {
-    $result = `cd files; $perl bin/dataservice.pl GET /data1.0/`;
+    $result = `cd files; $^X bin/dataservice.pl GET /data1.0/`;
 };
 
 ok( !$@, 'invocation: main html' ) or diag( "    message was: $@" );
 
-like( $result, qr{^HTTP/1.0 200 OK}m, 'http header' );
+unless ( $result )
+{
+    BAIL_OUT("the data service failed to run.");
+}
 
-like( $result, qr{^Content-Type: text/html; charset=utf-8}m, 'content type html' );
+$header = substr($result, 0, 250);
+$chunk1 = substr($result, 1000, 250);
+$chunk2 = substr($result, 2450, 250);
 
-like( $result, qr{^<html><head><title>Example Data Service: Main Documentation</title>}m, 'main title' );
+like( $header, qr{^HTTP/1.0 200 OK}m, 'http header' );
 
-like( $result, qr{^<h2 class="pod_heading"><a name="Operations">Operations</a></h2>}m, 'main h2' );
+like( $header, qr{^Content-Type: text/html; charset=utf-8}m, 'content type html' );
 
-like( $result, qr{^<td class="pod_def"><p class="pod_para">The JSON format is intended primarily to support client applications.</p>}m, 
+like( $header, qr{^<html><head><title>Example Data Service: Main Documentation</title>}m, 'main title' );
+
+like( $chunk1, qr{^<h2 class="pod_heading"><a name="OPERATIONS">OPERATIONS</a></h2>}m, 'main h2' );
+
+like( $chunk2, qr{^<td class="pod_def"><p class="pod_para">The JSON format is intended primarily to support client applications.</p>}m, 
       'main json format' );
 
 eval {
-    $result = `cd files; $perl bin/dataservice.pl GET /data1.0/index.pod`;
+    $result = `cd files; $^X bin/dataservice.pl GET /data1.0/index.pod`;
 };
 
 ok( !$@, 'invocation: main pod' ) or diag( "    message was: $@" );
 
-like( $result, qr{^Content-Type: text/plain; charset=utf-8}m, 'content type pod' );
+$header = substr($result, 0, 250);
 
-like( $result, qr{^=head1 Example Data Service: Main Documentation}m, 'pod title' );
+like( $header, qr{^Content-Type: text/plain; charset=utf-8}m, 'content type pod' );
+
+like( $header, qr{^=head1 Example Data Service: Main Documentation}m, 'pod title' );
 
 like( $result, qr{^=for wds_table_header Format\* \| Suffix \| Documentation \| Description}m, 'pod table descriptor' );
 
 like( $result, qr{^=item L<Single state\|node:single>}m, 'pod node link' );
 
 eval {
-    $result = `cd files; $perl bin/dataservice.pl GET /data1.0/single_doc.pod`;
+    $result = `cd files; $^X bin/dataservice.pl GET /data1.0/single_doc.pod`;
 };
 
 ok( !$@, 'invocation: single_doc html' ) or diag( "    message was: $@" );

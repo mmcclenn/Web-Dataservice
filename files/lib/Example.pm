@@ -12,7 +12,7 @@ use strict;
 
 package Example;
 
-use lib './lib';
+use lib '../lib';		# Required for testing.  Remove from production app.
 
 use Dancer ':syntax';		# This module is required for
                                 # Web::DataService, until plugins for other
@@ -150,7 +150,7 @@ $ds->define_node(
 # your application, you are free to add additional routes to process
 # certain URLs differently.
 
-any qr{.*}xs => sub {
+any qr{.*} => sub {
     
     return Web::DataService->handle_request(request);
 };

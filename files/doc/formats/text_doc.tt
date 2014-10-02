@@ -10,9 +10,9 @@ of these formats can be loaded into a spreadsheet, or copied into an e-mail mess
 
 You may choose from any of the following three suffixes:
 
-=over
+=for wds_table_no_header Suffix* | Description
 
-=for pp_table_header Suffix | Description
+=over
 
 =item C<.csv>
 
@@ -40,9 +40,9 @@ up an enormous amount of memory.
 
 In addition, you may choose to include one or more of the following URL parameters:
 
-=over
+=for wds_table_no_header Parameter* | Description
 
-=for pp_table_header Parameter* | Description
+=over
 
 =item datasource
 
@@ -76,9 +76,9 @@ feed sequence.
 The body of the response consists of a series of lines containing comma-separated or tab-separated values.
 The initial part of the file may contain some or all of the following lines:
 
-=over
+=for wds_table_no_header Label* | Description
 
-=for pp_table_header Label | Description
+=over
 
 =item C<Data Source:>
 

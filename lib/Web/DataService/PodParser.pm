@@ -123,6 +123,11 @@ sub parse_pod {
 	    my $cmd = $1;
 	    my $content = $2;
 	    
+	    # If this command is anything but =over, delete any pending column
+	    # definitions.
+	    
+	    delete $self->{pending} if $cmd ne 'over';
+	    
 	    # If the line starts with "=for wds_nav", then just pass the
 	    # remainder of the line through.  This command indicates content
 	    # that should be ignored for POD output, because its purpose is
@@ -292,6 +297,11 @@ sub add_list {
     my $list_node = $self->add_node({ type => 'list', level => $self->{list_level}, indent => $indent,
 				      body => [], list_type => '' });
     
+    $list_node->{column_spec} = $self->{pending}{column_spec};
+    $list_node->{no_header} = $self->{pending}{no_header};
+    
+    delete $self->{pending};
+    
     push @{$self->{stack}}, $list_node;
     $self->{current} = undef;
 }
@@ -445,9 +455,8 @@ sub add_directive {
 	my $column_spec = $2;
 	my @columns = split qr{ \s+ \| \s+ }x, $column_spec;
 	
-	return unless $self->{list_level};
-	$self->{stack}[-1]{column_spec} = \@columns;
-	$self->{stack}[-1]{no_header} = 1 if $cmd eq 'wds_table_no_header';
+	$self->{pending}{column_spec} = \@columns;
+	$self->{pending}{no_header} = 1 if $cmd eq 'wds_table_no_header';
     }
     
     elsif ( $directive =~ qr{ ^ wds_nav }xs )

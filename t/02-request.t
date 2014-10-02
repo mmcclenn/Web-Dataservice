@@ -1,10 +1,5 @@
-#!perl -T
 
 use Test::More tests => 13;
-
-#use Dancer qw(!pass);
-#use Web::DataService;
-
 
 # Untaint $^X and the path.  Is there a better way to do this?  I am assuming that
 # since this is a test script we do not have to worry about these being compromised.
@@ -25,6 +20,11 @@ eval {
 };
 
 ok( !$@, 'invocation: single' ) or diag( "    message was: $@" );
+
+unless ( $result )
+{
+    BAIL_OUT("the data service failed to run.");
+}
 
 like( $result, qr{^HTTP/1.0 200 OK}m, 'http header' );
 
