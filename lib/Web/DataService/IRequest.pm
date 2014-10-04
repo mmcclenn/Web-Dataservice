@@ -563,7 +563,7 @@ sub set_cors_header {
 
     my ($self, $arg) = @_;
     
-    $self->{ds}{foundation_plugin}->set_cors_header($self, $arg);
+    $Web::DataService::FOUNDATION->set_cors_header($self, $arg);
 }
 
 
@@ -575,7 +575,7 @@ sub set_content_type {
     
     my ($self, $type) = @_;
     
-    $self->{ds}{foundation_plugin}->set_content_type($self, $type);
+    $Web::DataService::FOUNDATION->set_content_type($self, $type);
 }
 
 

@@ -116,11 +116,11 @@ sub valid_vocab {
     
     # The ENUM_VALUE subroutine is defined by HTTP::Validate.pm.
     
-    return ENUM_VALUE(@{$ds->{vocab_list}});
+    return HTTP::Validate::ENUM_VALUE(@{$ds->{vocab_list}});
 }
 
 
-# document_vocab ( path, options )
+# document_vocabs ( path, options )
 # 
 # Return a string containing POD documentation of the response vocabularies
 # that are allowed for the specified path.  If the option 'all' is true, then

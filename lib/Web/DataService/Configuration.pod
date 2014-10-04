@@ -10,8 +10,8 @@ configuring a data service with L<Web::DataService>.
 =head1 SYNTAX
 
 The various configuration methods provided by L<Web::DataService> all use a
-consistent syntax.  With the possible exception of an initial name parameter,
-all of the rest of the parameters must be either hashrefs or strings.  The
+consistent syntax.  With the possible exception of an initial name argument,
+all of the rest of the arguments must be either hashrefs or strings.  The
 hashrefs each configure some object, and the strings each document the object
 that they follow.  We refer to this mix of attribute hashrefs and
 documentation strings as a I<definition list>.
@@ -31,9 +31,12 @@ documentation strings as a I<definition list>.
 
 For example, the above call defines two response formats: one named 'json' and
 the other named 'xml'.  Each of these formats is defined by the set of
-attributes contained in a hashref.  All of the documentation strings are
-automatically collected (joined by newlines) as the attribute C<doc_string> of the
-object whose definition they immediately follow.
+attributes contained in a hashref.  The documentation strings are
+automatically collected (joined by newlines) as the attribute C<doc_string> of
+the object whose definition they immediately follow.
+
+Note that this does not apply to C<< Web::DataService->new >>, which must be
+called with a single hash argument only.
 
 =head2 Attribute value syntax
 
@@ -47,52 +50,52 @@ whitespace.  For example, the following are identical:
 =head1 CONFIGURATION PROCESS
 
 In order to fully define a data service using this framework, your code must
-carry out the following steps (see the example data service application for
+carry out the following steps (see L<Web::DataService::Tutorial> for
 more about this):
 
 =over
 
-=item 1)
+=item 1.
 
 Load one or more modules ("operation modules") that can serve as L<Moo>
 L<roles|Moo::Role>.  The subroutines that implement your data service
 operations must be placed in these modules.
 
-=item 2)
+=item 2.
 
 Generate a new L<instance of Web::DataService|/Data service instantiation>.
 
-=item 3)
+=item 3.
 
 Define one or more L<output vocabularies|/Vocabulary definitions> using
 C<define_vocab>.  This step is optional, and a default vocabulary consisting
 of the field names and values obtained from the backend will be automatically
 used if you do not specify any.
 
-=item 4)
+=item 4.
 
 Define one or more L<response formats|/Response format definitions> using
 C<define_format>.  This must follow any vocabulary definitions, and must
 precede the node definitions.
 
-=item 5)
+=item 5.
 
 Define some L<data service nodes|/Node definitions> using C<define_node>.
 
-=item 6)
+=item 6.
 
 Define one or more L<output blocks|/Output block definitions> using
 C<define_block>.  These may occur in any order with respect to the node
 definitions.
 
-=item 7)
+=item 7.
 
 Define L<value sets|/Set definitions> using C<define_set> (or
 C<define_output_map>).  This step is optional, but you will need to do this if
 you wish to provide variable output.  These definitions must occur before any
 output blocks that depend on them.
 
-=item 8)
+=item 8.
 
 Define one or more L<parameter validation rulesets|/Ruleset definitions> using
 C<define_ruleset>.  These may occur in any order with respect to the other
@@ -214,21 +217,22 @@ plugin|/"templating_plugin"> is loaded.
 This feature will enable additional URL paths for accessing documentation.  If
 enabled, a request with the URL path "/my/operation_doc" or (if
 C<format_suffix> is also enabled) "/my/operation_doc.html" will produce the
-documentation page for the data service node "my/operation".  The URL path
-"/my/operation", on the other hand, will execute the operation and return the
-result.
+documentation page for the data service node "my/operation".  So will
+"/my/operation/index.html".  The URL path "/my/operation" (or
+"/my/operation.json" if C<format_suffix> is also enabled)
+will execute the operation and return the result.
 
-You can change the documentation suffix from "_doc" to something else by
-setting the attribute L<doc_suffix|/"doc_suffix">.
+You can change the documentation suffixes by setting the attributes
+L<doc_suffix|/"doc_suffix"> and L<doc_index|/"doc_index">.
 
 =head4 send_files
 
 This feature will enable you to define data service nodes that respond with
 the contents of files from disk.  Its primary purpose is to provide access to
-the CSS files that accompany the documentation pages.  You can use it to
-provide access to other files as well.  If you disable this feature but enable
-the 'documentation' feature, you will need to arrange for the documentation
-CSS file to be provided separately.
+the stylesheet used by the documentation pages.  You can use it to provide
+access to other files as well.  If you disable this feature but enable the
+'documentation' feature, you will need to arrange for the stylesheet to be
+provided separately.
 
 =head4 strict_params
 
@@ -250,9 +254,9 @@ time, and may cause excessive paging.
 
 The Web::DataService module can process certain request parameters in special
 ways.  Each of these special parameters has an internal name for use in the
-data service application code, and an external name which you can set to
-any string you choose.  It is this external name which is recognized in actual
-requests to the data service.
+data service application code, and an external name which you can set to any
+string you choose.  It is this external parameter name which is used by
+clients when making requests to the data service.
 
 The value of C<special_params> must be a list of special parameter internal
 names.  You can turn off any of these by prefixing the name with C<no_>, and
@@ -283,22 +287,25 @@ application, or I<if you think you may want to create a second version at some
 point>, then you should either enable this parameter from the very beginning
 or use a different value of L<path_prefix|/"path_prefix"> for each of your
 data services.  One or the other mechanism will ensure that the proper version
-of your service is selected to respond to each request.
+of your service is selected to respond to each request.  See the
+L<VERSIONING|Web::DataService::Tutorial/VERSIONING> section of
+L<Web::DataService::Tutorial> for a more comprehensive discussion.
 
 =head4 format
 
-If enabled, this special parameter is used to select the response format for the
-request.  It is forbidden to enable this parameter and the feature
-L</"format_suffix"> for the same data service.  You can enable it if you
-prefer your clients to select the response format by means of a parameter rather
-than through a suffix on the URL path.
+If enabled, this special parameter is used to select the response format for
+the request.  It is not included in the standard set, but you can turn it on
+if you prefer your clients to select the response format by means of a
+parameter rather than through a suffix on the URL path.  If you do this, then
+you must also disable the feature L</"format_suffix">.
 
 =head4 show
 
 If enabled, this special parameter is used to select optional output blocks in
 addition to the default output for a particular request.  In this way, clients
 can tailor the output of each request to provide just the information they
-need and leave out information they do not need.
+need and leave out information they do not need.  See the documentation for
+<optional_output|/optional_output>.
 
 =head4 limit
 
@@ -313,9 +320,10 @@ This parameter, in combination with C<default_limit>, can be useful for data
 services that are able to generate large result sets.  This combination
 prevents clients from accidentally sending in request URLs that generate
 enormous responses, while allowing the ability to acquire the full results
-when necessary.  A client can also use this parameter in conjunction with
-L</offset> to obtain a large result set using a series of requests, each of
-which returns a portion of the desired result.
+when necessary.  A client can either use this parameter with a value of C<all>
+to obtain the entire result set deliberately with one query, or use it in
+conjunction with L</offset> to obtain a large result set using a series of
+requests, each of which returns a portion of the desired result.
 
 =head4 offset
 
@@ -340,18 +348,20 @@ include not only the result of the data service operation but also a set of
 descriptive information about the data.  The attribute L</default_datainfo>
 specifies whether or not that information will be included when this parameter
 is not specified.  This is a L<flag parameter|/"Flag parameters"> (see
-below). [Need to put in a link here to more info.]
+below).
 
 =head4 header
 
 If enabled, a true value for this parameter indicates that the response should
 include header material, the contents of which varies according to the output
-format and the values of the C<count> and C<datainfo> parameters (if enabled).
-If false, no header material should be included.  This parameter is ignored by
-the JSON output module.  With a text format response (tsv or csv), if this
-parameter is provided with a false value then all header material is
-suppressed and only the data records (one per line) are returned.  This is a
-L<flag parameter|/"Flag parameters"> (see below).
+format and the values of the C<count> and C<datainfo> parameters if these are
+enabled.  If false, no header material should be included.  This parameter is
+ignored by the JSON output module.  With a text format response (tsv or csv),
+if this parameter is provided with a false value then all header material is
+suppressed and only the data records (one per line) are returned.  The
+attribute L</default_header> specifies whether or not the header will be
+included when this paramter is not specified.  This is a L<flag
+parameter|/"Flag parameters"> (see below).
 
 =head4 linebreak
 
@@ -378,8 +388,8 @@ If enabled, this parameter can be used by the client to specify which
 vocabulary to use in expressing the result of a data service operation.  The
 client can use this to override the default vocabulary for the selected output
 format, or to select a vocabulary if the format does not specify a default.
-Obviously, this special parameter should only be enabled if you have defined
-additional output vocabularies.
+This special parameter is only relevant if you have defined one or more output
+vocabularies for this data service.
 
 =head3 foundation_plugin [req] [inst] [mod]
 
@@ -456,13 +466,10 @@ prefix for each one.
 
 If specified, the value of this attribute must be a string.  If you are
 running multiple data services and do not wish to use different path prefixes
-to differentiate them, you can instead enable the special parameter 'version'
+to differentiate them, you can instead enable the special parameter L<selector|/selector>
 and set a different value of this attribute for each service.
-
-You must write code as part of your main application to select the appropriate
-service using the value of the 'version' parameter (you can use the class
-method C<match_key>).  Generated URLs will include the value of this attribute
-as the value of the 'version' parameter automatically.
+Generated URLs will include the value of this attribute
+as the value of the C<selector> parameter automatically.
 
 =head3 ruleset_prefix
 
@@ -497,8 +504,8 @@ If specified, the value of this attribute must be a directory path relative to
 the application root directory.  Documentation template paths will be looked
 up relative to this directory.
 
-If not specified, the default valueis 'doc' (relative to the application root
-directory) .
+If not specified, the default value is F<doc> (relative to the application root
+directory).
 
 =head3 doc_output_dir
 
@@ -1024,12 +1031,6 @@ specified L<linebreak sequence|/default_linebreak>.  Its content type is
 "text/tab-separated-values", and its default documentation node is
 "formats/txt".  The module used is L<Web::DataService::Plugins::Text>.
 
-=head4 xml
-
-This format serializes operation results as XML.  Its content type is
-"text/xml", and its default documentation node is "formats/xml".  The module
-used is L<Web::DataService::Plugins::XML>.
-
 =head2 Response format attributes
 
 With the exception of C<name>, each of these attributes is optional for
@@ -1151,18 +1152,26 @@ The value of this attribute specifies the path of a data service node which
 will provide documentation about this vocabulary.  You must define the node with a
 separate call to C<define_node>.
 
+=head3 use_field_names
+
+If this attribute is given a true value, then the underlying field names used
+by the backend data store will be used by this vocabulary.  It is
+automatically set to true for the predefined vocabulary 'default'.
+
+=head3 disposition
+
+If this attribute is given the value 'attachment', then any response generated
+with this format will be returned with a "content-disposition" header
+indicating that it should be saved to disk.  Unless the special parameter
+"save" is active and the request includes this parameter with a false value,
+which overrides the output format disposition.
+
 =head3 doc_string
 
 You can set this attribute either directly or by including one or more
 documentation strings after the format attribute hash in the call to
 C<define_format>.  This value will be used in any auto-generated vocabulary
 lists in the documentation pages.
-
-=head3 use_field_names
-
-If this attribute is given a true value, then the underlying field names used
-by the backend data store will be used by this vocabulary.  It is
-automatically set to true for the predefined vocabulary 'default'.
 
 =head3 disabled
 
@@ -1351,12 +1360,13 @@ label for this element in the generated result, unless a vocabulary-specific
 name is selected.  If this attribute is not specified, then the label will
 default to the value of C<output>.
 
-=head4 <vocab>_name
+=head4 'vocab'_name
 
 An attribute of this form specifies the label which will be used for this
 element in the generated result if the corresponding vocabulary is selected.
 For example, an attribute called C<dwc_name> would be used whenever the
-vocabulary C<dwc> is selected for a request.
+vocabulary C<dwc> is selected for a request.  If no name corresponds to the
+selected vocabulary, then the field will be left out of the response.
 
 =head4 value
 
@@ -1365,12 +1375,12 @@ the value of this element in every record, regardless of any value retrieved
 from the backend data store.  The purpose of this attribute is to generate
 constant-valued fields such as record type indicators.
 
-=head4 <vocab>_value
+=head4 'vocab'_value
 
 An attribute of this form specifies the value to be used for this element if the
 corresponding vocabulary is selected.  The purpose of such attributes it to
 generate constant-valued fields whose value is appropriate to the specified
-vocabulary.  See L</"<vocab>_name">.
+vocabulary.  See L<< /"'vocab'_name" >>.
 
 =head4 dedup
 
@@ -1539,9 +1549,9 @@ The value of this attribute must either be the name of a request method
 (almost always one which you have written as part of a data service operation
 role) or a code reference.  It will be called with the request object as the
 first argument, and the source value as the second.  The source value will a
-reference to the entire record if C<set => '*'> or C<from => '*'> is also
-specified.  The result of this subroutine call will be stored in the target
-field, unless the target is '*'.
+reference to the entire record if C<< set => '*' >> or C<< from => '*' >> is
+also specified.  The result of this subroutine call will be stored in the
+target field, unless the target is '*'.
 
 You can use this powerful functionality to arbitrarily alter the data records
 before they are output.
@@ -2036,6 +2046,12 @@ validator, the specified default value will be passed to it and the resulting
 cleaned value, if any, will be used.  An exception will be thrown at the time
 of rule definition if the default value does not pass the validator.
 
+=head3 no_set_doc
+
+If this directive is given a true value, then the documentation string for
+this rule will not have a list of set values appended.  You can use this if
+you are giving the name of a set as a validator, but do not wish to have the
+list of set values automatically appended.
 
 =head1 AUTHOR
 

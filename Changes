@@ -1,5 +1,13 @@
 Revision history for Web-DataService
 
+0.23    2014-10-03
+
+- Improved the documentation some more
+- Removed spurious use of Sub::Identify
+- Fixed bug in evaluating set attributes starting with + or -
+- Fixed bug that prevented multiple validators in a parameter rule
+- Added set_foundation method to set the foundation framework, removed the foundation_plugin attribute.
+
 0.22    2014-10-02
 
 - Fixed bad tests and improved the documentation.

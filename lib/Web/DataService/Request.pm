@@ -205,7 +205,7 @@ sub _match_node {
 	
 	elsif ( my $document_param = $ds->special_param('document') )
 	{
-	    my $params = $ds->{foundation_plugin}->get_params($self->{outer});
+	    my $params = $Web::DataService::FOUNDATION->get_params($self->{outer});
 	    
 	    $self->{is_doc_request} = 1 if defined $params->{$document_param};
 	}
@@ -309,7 +309,7 @@ sub configure {
 
 sub request_url {
     
-    return $_[0]->{ds}->{foundation_plugin}->get_request_url($_[0]->{outer});
+    return $Web::DataService::FOUNDATION->get_request_url($_[0]->{outer});
 }
 
 
@@ -319,7 +319,7 @@ sub request_url {
 
 sub base_url {
     
-    return $_[0]->{ds}->{foundation_plugin}->get_base_url($_[0]->{outer});
+    return $Web::DataService::FOUNDATION->get_base_url($_[0]->{outer});
 }
 
 
@@ -329,7 +329,7 @@ sub base_url {
 
 sub root_url {
     
-    return $_[0]->{ds}->{foundation_plugin}->get_base_url($_[0]) . $_[0]->{ds}{path_prefix};
+    return $Web::DataService::FOUNDATION->get_base_url($_[0]) . $_[0]->{ds}{path_prefix};
 }
 
 

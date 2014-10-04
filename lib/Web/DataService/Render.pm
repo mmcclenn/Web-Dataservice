@@ -29,7 +29,7 @@ sub check_doc {
     
     return unless defined $template_path && $template_path ne '';
     
-    my $template_full_path = $ds->{foundation_plugin}->file_path($ds->{doc_template_dir}, $template_path);
+    my $template_full_path = $Web::DataService::FOUNDATION->file_path($ds->{doc_template_dir}, $template_path);
     
     if ( -e $template_full_path )
     {
@@ -78,7 +78,7 @@ sub check_output {
     
     return unless defined $template && $template ne '';
     
-    my $template_file = $ds->{foundation_plugin}->file_path($ds->{output_templates}, $template);
+    my $template_file = $Web::DataService::FOUNDATION->file_path($ds->{output_templates}, $template);
     
     if ( -e $template_file )
     {

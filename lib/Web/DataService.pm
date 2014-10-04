@@ -16,7 +16,7 @@ Web::DataService - a framework for building data service applications for the We
 
 =head1 VERSION
 
-Version 0.22
+Version 0.23
 
 =head1 SYNOPSIS
 
@@ -55,12 +55,11 @@ as Mojolicious and Catalyst soon.
 
 package Web::DataService;
 
-our $VERSION = '0.22';
+our $VERSION = '0.23';
 
 use Carp qw( carp croak confess );
 use Scalar::Util qw( reftype blessed weaken );
 use POSIX qw( strftime );
-use Sub::Identify;
 use HTTP::Validate;
 
 use Web::DataService::Node;
@@ -134,8 +133,8 @@ our ($DEBUG, $ONE_REQUEST, $CHECK_LATER, $QUIET);
 # Variables for keeping track of data service instances
 
 my (%KEY_MAP);		
-my (@WDS_INSTANCES);
-my ($FOUNDATION);
+our (@WDS_INSTANCES);
+our ($FOUNDATION);
 
 
 # Attributes of a Web::DataService object
@@ -148,8 +147,6 @@ has parent => ( is => 'ro', init_arg => '_parent' );
 has features => ( is => 'ro', required => 1 );
 
 has special_params => ( is => 'ro', required => 1 );
-
-has foundation_plugin => ( is => 'ro' );
 
 has templating_plugin => ( is => 'lazy', builder => sub { $_[0]->_init_value('templating_plugin') } );
 
@@ -350,54 +347,7 @@ sub BUILD {
     # Check and configure the foundation plugin
     # -----------------------------------------
     
-    # It is necessary that each application uses a single foundation
-    # framework, no matter how many data service instances it includes.  So if
-    # a foundation plugin was already specified, make sure that the current
-    # definition does not conflict.
-    
-    my $foundation_plugin = $self->foundation_plugin;
-    
-    if ( $FOUNDATION )
-    {
-	croak "conflicting foundation plugin $foundation_plugin - already set to $FOUNDATION\n"
-	    if $foundation_plugin && $FOUNDATION ne $foundation_plugin;
-    }
-    
-    # If this is the first instance to be defined and a foundation plugin was
-    # specified in the initialization, make sure that it is correct.
-    
-    elsif ( $foundation_plugin )
-    {
-	eval "require $foundation_plugin" or croak $@;
-	
-	croak "class '$foundation_plugin' is not a valid foundation plugin: cannot find method 'read_config'\n"
-	    unless $foundation_plugin->can('read_config');
-    }
-    
-    # Otherwise, if 'Dancer.pm' has already been required then install the
-    # corresponding plugin.
-    
-    elsif ( $INC{'Dancer.pm'} )
-    {
-	require Web::DataService::Plugin::Dancer or croak $@;
-	$foundation_plugin = 'Web::DataService::Plugin::Dancer';
-    }
-    
-    # Checks for other foundation frameworks will go here.
-    
-    # Otherwise, we cannot proceed.  Give the user some idea of what to do.
-    
-    else
-    {
-	croak "could not find a foundation framework: try adding 'use Dancer;' \
-before 'use Web::DataService' (and make sure that Dancer is installed)\n";
-    }
-    
-    # Now store this value and initialize the plugin.
-    
-    $FOUNDATION ||= $foundation_plugin;
-    $self->{foundation_plugin} ||= $FOUNDATION;
-    $self->_plugin_init('foundation_plugin');
+    $self->set_foundation;
     
     # From this point on, we will be able to read the configuration file
     # (assuming that a valid one is present).  So do so.
@@ -456,7 +406,7 @@ before 'use Web::DataService' (and make sure that Dancer is installed)\n";
     {
 	# Let the plugin do whatever initialization it needs to.
 	
-	$self->_plugin_init('templating_plugin');
+	$self->_init_plugin('templating_plugin');
 	
 	# If no document template directory was specified, use 'doc' if it
 	# exists and is readable.
@@ -565,7 +515,7 @@ before 'use Web::DataService' (and make sure that Dancer is installed)\n";
     
     # Let the backend plugin do whatever initialization it needs to.
     
-    $self->_plugin_init('backend_plugin');
+    $self->_init_plugin('backend_plugin');
     
     # Register this instance so that we can select for it later
     # ---------------------------------------------------------
@@ -688,12 +638,12 @@ sub _init_value {
 }
 
 
-# _plugin_init ( plugin )
+# _init_plugin ( plugin )
 # 
 # If the specified plugin has an 'initialize_service' method, call it with
 # ourselves as the argument.
 
-sub _plugin_init {
+sub _init_plugin {
 
     my ($self, $plugin) = @_;
     
@@ -710,6 +660,70 @@ sub _plugin_init {
     if ( defined $self->{$plugin} && $self->{$plugin}->can('initialize_service') )
     {    
 	$self->{$plugin}->initialize_service($self);
+    }
+}
+
+
+# set_foundation ( plugin_module )
+# 
+# Initialize the foundation plugin.  If no name is given, try to determine the
+# proper plugin based on the available modules.
+
+sub set_foundation {
+
+    my ($self, $plugin_module) = @_;
+    
+    # If an argument is specified and the foundation framework has already
+    # been set, raise an exception.
+    
+    if ( defined $FOUNDATION && defined $plugin_module && $plugin_module ne $FOUNDATION )
+    {
+	croak "set_foundation: the foundation framework was already set to $FOUNDATION\n"
+    }
+    
+    # If a plugin module is specified, require it.
+    
+    elsif ( $plugin_module )
+    {
+	eval "require $plugin_module" or croak $@;
+	
+	croak "class '$plugin_module' is not a valid foundation plugin: cannot find method 'read_config'\n"
+	    unless $plugin_module->can('read_config');
+	
+	$FOUNDATION = $plugin_module;
+    }
+    
+    # Otherwise, if 'Dancer.pm' has already been required then install the
+    # corresponding plugin.
+    
+    elsif ( $INC{'Dancer.pm'} )
+    {
+	require Web::DataService::Plugin::Dancer or croak $@;
+	$FOUNDATION = 'Web::DataService::Plugin::Dancer';
+    }
+    
+    # Checks for other foundation frameworks will go here.
+    
+    # Otherwise, we cannot proceed.  Give the user some idea of what to do.
+    
+    else
+    {
+	croak "could not find a foundation framework: try installing Dancer and adding 'use Dancer;' to your application\n";
+    }
+    
+    # Now initialize the plugin.
+    $DB::single = 1;
+    no strict 'refs';
+    
+    if ( $FOUNDATION->can('initialize_plugin') && ! ${"${FOUNDATION}::_INITIALIZED"} )
+    {
+	$FOUNDATION->initialize_plugin();
+	${"$FOUNDATION}::_INITIALIZED"} = 1;
+    }
+    
+    if ( ref $self eq 'Web::DataService' && $FOUNDATION->can('initialize_service') )
+    {    
+	$FOUNDATION->initialize_service($self);
     }
 }
 
@@ -1417,15 +1431,13 @@ sub initialize_role {
     
     my ($self, $role) = @_;
     
-    no strict 'refs';
-    
-    # 
+    no strict 'refs'; no warnings 'once';
     
     # If we have already initialized this role, there is nothing else we need
     # to do.
     
-    return if ${ "${role}::_INITIALIZED" };
-    ${ "${role}::_INITIALIZED" } = 1;
+    return if $self->{role_init}{$role};
+    $self->{role_init}{$role} = 1;
     
     # If this role requires one or more secondary roles, then initialize them
     # first (unless they have already been initialized).
@@ -1595,6 +1607,12 @@ attributes for each method, and an overview of the calling convention, see
 L<Web::DataService::Configuration>.  For detailed instructions on how to set up a data service application,
 see L<Web::DataService::Tutorial>.
 
+=head3 set_foundation ( module_name )
+
+You can call this as a class method if you wish to use a custom foundation
+framework.  The argument must be the module name, which will be require'd.
+This call must occur before any data services are defined.
+
 =head3 define_vocab ( { attributes ... }, documentation ... )
 
 Defines one or more vocabularies, using the specified attributes and
@@ -1694,13 +1712,12 @@ attributes of the matching node will be automatically used to instantiate the
 request object.  In almost all cases, you will instead use the attribute
 accessor methods of the request object.
 
-=head3 get_connection
+=head3 config_value ( name )
 
-If a backend plugin is available, this method obtains a connection handle from
-it.  You can use this method when initializing your operation roles, if your
-initialization process requires communication with the backend.  You are not
-required to use this mechanism, however, and may contact the backend in any
-way you choose.
+Returns the value (if any) specified for this name in the application
+configuration file.  If the name is found as a sub-entry under the data
+service name, that value is used.  Otherwise, if the name is found as a
+top-level entry then it is used.
 
 =head3 has_feature ( feature_name )
 
@@ -1724,6 +1741,14 @@ method of L<Web::DataService::Request>.  However, it can only generate URLs of
 type "rel" or "site".  If you want to generate an absolute URL, use the latter
 method.
 
+=head3 get_connection
+
+If a backend plugin is available, this method obtains a connection handle from
+it.  You can use this method when initializing your operation roles, if your
+initialization process requires communication with the backend.  You are not
+required to use this mechanism, however, and may contact the backend in any
+way you choose.
+
 =head3 accessor methods
 
 Each of the data service 
@@ -1740,7 +1765,7 @@ The following methods are available for you to use in generating
 documentation.  If you use the included documentation templates, you will
 probably not need to call them directly.
 
-=head3 document_vocab ( path, { options ... } )
+=head3 document_vocabs ( path, { options ... } )
 
 Return a documentation string in POD for the vocabularies that are allowed for
 the specified path.  The optional C<options> hash may include the following:

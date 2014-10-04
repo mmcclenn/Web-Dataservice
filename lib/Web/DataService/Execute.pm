@@ -45,14 +45,14 @@ sub new_request {
     
     # Grab the request parameters from the foundation plugin.
     
-    my $request_params = $ds->{foundation_plugin}->get_params($outer);
+    my $request_params = $Web::DataService::FOUNDATION->get_params($outer);
     
     # If "path" was not specified as an attribute, determine it from the request
     # parameters and path.
     
     unless ( defined $attrs->{path} )
     {
-	my $request_path = $ds->{foundation_plugin}->get_request_path($outer);
+	my $request_path = $Web::DataService::FOUNDATION->get_request_path($outer);
 	
 	$attrs->{path} = $ds->_determine_path($request_path, $request_params);
     }
@@ -70,7 +70,7 @@ sub new_request {
     # so that garbage collection works properly.
     
     weaken($request->{outer}) if ref $request->{outer};
-    $ds->{foundation_plugin}->store_inner($outer, $request);
+    $Web::DataService::FOUNDATION->store_inner($outer, $request);
     
     # Return the new request object.
     
@@ -325,7 +325,7 @@ sub send_file {
 	# Concatenate the path components together, using the foundation plugin so
 	# that this is done in a file-system-independent manner.
 	
-	$file_path = $ds->{foundation_plugin}->file_path($file_dir, $rest_path);
+	$file_path = $Web::DataService::FOUNDATION->file_path($file_dir, $rest_path);
     }
     
     # Otherwise, $rest_path must be empty or else we send back a 404 error.
@@ -342,15 +342,15 @@ sub send_file {
     # Dancer.  If the file exists but is not readable, return a 500 error.
     # This is not a permission error, it is an internal server error.
     
-    unless ( $ds->{foundation_plugin}->file_readable($file_path) )
+    unless ( $Web::DataService::FOUNDATION->file_readable($file_path) )
     {
-	die "500" if $ds->{foundation_plugin}->file_exists($file_path);
+	die "500" if $Web::DataService::FOUNDATION->file_exists($file_path);
 	die "404\n"; # otherwise
     }
     
     # Otherwise, send the file.
     
-    return $ds->{foundation_plugin}->send_file($request->outer, $file_path);
+    return $Web::DataService::FOUNDATION->send_file($request->outer, $file_path);
 }
 
 
@@ -382,8 +382,6 @@ sub configure_request {
     
     my $path = $request->node_path;
     
-    # $DB::single = 1;
-    
     die "404\n" if $request->{is_invalid_request} || $ds->node_attr($path, 'disabled');
     
     $request->{_configured} = 1;
@@ -404,7 +402,7 @@ sub configure_request {
     
     # Get the raw parameters for this request, if they have not already been gotten.
     
-    $request->{raw_params} //= $ds->{foundation_plugin}->get_params($request);
+    $request->{raw_params} //= $Web::DataService::FOUNDATION->get_params($request);
     
     # Check to see if there is a ruleset corresponding to this path.  If
     # so, then validate the parameters according to that ruleset.
@@ -603,7 +601,8 @@ sub generate_result {
     # attachment (which tells the browser to save it to disk), note this fact.
     
     if ( defined $ds->{format}{$format}{disposition} &&
-	 $ds->{format}{$format}{disposition} eq 'attachment' )
+	 $ds->{format}{$format}{disposition} eq 'attachment' &&
+         defined $request->save_output && $request->save_output ne '0' )
     {
     	$request->save_output(1);
     }
@@ -738,7 +737,7 @@ sub generate_doc {
 	# If the special parameter 'format' is enabled, check to see if a
 	# value for that parameter was given.
 
-	$request->{raw_params} //= $ds->{foundation_plugin}->get_params($request);
+	$request->{raw_params} //= $Web::DataService::FOUNDATION->get_params($request);
 	
 	$format ||= $request->special_value('format');
 	
@@ -932,7 +931,7 @@ sub _set_cors_header {
     
     if ( (defined $arg && $arg eq '*') || $ds->node_attr($request, 'public_access') )
     {
-	$ds->{foundation_plugin}->set_cors_header("*");
+	$Web::DataService::FOUNDATION->set_cors_header("*");
     }
 }
 
@@ -950,7 +949,7 @@ sub _set_content_type {
 	$ct = $ds->{format}{$format}{content_type} || 'text/plain';
     }
     
-    $ds->{foundation_plugin}->set_content_type($request, $ct);
+    $Web::DataService::FOUNDATION->set_content_type($request, $ct);
 }
 
 
@@ -975,7 +974,7 @@ sub _set_content_disposition {
 	$filename .= '.' . $request->response_format;
     }
     
-    $ds->{foundation_plugin}->set_header($request, 'Content-Disposition' => 
+    $Web::DataService::FOUNDATION->set_header($request, 'Content-Disposition' => 
 					 qq{attachment; filename="$filename"});
 }
 
@@ -1092,7 +1091,7 @@ sub determine_response_format {
     
     if ( $ds->{feature}{format_suffix} )
     {
-	my $path = $ds->{foundation_plugin}->get_request_path($outer);
+	my $path = $Web::DataService::FOUNDATION->get_request_path($outer);
 	
 	$path =~ qr{ [.] ( [^.]+ ) $ }xs;
 	return $1 || '';
@@ -1116,7 +1115,7 @@ sub determine_response_format {
 	
 	else
 	{
-	    my $params = $ds->{foundation_plugin}->get_params($outer);
+	    my $params = $Web::DataService::FOUNDATION->get_params($outer);
 	    
 	    return lc $params->{$format_param} if $params->{$format_param};
 	}
@@ -1205,16 +1204,21 @@ sub error_result {
     elsif ( defined $request )
     {
 	$outer = $request;
-	$inner = $ds->{foundation_plugin}->retrieve_inner($outer);
+	$inner = $Web::DataService::FOUNDATION->retrieve_inner($outer);
     }
     
     # Otherwise, ask the foundation framework to tell us the current request.
     
     else
     {
-	$outer = $ds->{foundation_plugin}->retrieve_outer();
-	$inner = $ds->{foundation_plugin}->retrieve_inner($outer);
+	$outer = $Web::DataService::FOUNDATION->retrieve_outer();
+	$inner = $Web::DataService::FOUNDATION->retrieve_inner($outer);
     }
+    
+    # Get the proper data service instance from the inner request, in case we
+    # were called as a class method.
+    
+    $ds = $inner->isa('Web::DataService::Request') ? $inner->ds : $Web::DataService::WDS_INSTANCES[0];
     
     # Next, try to determine the format of the result
     
@@ -1283,10 +1287,10 @@ sub error_result {
 	my $error_body = $format_class->emit_error($code, \@errors, \@warnings);
 	my $content_type = $ds->{format}{$format}{content_type} || 'text/plain';
 	
-	$ds->{foundation_plugin}->set_content_type($outer, $content_type);
-	$ds->{foundation_plugin}->set_cors_header($outer, "*");
-	$ds->{foundation_plugin}->set_status($outer, $code);
-	$ds->{foundation_plugin}->set_body($outer, $error_body);
+	$Web::DataService::FOUNDATION->set_content_type($outer, $content_type);
+	$Web::DataService::FOUNDATION->set_cors_header($outer, "*");
+	$Web::DataService::FOUNDATION->set_status($outer, $code);
+	$Web::DataService::FOUNDATION->set_body($outer, $error_body);
     }
     
     # Otherwise, generate a generic HTML response (we'll add template
@@ -1318,9 +1322,9 @@ $warning
 </body></html>
 END_BODY
     
-	$ds->{foundation_plugin}->set_content_type($outer, 'text/html');
-	$ds->{foundation_plugin}->set_status($outer, $code);
-	$ds->{foundation_plugin}->set_body($outer, $body);
+	$Web::DataService::FOUNDATION->set_content_type($outer, 'text/html');
+	$Web::DataService::FOUNDATION->set_status($outer, $code);
+	$Web::DataService::FOUNDATION->set_body($outer, $body);
     }
 }
 

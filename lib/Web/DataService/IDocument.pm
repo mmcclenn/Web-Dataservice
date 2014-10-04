@@ -230,7 +230,7 @@ sub default_format {
 }
 
 
-# document_vocab ( extended )
+# document_vocabs ( extended )
 # 
 # Return a string in POD format documenting the vocabularies allowed for the
 # path associated with this request.  If $extended is true, then include a

@@ -97,45 +97,54 @@ sub define_ruleset {
 	
 	next ARG unless $ruletype;
 	
-	# If the 'valid' attribute is the name of a set, replace it with the
-	# corresponding set validator function.  Also add the set's
-	# documentation string to the end of the documentation for this rule,
-	# unless the attribute 'no_doc' was also specified.
+	my $param = $arg->{$ruletype};
 	
-	my $valid_attr = $arg->{valid};
+	# Now look at the value(s) specified by the 'valid' attribute.
 	
-	# If the value of 'valid' is a non-empty string, look up the corresponding
-	# set (not ruleset) or throw an exception if one is not found.
+	my @valid = ref $arg->{valid} eq 'ARRAY' ? @{$arg->{valid}} 
+	          : defined $arg->{valid}        ? $arg->{valid} 
+                  :                                ();
 	
-	if ( $valid_attr && ! ref $valid_attr )
+	foreach my $v ( @valid )
 	{
-	    if ( $ds->set_defined($valid_attr) )
+	    # If the value is 'FLAG_VALUE' or 'ANY_VALUE', or a code
+	    # reference, then pass it through.
+	    
+	    next if ref $v eq 'CODE';
+	    next if $v eq 'FLAG_VALUE' || $v eq 'ANY_VALUE';
+	    
+	    # If it is any other kind of reference, throw an exception.
+	    
+	    if ( ref $v )
 	    {
-		$arg->{valid} = $ds->valid_set($valid_attr);
+		croak "define_ruleset: invalid validator $v for parameter '$param'\n"
+	    }
+	    
+	    # If it is the name of a set, then replace it with the
+	    # corresponding set validator function.  Also add the set's
+	    # documentation string to the end of the documentation for this
+	    # rule, unless the attribute 'no_set_doc' was also specified.
+	    
+	    elsif ( $ds->set_defined($v) )
+	    {
+		$arg->{valid} = $ds->valid_set($v);
 		
-		unless ( $arg->{no_doc} )
+		unless ( $arg->{no_set_doc} )
 		{
-		    push @final_doc, $ds->document_set($valid_attr);
+		    push @final_doc, $ds->document_set($v);
 		}
 	    }
 	    
 	    else
 	    {
-		croak "define_ruleset: unknown set '$valid_attr'; you must define it before using it as a value for 'valid'\n";
+		croak "define_ruleset: unknown set '$v' for parameter '$param'\n";
 	    }
 	}
 	
-	# Otherwise, complain if 'valid' is anything other than a code ref.
-	
-	elsif ( ref $valid_attr && reftype $valid_attr ne 'CODE' )
-	{
-	    croak "define_ruleset: invalid value '$valid_attr' for 'valid': must be a CODE ref\n";
-	}
-	
-	# Delete the attribute 'no_doc' if it exists, because HTTP::Validate
+	# Delete the attribute 'no_set_doc' if it exists, because HTTP::Validate
 	# would reject it.
 	
-	delete $arg->{no_doc};
+	delete $arg->{no_set_doc};
 	
 	# Now look for special values of the rule type parameter.
 	
@@ -435,7 +444,7 @@ sub generate_special_doc {
 	    "You only need to use this if you want to override the default",
 	    "vocabulary for your selected format.",
 	    "Possible values depend upon the particular URL path, and include:",
-	    $ds->document_vocab;
+	    $ds->document_vocabs;
     }
     
     elsif ( $param eq 'header' )

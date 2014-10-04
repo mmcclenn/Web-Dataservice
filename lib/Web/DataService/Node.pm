@@ -542,12 +542,12 @@ sub _lookup_node_attr {
 	    
 	    if ( defined $1 && $1 eq '-' )
 	    {
-		delete $new_value->{$v};
+		delete $new_value->{$2};
 	    }
 	    
 	    else
 	    {
-		$new_value->{$v} = 1;
+		$new_value->{$2} = 1;
 	    }
 	}
     }
