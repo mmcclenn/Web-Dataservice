@@ -138,16 +138,19 @@ sub initialize {
 	{ optional => 'SPECIAL(all)' });
     
     $ds->define_ruleset( 'single' =>
+        "The following parameter is required for this operation:",
 	{ param => 'state', valid => $valid_state, clean => 'uc' },
 	    "Return information about the specified state.",
 	    "You may specify either the full name or standard abbreviation.",
+        "You may also use the following parameter if you wish:",
 	{ optional => 'SPECIAL(show)', valid => 'extra' },
 	    "Display additional information about the specified state.  The value",
 	    "of this parameter must be one or more of the following, separated by commas.",
 	{ allow => 'special' },
-	"^You can also use any of the L<special parameters|node:special> with this request");
+	"^You can also use any of the L<special parameters|node:special> with this request.");
     
     $ds->define_ruleset( 'list' =>
+	"You can use any of the following parameters with this operation:",
 	{ optional => 'state', valid => $valid_state, list => qr{,}, clean => 'uc' },
 	    "Return information about the specified state or states.",
 	    "You may specify either the full names or standard abbreviations,",
@@ -161,11 +164,11 @@ sub initialize {
 	    "Display additional information about the selected states.  The value",
 	    "of this parameter must be one or more of the following, separated by commas.",
 	{ allow => 'special' },
-	"^You can also use any of the L<special parameters|node:special> with this request");
+	"^You can also use any of the L<special parameters|node:special> with this request.");
     
     $ds->define_ruleset( 'regions' =>
 	{ allow => 'special' },
-	"^You can use any of the L<special parameters|node:special> with this request");
+	"^You can use any of the L<special parameters|node:special> with this request.");
 }
 
 
@@ -247,7 +250,7 @@ sub list {
     my $name_filter = $request->clean_param_hash('state');
     my $region_filter = $request->clean_param_hash('region');
     my $order = $request->clean_param('order');
-    my $totals = $request->has_output_block('total');
+    my $totals = $request->has_block('total');
     
     my $return_all; $return_all = 1 unless $request->param_given('state') ||
 	$request->param_given('region');

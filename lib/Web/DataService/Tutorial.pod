@@ -175,7 +175,7 @@ These operation methods must be organized into one or more modules that can func
 L<roles|Moo::Role>.  These modules will then be automatically composed into appropriate subclasses of
 Web::DataService::Request.  Your role files may include any other code that you wish, and your operation
 methods may also call any of the methods provided by L<Web::DataService::Request>.  For more information, see
-L<lib/PopulationData.pm|/lib/PopulationData.pm>.
+L<libE<sol>PopulationData.pm|/lib/PopulationData.pm>.
 
 Each of these role modules will typically include a method called C<initialize>, which is called automatically
 at application startup.  This method can then define data service elements relevant to this particular role,

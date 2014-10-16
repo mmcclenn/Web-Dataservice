@@ -22,6 +22,7 @@ our (%FORMAT_DEF) = (name => 'ignore',
 		     content_type => 'single',
 		     disposition => 'single',
 		     uses_header => 'single',
+		     is_text => 'single',
 		     default_vocab => 'single',
 		     doc_node => 'single',
 		     module => 'single',
@@ -83,7 +84,7 @@ sub define_format {
 		
 		my $v = $item->{$k};
 		
-		if ( $k eq 'default_vocab' )
+		if ( $k eq 'default_vocab' && defined $v && $v ne '' )
 		{
 		    croak "define_format: unknown vocabulary '$v'"
 			unless ref $ds->{vocab}{$v};
@@ -98,6 +99,7 @@ sub define_format {
 	    # Set defaults and check values.
 	    
 	    $record->{uses_header} = 1 if $name eq 'txt' || $name eq 'tsv' || $name eq 'csv';
+	    $record->{is_text} = 1 if $FORMAT_CT{$name};
 	    
 	    $record->{content_type} ||= $FORMAT_CT{$name};
 	    

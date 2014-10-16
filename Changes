@@ -1,12 +1,28 @@
 Revision history for Web-DataService
 
+0.24    2014-10-15
+
+- Added Perl version check to Build.PL.  The minimum version of Perl is 5.012
+- Changed the template element names for documentation sections (incompatible with previous versions)
+- Added documentation for node lists
+- Reorganized the configuration documentation
+- Added node attribute 'place', and methods 'list_node', 'get_nodelist', 'document_nodelist'
+- Renamed method 'has_output_block' to 'has_block' (incompatible)
+- Renamed method 'response_format' to 'output_format' (incompatible)
+- Renamed method 'response_vocab' to 'output_vocab' (incompatible)
+- Renamed method 'response_linebreak' to 'output_linebreak' (incompatible)
+- Added method 'substitute_select'
+- Usage examples are now strings (incompatible)
+- Fixed bug that was ignoring ordinary paragraphs in ruleset documentation
+- Fixed bug that was causing documentation strings to be inherited
+
 0.23    2014-10-03
 
 - Improved the documentation some more
 - Removed spurious use of Sub::Identify
 - Fixed bug in evaluating set attributes starting with + or -
 - Fixed bug that prevented multiple validators in a parameter rule
-- Added set_foundation method to set the foundation framework, removed the foundation_plugin attribute.
+- Added set_foundation class method to set the foundation framework, removed the foundation_plugin attribute.
 
 0.22    2014-10-02
 

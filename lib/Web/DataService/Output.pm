@@ -239,8 +239,8 @@ sub _setup_output {
     # Extract the relevant attributes of the request
     
     my $path = $request->node_path;
-    my $format = $request->response_format;
-    my $vocab = $request->response_vocab;
+    my $format = $request->output_format;
+    my $vocab = $request->output_vocab;
     
     my $require_vocab; $require_vocab = 1 if $vocab and not $ds->{vocab}{$vocab}{use_field_names};
     
@@ -447,8 +447,8 @@ sub add_output_block {
     # Extract the relevant request attributes.
     
     my $class = ref $request;
-    my $format = $request->response_format;
-    my $vocab = $request->response_vocab;
+    my $format = $request->output_format;
+    my $vocab = $request->output_vocab;
     my $require_vocab; $require_vocab = 1 if $vocab and not $ds->{vocab}{$vocab}{use_field_names};
     
     # Now go through the output list for this block and collect up
@@ -728,8 +728,8 @@ sub configure_block {
     # relevant attributes of the request and looking up the output list
     # for this block.
     
-    my $format = $request->response_format;
-    my $vocab = $request->response_vocab;
+    my $format = $request->output_format;
+    my $vocab = $request->output_vocab;
     my $require_vocab; $require_vocab = 1 if $vocab and not $ds->{vocab}{$vocab}{use_field_names};
     
     my $block_list = $ds->{block}{$block_name}{output_list};
@@ -1236,7 +1236,6 @@ sub document_response {
     # Block names that do not correspond to any defined block are ignored,
     # with a warning.
     
-    $DB::single = 1;
     my $output_list = $ds->node_attr($path, 'output') // [ ];
     my $fixed_label = $ds->node_attr($path, 'output_label') // 'basic';
     
@@ -1376,6 +1375,7 @@ sub document_field {
     foreach my $v ( @$vocab_list )
     {
 	my $n = defined $r->{"${v}_name"}	    ? $r->{"${v}_name"}
+	      : defined $r->{name}		    ? $r->{name}
 	      : $ds->{vocab}{$v}{use_field_names} ? $r->{output}
 	      :					      '';
 	
@@ -1624,6 +1624,8 @@ sub check_field_type {
 
     my ($ds, $record, $field, $type, $subst) = @_;
     
+    return unless defined $record->{$field};
+    
     if ( $type eq 'int' )
     {
 	return if $record->{$field} =~ qr< ^ -? [1-9][0-9]* $ >x;
@@ -1678,7 +1680,7 @@ sub _generate_single_result {
     
     # Determine the output format and figure out which class implements it.
     
-    my $format = $request->response_format;
+    my $format = $request->output_format;
     my $format_class = $ds->{format}{$format}{package};
     
     die "could not generate a result in format '$format': no implementing module was found"
@@ -1737,7 +1739,7 @@ sub _generate_compound_result {
     
     # Determine the output format and figure out which class implements it.
     
-    my $format = $request->response_format;
+    my $format = $request->output_format;
     my $format_class = $ds->{format}{$format}{package};
     
     die "could not generate a result in format '$format': no implementing module was found"
@@ -1894,7 +1896,7 @@ sub _stream_compound_result {
     
     # Determine the output format and figure out which class implements it.
     
-    my $format = $request->response_format;
+    my $format = $request->output_format;
     my $format_class = $ds->{format}{$format}{package};
     
     croak "could not generate a result in format '$format': no implementing class"
@@ -2003,7 +2005,7 @@ sub _generate_empty_result {
     
     # Determine the output format and figure out which class implements it.
     
-    my $format = $request->response_format;
+    my $format = $request->output_format;
     my $format_class = $ds->{format}{$format}{package};
     
     croak "could not generate a result in format '$format': no implementing class"

@@ -20,6 +20,13 @@ files/lib/PopulationData.pm
 files/public/css/dsdoc.css
 lib/Web/DataService.pm
 lib/Web/DataService/Configuration.pod
+lib/Web/DataService/Configuration/Format.pod
+lib/Web/DataService/Configuration/Node.pod
+lib/Web/DataService/Configuration/Output.pod
+lib/Web/DataService/Configuration/Ruleset.pod
+lib/Web/DataService/Configuration/Set.pod
+lib/Web/DataService/Configuration/Vocabulary.pod
+lib/Web/DataService/Document.pm
 lib/Web/DataService/Documentation.pod
 lib/Web/DataService/Execute.pm
 lib/Web/DataService/Format.pm
@@ -39,7 +46,6 @@ lib/Web/DataService/Ruleset.pm
 lib/Web/DataService/Set.pm
 lib/Web/DataService/Tutorial.pod
 lib/Web/DataService/Vocabulary.pm
-Makefile.PL
 MANIFEST
 META.json
 META.yml
@@ -50,4 +56,3 @@ t/01-basic.t
 t/02-request.t
 t/03-doc.t
 t/boilerplate.t
-t/pod.t

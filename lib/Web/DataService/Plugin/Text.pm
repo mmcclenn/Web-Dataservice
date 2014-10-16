@@ -227,7 +227,7 @@ sub emit_line {
     
     my $linebreak = $request->linebreak;
     
-    if ( $request->response_format eq 'tsv' )
+    if ( $request->output_format eq 'tsv' )
     {
 	return join("\t", map { tsv_clean($_) } @_) . $linebreak;
     }

@@ -23,6 +23,6 @@ Viewing of data in browser tabs.
 Each format has a default vocabulary in which its data is expressed.  The
 available formats and vocabularies are discussed below.
 
-<% INCLUDE FORMATS opt_extended=1 %>
+<% FORMAT_SECTION(opt_extended=1) %>
 
-<% INCLUDE VOCABULARIES opt_extended=1 opt_all=1 %>
+<% VOCAB_SECTION(opt_extended=1, opt_all=1) %>

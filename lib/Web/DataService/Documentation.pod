@@ -17,7 +17,7 @@ L<doc_template_dir|Web::DataService::Configuration/doc_template_dir>.  For
 now, the only template engine compatible with Web::DataService is
 L<Template-Toolkit|Template>, but this may change in the future.
 
-You can create an individual documentation page for each node, by simply
+You can create an individual documentation page for any node, by simply
 creating a file in the F<doc> directory whose path corresponds the node path.
 There are two ways to name this file.  At your option, you can either append
 the string C<_doc.tt> to the node path, or you can append C</index.tt>.  In
@@ -42,7 +42,8 @@ C<doc_strings.tt>, which you are free to edit in any way you choose.
 The main format for Web::DataService documentation pages is L<Pod|perlpod>.
 All documentation is generated first in Pod format, and is then converted to
 HTML by the module L<Web::DataService::PodParser>.  If you want to see the
-actual Pod output, you can get it via URLs like the following:
+actual Pod output, just replace C<.html> with C<.pod> at the end of a request
+URL.  For example:
 
     http://localhost:3000/data1.0/index.pod
     http://localhost:3000/data1.0/list_doc.pod
@@ -56,7 +57,7 @@ The Web::DataService framework provides an easy way to include links from one
 documentation page to another, as well as from a documentation page to an
 operation (i.e. as a usage example).  This is done by using one of the
 following special prefixes.  Any link specified with LE<lt>E<gt> is checked to see if
-it starts with one of them, and if so then it is replaced by an auto-generated
+it starts with one of these, and if so then it is replaced by an auto-generated
 URL which includes the appropriate path prefix, selector key, format
 specifier, etc. for this data service instance.  The examples given below are
 for the example application:
@@ -101,11 +102,12 @@ later and the documentation pages will automatically adjust!
 The following elements are available for use in documentation templates.
 These are all defined in the file F<doc/doc_defs.tt>.
 
-Most of these elements generate headers corresponding to the element name, but
-you can modify these by editing C<section_label> in F<doc/doc_defs.tt>.  Most
-of them also generate an introductory paragraph, which you can modify by
-editing the appropriate entry in C<message>.  You can also use the WRAPPER
-function of Template Toolkit to override this paragraph, in the following manner:
+If you wish to change the names of the section headers, you can edit the
+variable C<section_label> in F<doc/doc_defs.tt>.  If you wish to change the
+contents of the introductory paragraph of each section, you can edit the
+appropriate entry in the variable C<message>.  Alternatively, you can use
+the WRAPPER function of Template Toolkit to override this paragraph, in the
+following manner:
 
     <% WRAPPER PARAMETERS(special) %>
     You can use any of the following special parameters with any request:
@@ -119,67 +121,115 @@ file, as follows:
 
     <% NAVTRAIL %>
 
+=head2 DESCRIPTION_SECTION
+
+If the C<doc_string> attribute has been set for the node corresponding to this
+page, then this element is replaced by the default heading "DESCRIPTION",
+followed by the doc_string value.  You can most easily set this by including
+L<documentation strings|Web::DataService::Configuration/SYNTAX> in your calls
+to C<define_node>.
+
+If no C<doc_string> value was given for this node, then this element will be
+ignored unless the option C<opt_force=1> is given.  You can use either of the
+following calls:
+
+    <% DESCRIPTION_SECTION %>
+    <% DESCRIPTION_SECTION(opt_force=1) %>
+
 =head2 DOCSTRING
 
 This element is replaced by the value of the C<doc_string> attribute of the
-data service node corresponding to this page.  You can most easily set this by
-including L<documentation strings|Web::DataService::Configuration/SYNTAX> in
-your calls to C<define_node>.  Use this as follows:
+node corresponding to this page, with no header.  Use it as follows:
 
     <% DOCSTRING %>
 
+=head2 USAGE_SECTION
+
+If the C<usage> attribute has been specified for the node corresponding to
+this page, then this element is replaced by the default heading "USAGE" followed
+by a list of links generated from the contents of that attribute.  Otherwise,
+it is ignored.  Use this as follows:
+
+    <% USAGE_SECTION %>
+
 =head2 USAGE
 
-If the 'usage' attribute has been specified for this operation node, then this
-element is replaced by a list of links generated from the contents of that
-attribute.  Otherwise, it is ignored.  Use this as follows:
+This element is simply replaced by the list of usage links, or ignored if none
+have been specified.  Use it as follows:
 
     <% USAGE %>
 
-Or, if you don't want a separate header for this section, use the following:
+=head2 NODELIST
 
-    <% INCLUDE USAGE opt_noheader=1 %>
+This element is replaced by a list of nodes that are children of the current
+one.  The list will include: the node title, the node description, and the
+node usage.  Only nodes for which the attribute C<place> was given a nonzero
+value will be included.  Use it as follows:
+
+    <% SUBNODES %>
+
+=head2 PARAMETER_SECTION
+
+This element is replaced by the default header "PARAMETERS" followed by a list
+of the parameters accepted by node corresponding to this page, along with a
+brief description of each parameter.  If you wish to document the parameters
+accepted by a different ruleset, include the ruleset name as a parameter.
+Use it in one of the following ways:
+
+    <% PARAMETER_SECTION %>
+    <% PARAMETER_SECTION(ruleset_name) %>
 
 =head2 PARAMETERS
 
-This element takes a single argument.  It is replaced by a list of the
-parameters accepted by the ruleset named by the argument, along with a brief
-description of each parameter.
-
-When used in the documentation page for an operation node, you can leave out
-the argument.  In that case, the ruleset corresponding to the operation node
-will be used by default.
-
-Use it as follows:
-
-    <% PARAMETERS(ruleset_name) %>
-
-or, in an operation documentation page, simply:
+This element is simply replaced by the parameter documentation for the node
+corresponding to this page, with no header.  If you wish to document the
+parameters accepted by a different ruleset, include the ruleset name as a
+parameter.  Use it in one of the following ways:
 
     <% PARAMETERS %>
+    <% PARAMETERS(ruleset_name) %>
 
-=head2 METHODS
+=head2 METHOD_SECTION
 
-This element is replaced by a list of the accepted HTTP methods.  The list of
+This element is replaced by the default header "METHODS" followed by a list of
+the HTTP methods accepted by the node corresponding to this page.  The list of
 accepted methods may vary from node to node, depending upon how you set the
 node attribute C<allow_method>.  Use it as follows:
 
+    <% METHOD_SECTION %>
+
+=head2 METHODS
+
+This element is simply replaced by the list of methods accepted by the node
+corresponding to this page, with no header.  Use it as follows:
+
     <% METHODS %>
+
+=head2 RESPONSE_SECTION
+
+This element is only valid in documentation templates for operation nodes.  It
+is replaced by the default header "RESPONSE" followed by a list of the data
+fields that are generated by this operation, including those in the optional
+output blocks.  The listing for each data field includes a brief description.
+If multiple vocabularies are available, then the name of each field in each
+vocabulary will be reported.  Use it as follows:
+
+    <% RESPONSE_SECTION %>
 
 =head2 RESPONSE
 
-This element is only valid in documentation templates for operation nodes.  It
-is replaced by a list of the data fields that are generated by this operation,
-including those in the optional output blocks.  The listing for each data
-field includes a brief description.  If multiple vocabularies are available,
-then the name of each field in each vocabulary will be reported.
+This element is simply replaced by the response documentation for the node
+corresponding to this page, with no header.  Use it as follows:
 
-=head2 FORMATS
+    <% RESPONSE %>
 
-This element is a replaced by a list of the data formats that are provided by
-the data service and allowed for this node.  This list may vary from node to node,
-depending upon how you use the node attribute C<allow_format>.  You may follow
-the element name with one or both of the following options:
+=head2 FORMAT_SECTION
+
+This element is a replaced by the default header "FORMATS" followed by a list
+of the data formats that are provided by the data service and allowed for this
+node.  This list may vary from node to node, depending upon how you use the
+node attribute C<allow_format>.  You may follow the element name with one or
+both of the following options:
 
 =over
 
@@ -195,20 +245,26 @@ List all formats, not just those available for this node.
 
 =back
 
-Use it as follows:
+Use it in one of the following ways:
+
+    <% FORMAT_SECTION %>
+    <% FORMAT_SECTION(opt_extended=1,opt_all=1) %>
+
+=head2 FORMATS
+
+This element is simply replaced by the format documentation for the node
+corresponding to this page, with no header.  The same options are available as
+with FORMAT_SECTION.  Use it as follows:
 
     <% FORMATS %>
 
-or:
+=head2 VOCAB_SECTION
 
-    <% INCLUDE FORMATS opt_extended=1 opt_all=1 %>
-
-=head2 VOCABULARIES
-
-This element is replaced by a list of the vocabularies that are provided by
-the data service and allowed for this node.  This list may vary from node to
-node, depending upon how you use the node attribute C<allow_vocab>.  You may
-follow the element name with one or both of the following options: 
+This element is replaced by the default header "VOCABULARIES" followed by a
+list of the vocabularies that are provided by the data service and allowed for
+this node.  This list may vary from node to node, depending upon how you use
+the node attribute C<allow_vocab>.  You may follow the element name with one
+or both of the following options:
 
 =over
 
@@ -224,14 +280,18 @@ List all vocabularies, not just those available for this node.
 
 =back
 
-Use it as follows:
+Use it in one of the following ways:
 
-    <% VOCABULARIES %>
+    <% VOCAB_SECTION %>
+    <% VOCAB_SECTION(opt_extended=1,opt_all=1) %>
 
-or:
+=head2 VOCABS
 
-    <% INCLUDE VOCABULARIES opt_extended=1 opt_all=1 %>
+This element is simply replaced by the vocabulary documentation for the node
+corresponding to this page, with no header.  The same options are available as
+with VOCAB_SECTION.  Use it as follows:
 
+    <% VOCABS %>
 
 
 =head1 AUTHOR

@@ -96,49 +96,55 @@ sub document_http_methods {
 }
 
 
-# document_usage ( )
+# list_subnodes
 # 
-# Return a documentation string in POD format describing the usage examples
-# (if any) given for this node.
+# Return a list of sub-nodes of the current one.  This will include all
+# sub-nodes with a value for the node attribute 'place', in order by the value
+# of that attribute.
 
-sub document_usage {
+sub list_subnodes {
     
     my ($request) = @_;
     
-    my $ds = $request->{ds};
+    my $ds = $request->ds;
     my $path = $request->node_path;
-    my $usage = $request->node_attr('usage');
-    my $default_format = $request->node_attr('default_format');
     
-    my @usage_list = ref $usage eq 'ARRAY' ? @$usage : $usage;
-    my @urls;
+    return $ds->list_subnodes($path);
+}
+
+
+# document_subnodes ( options )
+# 
+# Return a documentation string in Pod format listing the subnodes (if any)
+# given for this node.  See &list_subnodes above.
+
+sub document_nodelist {
+
+    my ($request, $options) = @_;
     
-    foreach my $example ( @usage_list )
-    {
-	next unless defined $example && ref $example eq 'HASH';
-	
-	my $args = { op => $path, format => $example->{format} || $default_format };
-	$args->{params} = $example->{params} if $example->{params};
-	$args->{fragment} = $example->{fragment} if $example->{fragment};
-	$args->{type} = $example->{type} if $example->{type};
-	
-	my $url = $request->generate_url($args);
-	
-	push @urls, $url if $url;
-    }
+    $options ||= {};
     
-    return unless @urls;
+    my $ds = $request->ds;
+    my $path = $options->{list} || $request->node_path;
+    $options->{base} = $request->base_url;
     
-    my $doc_string = "=over\n\n";
+    return $ds->document_nodelist($path, $options);
+}
+
+
+# document_usage 
+# 
+# Return a documentation string in Pod format describing the usage examples of
+# the node corresponding to this request.
+
+sub document_usage {
+
+    my ($request, $options) = @_;
     
-    foreach my $url ( @urls )
-    {
-	$doc_string .= "=item *\n\nL<$url>\n\n";
-    }
+    my $ds = $request->ds;
+    my $path = $request->node_path;
     
-    $doc_string .= "=back\n";
-    
-    return $doc_string;
+    return $ds->document_usage($path, $options);
 }
 
 
@@ -214,7 +220,7 @@ sub document_formats {
     my ($request, $options) = @_;
     
     $options ||= {};
-    my $path = $options->{all} ? '/' : $request->node_path;
+    my ($path) = $options->{all} ? ('/') : ($options->{path} || $request->node_path);
     
     return $request->ds->document_formats($path, $options);
 }

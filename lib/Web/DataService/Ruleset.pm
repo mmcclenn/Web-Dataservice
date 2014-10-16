@@ -56,6 +56,8 @@ sub define_ruleset {
  ARG:
     foreach my $arg (@_)
     {
+	next unless defined $arg;
+	
 	# Documentation strings are just passed on through.
 	
 	unless ( ref $arg )
@@ -77,11 +79,19 @@ sub define_ruleset {
 	if ( $pending_rule )
 	{
 	    push @rules_and_doc, $pending_rule, @pending_doc, @final_doc;
+	    $pending_rule = undef;
+	    @pending_doc = ();
+	    @final_doc = ();
 	}
 	
-	$pending_rule = undef;
-	@pending_doc = ();
-	@final_doc = ();
+	# If there is just pending documentation, then add it.
+	
+	elsif ( @pending_doc )
+	{
+	    push @rules_and_doc, @pending_doc;
+	    @pending_doc = ();
+	    @final_doc = ();
+	}
 	
 	# Now we consider the new rule.
 	
@@ -204,6 +214,8 @@ sub define_ruleset {
 		{
 		    $arg->{$ruletype} = $ds->{special}{show};
 		    $arg->{list} = ',';
+		    @pending_doc = $ds->generate_special_doc($special_arg)
+			unless @pending_doc;
 		}
 		
 		else
@@ -367,7 +379,7 @@ sub generate_special_doc {
     elsif ( $param eq 'show' )
     {
 	push @doc,
-	    "Display additional information.  The value",
+	    "Selects additional information to be returned.  The value",
 	    "of this parameter must be one or more of the following, separated by commas.";
     }
     
@@ -444,7 +456,7 @@ sub generate_special_doc {
 	    "You only need to use this if you want to override the default",
 	    "vocabulary for your selected format.",
 	    "Possible values depend upon the particular URL path, and include:",
-	    $ds->document_vocabs;
+	    $ds->document_vocabs('/', { valid => 1 });
     }
     
     elsif ( $param eq 'header' )
@@ -471,7 +483,8 @@ sub generate_special_doc {
 	push @doc,
 	    "Specifies the name of a local file to which the output of this",
 	    "request should be saved.  Whether and how this happens",
-	    "depends upon which web browser you are using.";
+	    "depends upon which web browser you are using.  You can specify",
+	    "C<save=no> instead if you wish to display the result in the browser";
 	push @doc,
 	    "If you include this parameter without any value, a default",
 	    "filename will be provided."

@@ -19,6 +19,8 @@ use Moo::Role;
 our (%NODE_DEF) = ( path => 'ignore',
 		    disabled => 'single',
 		    undocumented => 'single',
+		    place => 'single',
+		    list => 'single',
 		    title => 'single',
 		    usage => 'single',
 		    collapse_tree => 'single',
@@ -62,13 +64,15 @@ our (%NODE_DEF) = ( path => 'ignore',
 
 
 our (%NODE_NONHERITABLE) = ( title => 1,
+			     doc_string => 1,
 			     doc_template => 1,
-			     example => 1,
+			     place => 1,
+			     usage => 1,
 			   );
 
 our (%NODE_ATTR_DEFAULT) = ( default_header => 1 );
 
-# define_node ( path, attrs... )
+# define_node ( attrs... )
 # 
 # Set up a "path" entry, representing a complete or partial URL path.  This
 # path should have a documentation page, but if one is not defined a template
@@ -80,7 +84,7 @@ our (%NODE_ATTR_DEFAULT) = ( default_header => 1 );
 
 sub define_node {
     
-    my $self = shift;
+    my $ds = shift;
     
     my ($package, $filename, $line) = caller;
     
@@ -96,18 +100,18 @@ sub define_node {
 	
 	if ( ref $item eq 'HASH' )
 	{
-	    croak "define_node: a path definition must include a non-empty value for 'path'\n"
+	    croak "define_node: each definition must include a non-empty value for 'path'\n"
 		unless defined $item->{path} && $item->{path} ne '';
 	    
 	    croak "define_node: invalid path '$item->{path}'\n" if $item->{path} ne '/' && 
 		$item->{path} =~ qr{ ^ / | / $ | // | [?#] }xs;
 	    
-	    $last_node = $self->create_path_node($item, $filename, $line);
+	    $last_node = $ds->_create_path_node($item, $filename, $line);
 	}
 	
 	elsif ( not ref $item )
 	{
-	    $self->add_node_doc($last_node, $item);
+	    $ds->add_node_doc($last_node, $item);
 	}
 	
 	else
@@ -122,14 +126,14 @@ sub define_node {
 
 
 
-# create_path_node ( attrs, filename, line )
+# _create_path_node ( attrs, filename, line )
 # 
 # Create a new node representing the specified path.  Attributes are
 # inherited, as follows: 'a/b/c' inherits from 'a/b', which inherits from 'a',
 # which inherits from '/'.  If 'a/b' does not exist, then 'a/b/c' inherits
 # directly from 'a'.
 
-sub create_path_node {
+sub _create_path_node {
 
     my ($ds, $new_attrs, $filename, $line) = @_;
     
@@ -159,7 +163,7 @@ sub create_path_node {
  KEY:
     foreach my $key ( keys %$new_attrs )
     {
-	croak "define_node: unknown attribute '$key'\n"
+	croak "define_node '$path': unknown attribute '$key'\n"
 	    unless $NODE_DEF{$key};
 	
 	my $value = $new_attrs->{$key};
@@ -190,14 +194,14 @@ sub create_path_node {
 	    {
 		foreach my $v ( @$value )
 		{
-		    croak "define_node: ($key) invalid value '$v', must be a code ref or string\n"
+		    croak "define_node '$path': $key has invalid value '$v', must be a code ref or string\n"
 			unless ref $v eq 'CODE' || ! ref $v;
 		}
 	    }
 	    
 	    else
 	    {
-		croak "define_node: ($key) invalid value '$value', must be a code ref or string\n"
+		croak "define_node '$path': $key has invalid value '$value', must be a code ref or string\n"
 		    unless ref $value eq 'CODE' || ! ref $value;
 		
 		$value = [ $value ];
@@ -216,7 +220,7 @@ sub create_path_node {
 	    unless ( $value =~ qr{ ^ (?> [\w.:][\w.:-]* | \s*,\s* )* $ }xs ||
 		     $value =~ qr{ ^ (?> [+-][\w.:][\w.:-]* | \s*,\s* )* $ }xs )
 	    {
-		croak "define_node: ($key) invalid value '$value'\n";
+		croak "define_node '$path': $key has invalid value '$value'\n";
 	    }
 	    
 	    $node_attrs->{$key} = $value;
@@ -230,7 +234,7 @@ sub create_path_node {
 	{
 	    unless ( $value =~ qr{ ^ (?> [\w.:-]+ | \s*,\s* )+ $ }xs )
 	    {
-		croak "define_node: ($key) invalid value '$value'\n";
+		croak "define_node '$path': $key has invalid value '$value'\n";
 	    }
 	    
 	    $node_attrs->{$key} = $value;
@@ -246,6 +250,24 @@ sub create_path_node {
     # Install the node.
     
     $ds->{node_attrs}{$path} = $node_attrs;
+    
+    my $place = $node_attrs->{place};
+    
+    if ( defined $place )
+    {
+	my $list = $node_attrs->{list} // $ds->path_parent($path);
+	
+	no warnings;
+	if ( $place > 0 && defined $list && $list ne '' )
+	{
+	    push @{$ds->{node_list}{$list}{$place}}, { path => $path };
+	}
+	
+	elsif ( $place ne '0' )
+	{
+	    croak "define_node '$path': invalid value for 'place' - must be a number\n";
+	}
+    }
     
     # Now check the attributes to make sure they are consistent:
     
@@ -280,10 +302,10 @@ sub _check_path_node {
     {
 	no strict 'refs';
 	
-	croak "define_node: the value of 'role' should be a package name, not a file name\n"
+	croak "define_node '$path': the value of 'role' should be a package name, not a file name\n"
 	    if $role =~ qr { [.] pm $ }xs;
 	
-	croak "define_node: you must load the module '$role' before using it as the value of 'role'\n"
+	croak "define_node '$path': you must load the module '$role' before using it as the value of 'role'\n"
 	    unless %{ "${role}::" };
     }
     
@@ -294,10 +316,10 @@ sub _check_path_node {
     
     if ( $method )
     {
-	croak "define_node: method '$method' is not valid unless you also specify its package using 'role'\n"
+	croak "define_node '$path': method '$method' is not valid unless you also specify its package using 'role'\n"
 	    unless defined $role;
 	
-	croak "define_node: '$method' must be a method implemented by '$role'\n"
+	croak "define_node '$path': '$method' must be a method implemented by '$role'\n"
 	    unless $role->can($method);
     }
     
@@ -312,12 +334,12 @@ sub _check_path_node {
     
     if ( $method && $attr_count > 1 )
     {
-	croak "define_node: you may only specify one of 'method', 'file_dir', 'file_path'\n";
+	croak "define_node '$path': you may only specify one of 'method', 'file_dir', 'file_path'\n";
     }
     
     elsif ( $attr_count > 1 )
     {
-	croak "define_node: you may only specify one of 'file_dir' and 'file_path'\n";
+	croak "define_node '$path': you may only specify one of 'file_dir' and 'file_path'\n";
     }
     
     # Throw an error if any of the specified formats fails to match an
@@ -330,7 +352,7 @@ sub _check_path_node {
     {
 	foreach my $f ( keys %$allow_format )
 	{
-	    croak "define_node: invalid value '$f' for format, no such format has been defined for this data service\n"
+	    croak "define_node '$path': invalid value '$f' for format, no such format has been defined for this data service\n"
 		unless ref $ds->{format}{$f};
 	    
 	    #my $dv = $ds->{format}{$f}{default_vocab};
@@ -347,20 +369,107 @@ sub _check_path_node {
     {
 	foreach my $v ( keys %$allow_vocab )
 	{
-	    croak "define_node: invalid value '$v' for vocab, no such vocabulary has been defined for this data service\n"
+	    croak "define_node '$path': invalid value '$v' for vocab, no such vocabulary has been defined for this data service\n"
 		unless ref $ds->{vocab}{$v};
 	}
     }
     
-    # Throw an error if 'send_files' was specified but not 'file_dir'.
+    # Throw an error if 'place' is not greater than zero.
     
-    if ( $ds->node_attr($path, 'send_files') )
+    my $place = $ds->node_attr($path, 'place');
+    
+    no warnings;
+    
+    if ( defined $place && $place !~ qr{^[0-9]+$} )
     {
-	croak "define_node: if you specify 'send_files' then you must also specify 'file_dir'"
-	    unless $ds->node_attr($path, 'file_dir');
+	croak "define_node '$path': the value of 'place' must be an integer";
     }
     
     my $a = 1;	# we can stop here when debugging;
+}
+
+
+our (%LIST_DEF) = ( path => 'single',
+		    place => 'single',
+		    list => 'single',
+		    title => 'single',
+		    usage => 'single',
+		    doc_string => 'single' );
+
+# list_node ( attrs... )
+# 
+# Add an entry to a node list.
+
+sub list_node {
+
+    my $ds = shift;
+    
+    my ($last_node);
+    
+    # Now we go through the rest of the arguments.  Hashrefs define new
+    # list entries, while strings add to the documentation of the entry
+    # whose definition they follow.
+    
+    foreach my $item (@_)
+    {
+	# A hashref defines a new directory.
+	
+	if ( ref $item eq 'HASH' )
+	{
+	    croak "list_node: each definition must include a non-empty value for 'path'\n"
+		unless defined $item->{path} && $item->{path} ne '';
+	    
+	    croak "list_node: invalid path '$item->{path}'\n" if $item->{path} ne '/' && 
+		$item->{path} =~ qr{ ^ / | / $ | // | [?#] }xs;
+	    
+	    $last_node = $ds->_create_list_entry($item);
+	}
+	
+	elsif ( not ref $item )
+	{
+	    $ds->add_node_doc($last_node, $item);
+	}
+	
+	else
+	{
+	    croak "list_node: the arguments must be a list of hashrefs and strings\n";
+	}
+    }
+    
+    croak "list_node: arguments must include at least one hashref of attributes\n"
+	unless $last_node;
+}
+
+
+sub _create_list_entry {
+
+    my ($ds, $item) = @_;
+    
+    # Start by checking the attributes.
+    
+    my $path = $item->{path};
+    
+ KEY:
+    foreach my $key ( keys %$item )
+    {
+	croak "list_node '$path': unknown attribute '$key'\n"
+	    unless $NODE_DEF{$key};
+    }
+    
+    my $place = $item->{place};
+    my $list = $item->{list};
+    
+    croak "list_node '$path': you must specify a numeric value for 'place'\n"
+	unless defined $place && $place =~ qr{^[0-9]+$};
+    
+    croak "list_node '$path': you must specify a non-empty value for 'list'\n"
+	unless defined $list && $list ne '';
+    
+    # Then install the item.
+    
+    push @{$ds->{node_list}{$list}{$place}}, $item if $place;
+    
+    return $item;
 }
 
 

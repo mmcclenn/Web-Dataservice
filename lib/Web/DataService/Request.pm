@@ -48,11 +48,11 @@ has is_invalid_request => ( is => 'rw' );
 
 has is_doc_request => ( is => 'rw' );
 
-has response_format => ( is => 'rw' );
+has output_format => ( is => 'rw' );
 
-has response_vocab => ( is => 'rw' );
+has output_vocab => ( is => 'rw' );
 
-has response_linebreak => ( is => 'rw' );
+has output_linebreak => ( is => 'rw' );
 
 has result_limit => ( is => 'rw' );
 
@@ -149,6 +149,7 @@ sub _match_node {
     if ( exists $ds->{node_attrs}{$raw_path} )
     {
 	$self->{is_node_path} = 1;
+	$self->{is_doc_request} = 1 if $ds->has_feature('format_suffix');
     }
     
     else
@@ -161,7 +162,7 @@ sub _match_node {
 	    if ( $node_path =~ qr{ ^ (.+) [.] (.+) }xs )
 	    {
 		$node_path = $1;
-		$self->response_format($2);
+		$self->output_format($2);
 	    }
 	    
 	    else
@@ -536,35 +537,39 @@ Web::DataService::Request - object class for data service requests
 As each incoming request is handled by the Web::DataService framework, a
 request object is created to represent it.  This object is blessed into a
 subclass of Web::DataService::Request which provides the methods listed here
-and also includes a L<Role|Moo::Role> with methods that you have written for
-evaluating the request and doing the appropriate fetching/storing on the
-backend data system.
+and also includes one or more L<roles|Moo::Role> with methods that you have
+written for evaluating the request and doing the appropriate fetching/storing
+on the backend data system.
 
 The simplest way for the main application to handle a request is as follows:
 
-    $ds->handle_request(request);
+    Web::DataService->handle_request(request);
 
-This call uses the C<request> function provided by Dancer to get the "outer"
-object representing this request from the point of view of the foundation
-framework, and then passes it to the C<handle_request> method of the data
-service instance.  In the process of handling the request, a new "inner"
-request object is generated and blessed into an appropriate subclass of
-Web::DataService::Request.
+This call uses the C<request> function provided by the foundation framework
+(L<Dancer>) to get the "outer" object representing this request from the point
+of view of the foundation framework, and then passes it to the
+L<handle_request|Web::DataService/"handle_request ( outer, [ attrs ] )">
+method of Web::DataService.  In the process of handling the request, a new
+"inner" request object is generated and blessed into an appropriate subclass
+of Web::DataService::Request.
 
 If you wish more control over this process, you can substitute the following:
 
-    my $inner = $ds->new_request(request);
+    my $inner = Web::DataService->new_request(request);
     
     # You can put code here to check the attributes of $inner and possibly
     # alter them...
     
     $inner->execute;
 
-Whichever of these code fragments you use should go into a Dancer route handler.
+Whichever of these code fragments you use should go into a Dancer L<route
+handler|Dancer/"USAGE">.
 
 =head2 Request handling process
 
-The request handling process carried out by C<handle_request> works as follows:
+The request handling process carried out by
+L<handle_request|Web::DataService/"handle_request ( outer, [ attrs ] )"> works
+as follows:
 
 =over
 
@@ -577,6 +582,11 @@ to the next step.  The following is not an exhaustive list, but illustrates
 the kinds of processing that are done:
 
 =over
+
+=item *
+
+If more than one data service is defined, the appropriate one is selected to
+handle this request.
 
 =item *
 
@@ -612,8 +622,10 @@ object is created and configured using the attributes of the matching node.
 
 =back
 
-If you used C<new_request> instead of C<handle_request>, then you get control
-at this point and can modify the request before calling C<<$request->execute>> to finish the process.
+If you used L<new_request|Web::DataService/"new_request ( outer, [ attrs ] )">
+instead of L<handle_request|Web::DataService/"handle_request ( outer, [ attrs
+] )">, then you get control at this point and can modify the request before
+calling C<< $request->execute >> to finish the process.
 
 =over
 
@@ -669,7 +681,7 @@ result of the operation should be.
 
 If the result of the operation is one or more data records, these records are
 processed according to the specification contained in the selected output
-blocks, and are then serialized by the module corresponding to the selected
+block(s), and are then serialized by the module corresponding to the selected
 output format.  If "count" or "datainfo" were requested, or if any warnings or
 errors were generated during the execution of the request, this material is
 included in an appropriate way by the serialization module.  The resulting
@@ -689,22 +701,25 @@ foundation framework.
 
 =head3 new ( attributes... )
 
-You will probably not call this method directly; instead, you should call the
-C<handle_request> method of L<Web::DataService>, which calls it internally after
-carrying out other processing.
+You will not need to call this method directly; instead, you should call the
+L<handle_request|Web::DataService/"handle_request ( outer, [ attrs ] )">
+method of Web::DataService, which calls it internally after carrying out other
+processing.
 
 =head2 Execution
 
 =head3 execute ( )
 
 Executes this request, and returns the serialized response data.  If your main
-application uses C<handle_request>, then you will not need to call it because
-C<handle_request> calls it internally.
+application uses C<handle_request>, then you will not need to call this
+method because C<handle_request> calls it internally.
 
 =head3 error_result ( error )
 
 Aborts processing of the request and causes a HTTP error response to be
-returned to the client.  The parameter can be any of the following:
+returned to the client.  You will probably not need to call this method, since
+the preferred way of generating an error condition is to call
+L<die|perlfunc/die>.  The parameter can be any of the following:
 
 =over
 
@@ -930,6 +945,27 @@ empty string if none was defined.
 Returns a list of navigation trail components for the current request, in Pod
 format.  These are generated componentwise from the node path.
 
+=head3 document_usage
+
+Returns a string in Pod format listing the URLs generated from the node
+attribute "usage", if any were given for this node.
+
+=head3 list_subnodes
+
+Returns a list of the node paths corresponding to all subnodes of the current
+one for which the C<place> attribute was set.
+
+=head3 document_subnodes
+
+Returns a string in Pod format documenting the subnodes of the current one for
+which the C<place> attribute was set.
+
+=head3 document_params
+
+Returns a string in Pod format documenting the parameters available for this
+request.  This is automatically generated from the corresponding ruleset, if
+one was defined.
+
 =head3 list_http_methods
 
 Returns a list of HTTP methods that are allowed for this request path.
@@ -938,17 +974,6 @@ Returns a list of HTTP methods that are allowed for this request path.
 
 Returns a string in Pod format documenting the HTTP methods that are allowed
 for this request path.
-
-=head3 document_usage
-
-Returns a string in Pod format listing the URLs generated from the node
-attribute "usage", if any were given for this node.
-
-=head3 document_params
-
-Returns a string in Pod format documenting the parameters available for this
-request.  This is automatically generated from the corresponding ruleset, if
-one was defined.
 
 =head3 document_response
 
@@ -985,7 +1010,7 @@ the key 'all' with a true value, then all vocabularies defined for this
 data service are included.  If it includes the key 'extended' with a true value, then
 a description of each vocabulary is included.
 
-=head3 response_format
+=head3 output_format
 
 You can use this method to check whether the response is to be rendered into
 HTML or returned as Pod text.  The values returned are C<html> and <pod>
@@ -1171,17 +1196,17 @@ Use this method to tell Web::DataService the result count if you are using
 C<sth_result>.  In this case, you will generally need to execute a separate query
 such as "SELECT FOUND_ROWS()" after your main query.
 
-=head3 response_format
+=head3 output_format
 
 Returns the name of the response format selected for this request.
 
-=head3 response_vocab
+=head3 output_vocab
 
 Returns the name of the response vocabulary selected for this request.  If no
 vocabularies have been defined for this data service, it will return "null",
 the name of the default vocabulary.
 
-=head3 response_linebreak
+=head3 output_linebreak
 
 Returns the string to be inserted between output lines in text-based response
 formats.  This will be either a carriage return, a linefeed, or both.

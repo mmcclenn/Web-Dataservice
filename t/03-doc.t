@@ -15,7 +15,7 @@ if ( $@ )
     exit;
 }
 
-plan tests => 17;
+plan tests => 19;
 
 $ENV{DANCER_APPDIR} = '.';
 $ENV{WDS_QUIET} = 1;
@@ -34,18 +34,22 @@ unless ( $result )
 }
 
 $header = substr($result, 0, 250);
-$chunk1 = substr($result, 1000, 250);
-$chunk2 = substr($result, 2450, 250);
+$chunk1 = substr($result, 1000, 1000);
+$chunk2 = substr($result, 3000, 1000);
 
 like( $header, qr{^HTTP/1.0 200 OK}m, 'http header' );
 
-like( $header, qr{^Content-Type: text/html; charset=utf-8}m, 'content type html' );
+like( $header, qr{^Content-Type: text/html; charset=utf-8}mi, 'content type html' );
 
-like( $header, qr{^<html><head><title>Example Data Service: Main Documentation</title>}m, 'main title' );
+like( $header, qr{^<html><head><title>Example Data Service: Main Documentation</title>}mi, 'main title' );
 
-like( $chunk1, qr{^<h2 class="pod_heading"><a name="OPERATIONS">OPERATIONS</a></h2>}m, 'main h2' );
+like( $chunk1, qr{^<h2 class="pod_heading"><a name="OPERATIONS">OPERATIONS</a></h2>}mi, 'main h2' );
 
-like( $chunk2, qr{^<td class="pod_def"><p class="pod_para">The JSON format is intended primarily to support client applications.</p>}m, 
+like( $chunk1, qr{<a +class="pod_link" +href="/data1.0/single_doc.html">Single +state</a>}mi, 'html node link' );
+
+like( $chunk1, qr{<a +class="pod_link" +href="/data1.0/single.json\?state=wi">/data1.0/single.json\?state=wi</a>}mi, 'html op link' );
+
+like( $chunk2, qr{^<td class="pod_def"><p class="pod_para">The JSON format is intended primarily to support client applications.</p>}mi, 
       'main json format' );
 
 eval {
@@ -68,7 +72,7 @@ eval {
     $result = `cd files; $^X bin/dataservice.pl GET /data1.0/single_doc.pod`;
 };
 
-ok( !$@, 'invocation: single_doc html' ) or diag( "    message was: $@" );
+ok( !$@, 'invocation: single_doc pod' ) or diag( "    message was: $@" );
 
 like( $result, qr{^=for wds_table_header Field name* | Block | Description}m, 'single_doc response table header' );
 

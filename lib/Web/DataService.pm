@@ -16,7 +16,7 @@ Web::DataService - a framework for building data service applications for the We
 
 =head1 VERSION
 
-Version 0.23
+Version 0.24
 
 =head1 SYNOPSIS
 
@@ -55,7 +55,7 @@ as Mojolicious and Catalyst soon.
 
 package Web::DataService;
 
-our $VERSION = '0.23';
+our $VERSION = '0.24';
 
 use Carp qw( carp croak confess );
 use Scalar::Util qw( reftype blessed weaken );
@@ -70,6 +70,7 @@ use Web::DataService::Ruleset;
 use Web::DataService::Render;
 use Web::DataService::Output;
 use Web::DataService::Execute;
+use Web::DataService::Document;
 
 use Web::DataService::Request;
 use Web::DataService::IRequest;
@@ -82,7 +83,8 @@ use namespace::clean;
 with 'Web::DataService::Node', 'Web::DataService::Set',
      'Web::DataService::Format', 'Web::DataService::Vocabulary',
      'Web::DataService::Ruleset', 'Web::DataService::Render',
-     'Web::DataService::Output', 'Web::DataService::Execute';
+     'Web::DataService::Output', 'Web::DataService::Execute',
+     'Web::DataService::Document';
 
 
 our (@CARP_NOT) = qw(Web::DataService::Request Moo);
@@ -132,7 +134,7 @@ our ($DEBUG, $ONE_REQUEST, $CHECK_LATER, $QUIET);
 
 # Variables for keeping track of data service instances
 
-my (%KEY_MAP);		
+my (%KEY_MAP, %PREFIX_MAP);
 our (@WDS_INSTANCES);
 our ($FOUNDATION);
 
@@ -712,7 +714,7 @@ sub set_foundation {
     }
     
     # Now initialize the plugin.
-    $DB::single = 1;
+    
     no strict 'refs';
     
     if ( $FOUNDATION->can('initialize_plugin') && ! ${"${FOUNDATION}::_INITIALIZED"} )
@@ -819,6 +821,16 @@ sub _register_instance {
 	
 	$KEY_MAP{$key} = $self;
     }
+    
+    # If the path prefix was defined, add it to the prefix map.
+    
+    if ( my $prefix = $self->path_prefix )
+    {
+	if ( defined $prefix && $prefix ne '' )
+	{
+	    $PREFIX_MAP{$prefix} = $self;
+	}
+    }
 }
 
 
@@ -901,7 +913,23 @@ sub select {
 	# If none of the instances match this path, then throw a 404 (Not
 	# Found) exception.
 	
-	die "404";
+	my @prefixes = sort keys %PREFIX_MAP;
+	my $good_values = join(', ', map { "/$_" } @prefixes);
+	
+	if ( @prefixes > 1 )
+	{
+	    die "404 The path '$path' is not valid.  Try a path starting with one of the following: $good_values\n";
+	}
+	
+	elsif ( @prefixes == 1 )
+	{
+	    die "404 The path '$path' is not valid.  Try a path starting with $good_values\n";
+	}
+	
+	else
+	{
+	    die "404 The path '$path' is not valid on this server.";
+	}
     }
 }
 
@@ -1131,14 +1159,19 @@ sub generate_site_url {
     
     my $url;
     
-    if ( $type ne 'rel' )
+    if ( $type eq 'rel' )
     {
-	$url = '/' . $self->{path_prefix} . $path;
+	$url = $path;
+    }
+    
+    elsif ( $type eq 'abs' )
+    {
+	$url = $self->{base_url} . $self->{path_prefix} . $path;
     }
     
     else
     {
-	$url = $path;
+	$url = '/' . $self->{path_prefix} . $path;
     }
     
     # Add the parameters and fragment, if any.
@@ -1577,14 +1610,36 @@ sub debug {
 
 =head1 MORE DOCUMENTATION
 
-This documentation describes the methods of class Web::DataService.  If you
-want a detailed description of this module and its reasons for existence, look
-at L<Web::DataService::Introduction>.  See L<Web::DataService::Tutorial> for a
-step-by-step guide to the example application included with this distribution.
-For a detailed description of how to configure a data service using this
-framework, see L<Web::DataService::Configuration>.  Finally, for an overview
-of the elements used in the documentation templates, see
-L<Web::DataService::Documentation>. 
+This documentation describes the methods of class Web::DataService.  For
+additional documentation, see the following pages:
+
+=over
+
+=item L<Web::DataService::Request>
+
+A description of the request-handling process, along with detailed
+documentation of the methods that can be called with request objects.
+
+=item L<Web::DataService::Introduction>
+
+A detailed description of this module and its reasons for existence.
+
+=item L<Web::DataService::Tutorial>
+
+A step-by-step guide to the example application included with this
+distribution.
+
+=item L<Web::DataService::Configuration>
+
+A detailed description of how to configure a data service using this
+framework.  This page includes sub-pages for each different type of data
+service element.
+
+=item  L<Web::DataService::Documentation>
+
+An overview of the elements available for use in documentation templates.
+
+=back
 
 =head1 METHODS
 
@@ -1615,38 +1670,52 @@ This call must occur before any data services are defined.
 
 =head3 define_vocab ( { attributes ... }, documentation ... )
 
-Defines one or more vocabularies, using the specified attributes and
-documentation strings.  Each vocabulary represents a different set of terms by
-which to label and express the returned data.
+Defines one or more
+L<vocabularies|Web::DataService::Configuration::Vocabulary>, using the
+specified attributes and documentation strings.  Each vocabulary represents a
+different set of terms by which to label and express the returned data.
 
 =head3 define_format ( { attributes ... }, documentation ... )
 
-Defines one or more response formats, using the specified attributes and
-documentation strings.  Each of these formats represents a configuration of
-one of the available serialization modules.
+Defines one or more L<output formats|Web::DataService::Configuration::Format>,
+using the specified attributes and documentation strings.  Each of these
+formats represents a configuration of one of the available serialization
+modules.
 
 =head3 define_node ( { attributes ... }, documentation ... )
 
-Defines one or more data service nodes, using the specified attributes and
-documentation strings.  Each of these nodes represents either an operation
+Defines one or more L<data service
+nodes|Web::DataService::Configuration::Node>, using the specified attributes
+and documentation strings.  Each of these nodes represents either an operation
 provided by the data service or a page of documentation.
+
+=head3 list_node ( { attributes ... }, documentation ... )
+
+Adds one or more entries to a L<node list|Web::DataService::Configuration::Node/"Node Lists">,
+which can be used to document lists of related nodes.  You can use this to
+document node relationships that are not strictly hierarchical.
 
 =head3 define_block ( block_name, { attributes ... }, documentation ... )
 
-Defines an output block with the given name, containing the specified output
-fields and documentation.
+Defines an L<output block|Web::DataService::Configuration::Output> with the
+given name, containing the specified output fields and documentation.
 
 =head3 define_set ( set_name, { attributes ... }, documentation ... )
 
-Defines a named set of values, possibly with a mapping to some other list of
-values.  These can be used to specify the acceptable values for request
-parameters, to translate data values into different vocabularies, or to
-specify optional output blocks.
+Defines a named L<set of values|Web::DataService::Configuration::Set>,
+possibly with a mapping to some other list of values.  These can be used to
+specify the acceptable values for request parameters, to translate data values
+into different vocabularies, or to specify optional output blocks.
+
+=head3 define_output_map ( set_name, { attributes ... }, documentation ... )
+
+This method is an alias for C<define_set>.
 
 =head3 define_ruleset ( ruleset_name, { attributes ... }, documentation ... )
 
-Defines a ruleset with the given name, containing the specified rules and
-documentation.  These are used to validate parameter values.
+Defines a L<parameter ruleset|Web::DataService::Configuration::Ruleset> with
+the given name, containing the specified rules and documentation.  These are
+used to validate parameter values.
 
 =head2 EXECUTION
 
@@ -1657,37 +1726,46 @@ that handles incoming requests.  This will typically be inside one or more
 =head3 handle_request ( outer, [ attrs ] )
 
 A call to this method directs the Web::DataService framework to handle the
-current request.  Depending on how your application is configured, one of the
-data service operation methods that you have written may be called as part of
-this process.
+current L<request|Web::DataService::Request>.  Depending on how your
+application is configured, one of the data service operation methods that you
+have written may be called as part of this process.
 
 You may call this either as a class method or an instance method.  In the
 former case, if you have defined more than one data service instance, the
 method will choose the appropriate instance based on either the path prefix or
-selector parameter (depending upon which features and special parameters you
-have enabled).  If you know exactly which instance is the appropriate one, you
+selector parameter depending upon which features and special parameters you
+have enabled.  If you know exactly which instance is the appropriate one, you
 may instead call this method on it directly.
 
-The first argument must be the "outer" request object generated by the
-foundation framework.  This allows the Web::DataService code to obtain details
-about the request and to compose the response using the functionality provided
-by that framework.  This method will create an "inner" object in a subclass of
-L<Web::DataService::Request>, with attributes derived from the current request
-and from the data service node that matches it.  If no data service node
-matches the current request, a 404 error response will be returned to the
-client.
+The first argument must be the "outer" request object, i.e. the one generated by
+the foundation framework.  This allows the Web::DataService code to obtain
+details about the request and to compose the response using the functionality
+provided by that framework.  This method will create an "inner" object in a
+subclass of L<Web::DataService::Request>, with attributes derived from the
+current request and from the data service node that matches it.  If no data
+service node matches the current request, a 404 error response will be
+returned to the client.
 
 You may provide a second optional argument, which must be a hashref of request
-attributes (see L<Web::DataService::Request>).  These will be used to
-initialize the request object, overriding any automatically determined
-attributes.
+attributes (see
+L<Web::DataService::Request|Web::DataService::Request/"Attribute accessors">).
+These will be used to initialize the request object, overriding any
+automatically determined attributes.
+
+This method returns the result of the request (generally the body of the
+response message), unless an error occurs.  In the latter case an exception
+will be thrown, so your main application should include an appropriate handler
+to generate a proper error response.  See the file
+L<F<lib/Example.pm>|Web::DataService::Tutorial/"lib/Example.pm"> in the
+tutorial example for more about this.
 
 =head3 new_request ( outer, [ attrs ] )
 
 If you wish more control over the request-handling process than is provided by
 L<handle_request|/"handle_request ( outer, [ attrs ] )">, you may instead call
 this method.  It returns an object blessed into a subclass of
-Web::DataService::Request, derived as described above for C<handle_request>.
+Web::DataService::Request, as described above for C<handle_request>, but does
+not execute it.
 
 You can then examine and possibly alter any of the request attributes, before
 calling the request's C<execute> method.  This method may, like
@@ -1746,8 +1824,8 @@ method.
 If a backend plugin is available, this method obtains a connection handle from
 it.  You can use this method when initializing your operation roles, if your
 initialization process requires communication with the backend.  You are not
-required to use this mechanism, however, and may contact the backend in any
-way you choose.
+required to use this mechanism, and may connect to the backend in any way you
+choose.
 
 =head3 accessor methods
 
@@ -1761,42 +1839,67 @@ provided by the foundation framework.
 
 =head2 DOCUMENTATION
 
-The following methods are available for you to use in generating
-documentation.  If you use the included documentation templates, you will
-probably not need to call them directly.
+The following methods are used in generating documentation.  If you use
+documentation templates, you will probably not need to call them directly.
 
 =head3 document_vocabs ( path, { options ... } )
 
-Return a documentation string in POD for the vocabularies that are allowed for
-the specified path.  The optional C<options> hash may include the following:
+Returns a documentation string in Pod for the
+L<vocabularies|Web::DataService::Configuration::Vocabulary> that are allowed
+for the node corresponding to the specified path.  The optional C<options> hash
+may include the following:
 
-=over 4
+=over
 
 =item all
 
-Document all vocabularies, not just those allowed for the path.
+If this option has a true value then all vocabularies are documented, not just
+those allowed for the given path.
 
 =item extended
 
-Include the documentation string for each voabulary.
+If this option has a true value then the documentation string is included for
+each vocabulary.
 
 =back
 
 =head3 document_formats ( path, { options ... } )
 
-Return a string containing documentation in POD for the formats that are
-allowed for the specified path.  The optional C<options> hash may include the
-following:
+Return a string containing documentation in Pod for the
+L<formats|Web::DataService::Configuration::Format> that are allowed for the
+node corresponding to the specified path.  The optional C<options> hash may
+include the following:
 
-=over 4
+=over
 
 =item all
 
-Documents all formats, not just those allowed for the path.
+If this option has a true value then all formats are documented, not just
+those allowed for the given path.
 
 =item extended
 
-Includes the documentation string for each format.
+If this option has a true value then the documentation string is included for
+each format.
+
+=back
+
+=head3 document_nodelist ( list, { options ... } )
+
+Returns a string containing documentation in Pod for the specified
+L<node list|Web::DataService::Configuration::Node/"Node Lists">.
+Each node has a default node list whose name is its node path, and you can
+define other lists arbitrarily by using the method L<list_node|/list_node>.
+The optional C<options> hash may include the following:
+
+=over
+
+=item usage
+
+If this documentation string has a non-empty value, then usage examples will
+be included if they are specified in the node list entries.  The value of this
+attribute will be included in the result between each node's documentation
+string and its usage list, so it should be a string such as "For example:".
 
 =back
 

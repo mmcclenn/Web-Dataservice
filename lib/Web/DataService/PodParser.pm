@@ -203,6 +203,11 @@ sub parse_pod {
 		}
 	    }
 	    
+	    elsif ( $cmd eq 'end' )
+	    {
+	        $self->end_format($1);
+	    }
+	    
 	    elsif ( $cmd eq 'cut' )
 	    {
 		$mode = 'skip';
@@ -374,9 +379,12 @@ sub end_format {
     
     my ($self) = @_;
     
-    $self->{format_level}--;
-    pop @{$self->{stack}};
-    $self->{current} = undef;
+    if ( $self->{format_level} )
+    {
+	$self->{format_level}--;
+	pop @{$self->{stack}};
+	$self->{current} = undef;
+    }
 }
 
 
@@ -463,6 +471,11 @@ sub add_directive {
     {
 	# ignore this, as it would have been processed above had it had an
 	# argument.
+    }
+    
+    elsif ( $directive =~ qr{ ^ wds_title \s+ (.+) }xs )
+    {
+	$self->{html_title} = $1;
     }
     
     else
@@ -576,7 +589,6 @@ sub generate_html {
     my ($self, $attrs) = @_;
     
     my $output = '';
-    my $title = '';
     my $encoding = $self->{encoding} eq 'utf8' ? 'UTF-8' : $self->{encoding};
     my $css = $attrs->{css};
     
@@ -590,18 +602,23 @@ sub generate_html {
     
     # Start by going through the document and finding some basic information.
     
-    foreach my $node ( @{$self->{body}} )
+    unless ( $self->{html_title} )
     {
-	if ( $node->{type} eq 'head' )
+	foreach my $node ( @{$self->{body}} )
 	{
-	    $title = $self->generate_text_content($node->{content});
-	    last;
+	    if ( $node->{type} eq 'head' )
+	    {
+		$self->{html_title} = $self->generate_text_content($node->{content});
+		last;
+	    }
 	}
+	
+	$self->{html_title} ||= '';
     }
     
     # Now add a header.
     
-    $output .= "<html><head><title>$title</title>\n";
+    $output .= "<html><head><title>$self->{html_title}</title>\n";
     $output .= "<meta http-equiv=\"Content-Type\" content=\"text/html; charset=$encoding\" >\n";
     $output .= "<link rel=\"stylesheet\" type=\"text/css\" title=\"pod_stylesheet\" href=\"$css\">\n" if $css;
     $output .= "</head>\n\n";

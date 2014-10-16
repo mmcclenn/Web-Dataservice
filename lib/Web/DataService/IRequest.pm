@@ -14,11 +14,11 @@ use Scalar::Util 'reftype';
 use Moo::Role;
 
 
-# has_output_block ( block_key_or_name )
+# has_block ( block_key_or_name )
 # 
 # Return true if the specified block was selected for this request.
 
-sub has_output_block {
+sub has_block {
     
     my ($request, $key_or_name) = @_;
     
@@ -36,6 +36,68 @@ sub block_selected {
 }
 
 
+# substitute_select ( substitutions ... )
+# 
+# Make the specified substitutions in the select and tables hashes for this
+# request.  You can pass either a list such as ( a => 'b', c => 'd' ) or a
+# hashref.
+
+sub substitute_select {
+
+    my $request = shift;
+    
+    my $subst;
+    
+    # First unpack the arguments.
+    
+    if ( ref $_[0] eq 'HASH' )
+    {
+	croak "substitute_select: you must pass either a single hashref or a list of substitutions\n"
+	    if @_ > 1;
+	
+	$subst = shift;
+    }
+    
+    else
+    {
+	$subst = { @_ };
+    }
+    
+    # Keep a count of the number of substitutions.
+    
+    my $count = 0;
+    
+    # Then substitute the field values, if there are any for this request.
+    
+    if ( ref $request->{select_list} eq 'ARRAY' )
+    {
+	foreach my $f ( @{$request->{select_list}} )
+	{
+	    $f =~ s/\$(\w+)/$subst->{$1}||"\$$1"/eog and $count++;
+	}
+    }
+    
+    # Then substitute the table keys, if there are any for this request.
+    
+    if ( ref $request->{tables_hash} eq 'HASH' )
+    {
+	foreach my $k ( keys %{$request->{tables_hash}} )
+	{
+	    if ( $k =~ qr{ ^ \$ (\w+) $ }xs )
+	    {
+		$request->{tables_hash}{$subst->{$1}} = $request->{tables_hash}{$k};
+		delete $request->{tables_hash}{$k};
+		$count++;
+	    }
+	}
+    }
+    
+    # Return the number of substitutions made.
+    
+    return $count;
+}
+
+
 # select_list ( subst )
 # 
 # Return a list of strings derived from the 'select' records passed to
@@ -44,15 +106,15 @@ sub block_selected {
 
 sub select_list {
     
-    my ($self, $subst) = @_;
+    my ($request, $subst) = @_;
     
-    my @fields = @{$self->{select_list}} if ref $self->{select_list} eq 'ARRAY';
+    my @fields = @{$request->{select_list}} if ref $request->{select_list} eq 'ARRAY';
     
     if ( defined $subst && ref $subst eq 'HASH' )
     {
 	foreach my $f (@fields)
 	{
-	    $f =~ s/\$(\w+)/$subst->{$1}/g;
+	    $f =~ s/\$(\w+)/$subst->{$1}||"\$$1"/eog;
 	}
     }
     
@@ -66,9 +128,9 @@ sub select_list {
 
 sub select_hash {
 
-    my ($self, $subst) = @_;
+    my ($request, $subst) = @_;
     
-    return map { $_ => 1} $self->select_list($subst);
+    return map { $_ => 1} $request->select_list($subst);
 }
 
 
@@ -78,9 +140,9 @@ sub select_hash {
 
 sub select_string {
     
-    my ($self, $subst) = @_;
+    my ($request, $subst) = @_;
     
-    return join(', ', $self->select_list($subst));    
+    return join(', ', $request->select_list($subst));    
 }
 
 
@@ -91,9 +153,9 @@ sub select_string {
 
 sub tables_hash {
     
-    my ($self) = @_;
+    my ($request) = @_;
     
-    return $self->{tables_hash};
+    return $request->{tables_hash};
 }
 
 
@@ -103,18 +165,18 @@ sub tables_hash {
 
 sub add_table {
 
-    my ($self, $table_name, $real_name) = @_;
+    my ($request, $table_name, $real_name) = @_;
     
     if ( defined $real_name )
     {
-	if ( $self->{tables_hash}{"\$$table_name"} )
+	if ( $request->{tables_hash}{"\$$table_name"} )
 	{
-	    $self->{tables_hash}{$real_name} = 1;
+	    $request->{tables_hash}{$real_name} = 1;
 	}
     }
     else
     {
-	$self->{tables_hash}{$table_name} = 1;
+	$request->{tables_hash}{$table_name} = 1;
     }
 }
 
@@ -125,9 +187,9 @@ sub add_table {
 
 sub filter_hash {
     
-    my ($self) = @_;
+    my ($request) = @_;
     
-    return $self->{filter_hash};
+    return $request->{filter_hash};
 }
 
 
@@ -138,10 +200,10 @@ sub filter_hash {
 
 sub clean_param {
     
-    my ($self, $name) = @_;
+    my ($request, $name) = @_;
     
-    return '' unless ref $self->{valid};
-    return $self->{valid}->value($name) // '';
+    return '' unless ref $request->{valid};
+    return $request->{valid}->value($name) // '';
 }
 
 
@@ -152,10 +214,10 @@ sub clean_param {
 
 sub clean_param_list {
     
-    my ($self, $name) = @_;
+    my ($request, $name) = @_;
     
-    return unless ref $self->{valid};
-    my $clean = $self->{valid}->value($name);
+    return unless ref $request->{valid};
+    my $clean = $request->{valid}->value($name);
     return @$clean if ref $clean eq 'ARRAY';
     return unless defined $clean;
     return $clean;
@@ -169,11 +231,11 @@ sub clean_param_list {
 
 sub clean_param_hash {
     
-    my ($self, $name) = @_;
+    my ($request, $name) = @_;
     
-    return {} unless ref $self->{valid};
+    return {} unless ref $request->{valid};
     
-    my $clean = $self->{valid}->value($name);
+    my $clean = $request->{valid}->value($name);
     
     if ( ref $clean eq 'ARRAY' )
     {
@@ -199,10 +261,10 @@ sub clean_param_hash {
 
 sub param_given {
 
-    my ($self, $name) = @_;
+    my ($request, $name) = @_;
     
-    return unless ref $self->{valid};
-    return exists $self->{valid}{raw}{$name};
+    return unless ref $request->{valid};
+    return exists $request->{valid}{raw}{$name};
 }
 
 
@@ -213,8 +275,8 @@ sub param_given {
 
 sub output_field_list {
     
-    my ($self) = @_;
-    return $self->{field_list};
+    my ($request) = @_;
+    return $request->{field_list};
 }
 
 
@@ -224,9 +286,9 @@ sub output_field_list {
 
 sub debug {
     
-    my ($self) = @_;
+    my ($request) = @_;
     
-    return $self->{ds}->debug;
+    return $request->{ds}->debug;
 }
 
 
@@ -236,10 +298,10 @@ sub debug {
 
 sub process_record {
     
-    my ($self, $record, $steps) = @_;
-    my $ds = $self->{ds};
+    my ($request, $record, $steps) = @_;
+    my $ds = $request->{ds};
     
-    return $ds->process_record($self, $record, $steps);
+    return $ds->process_record($request, $record, $steps);
 }
 
 
@@ -262,11 +324,11 @@ sub result_limit {
 
 sub result_offset {
     
-    my ($self, $will_handle) = @_;
+    my ($request, $will_handle) = @_;
     
-    $self->{offset_handled} = 1 if $will_handle;
+    $request->{offset_handled} = 1 if $will_handle;
     
-    return $self->{result_offset} || 0;
+    return $request->{result_offset} || 0;
 }
 
 
@@ -278,12 +340,12 @@ sub result_offset {
 
 sub sql_limit_clause {
     
-    my ($self, $will_handle) = @_;
+    my ($request, $will_handle) = @_;
     
-    $self->{offset_handled} = $will_handle ? 1 : 0;
+    $request->{offset_handled} = $will_handle ? 1 : 0;
     
-    my $limit = $self->{result_limit};
-    my $offset = $self->{result_offset} || 0;
+    my $limit = $request->{result_limit};
+    my $offset = $request->{result_offset} || 0;
     
     if ( $offset > 0 )
     {
@@ -322,14 +384,14 @@ sub sql_count_clause {
 
 sub sql_count_rows {
     
-    my ($self) = @_;
+    my ($request) = @_;
     
-    if ( $self->{display_counts} )
+    if ( $request->{display_counts} )
     {
-	($self->{result_count}) = $self->{dbh}->selectrow_array("SELECT FOUND_ROWS()");
+	($request->{result_count}) = $request->{dbh}->selectrow_array("SELECT FOUND_ROWS()");
     }
     
-    return $self->{result_count};
+    return $request->{result_count};
 }
 
 
@@ -341,9 +403,9 @@ sub sql_count_rows {
 
 sub set_result_count {
     
-    my ($self, $count) = @_;
+    my ($request, $count) = @_;
     
-    $self->{result_count} = $count;
+    $request->{result_count} = $count;
 }
 
 
@@ -354,11 +416,11 @@ sub set_result_count {
 
 sub add_warning {
 
-    my $self = shift;
+    my $request = shift;
     
     foreach my $m (@_)
     {
-	push @{$self->{warnings}}, $m if defined $m && $m ne '';
+	push @{$request->{warnings}}, $m if defined $m && $m ne '';
     }
 }
 
@@ -369,10 +431,10 @@ sub add_warning {
 
 sub warnings {
 
-    my ($self) = @_;
+    my ($request) = @_;
     
-    return unless ref $self->{warnings} eq 'ARRAY';
-    return @{$self->{warnings}};
+    return unless ref $request->{warnings} eq 'ARRAY';
+    return @{$request->{warnings}};
 }
 
 
@@ -415,11 +477,11 @@ sub display_counts {
 
 sub params_for_display {
     
-    my $self = $_[0];
-    my $ds = $self->{ds};
+    my $request = $_[0];
+    my $ds = $request->{ds};
     my $validator = $ds->{validator};
-    my $rs_name = $self->{ruleset};
-    my $path = $self->{path};
+    my $rs_name = $request->{ruleset};
+    my $path = $request->{path};
     
     # First get the list of all parameters allowed for this result.  We will
     # then go through them in order to ensure a known order of presentation.
@@ -446,12 +508,12 @@ sub params_for_display {
     {
 	# Skip parameters that don't have a value, or that we have noted above.
 	
-	next unless defined $self->{clean_params}{$p};
+	next unless defined $request->{clean_params}{$p};
 	next if $skip{$p};
 	
 	# Others get included along with their value(s).
 	
-	my @values = $self->clean_param_list($p);
+	my @values = $request->clean_param_list($p);
 	
 	push @display, $p, join(q{,}, @values);
     }
@@ -476,33 +538,33 @@ sub params_for_display {
 
 sub result_counts {
 
-    my ($self) = @_;
+    my ($request) = @_;
     
     # Start with a default hashref with empty fields.  This is what will be returned
     # if no information is available.
     
-    my $r = { found => $self->{result_count} // '',
-	      returned => $self->{result_count} // '',
-	      offset => $self->{result_offset} // '' };
+    my $r = { found => $request->{result_count} // '',
+	      returned => $request->{result_count} // '',
+	      offset => $request->{result_offset} // '' };
     
     # If no result count was given, just return the default hashref.
     
-    return $r unless defined $self->{result_count};
+    return $r unless defined $request->{result_count};
     
     # Otherwise, figure out the start and end of the output window.
     
-    my $window_start = defined $self->{result_offset} && $self->{result_offset} > 0 ?
-	$self->{result_offset} : 0;
+    my $window_start = defined $request->{result_offset} && $request->{result_offset} > 0 ?
+	$request->{result_offset} : 0;
     
-    my $window_end = $self->{result_count};
+    my $window_end = $request->{result_count};
     
     # If the offset and limit together don't stretch to the end of the result
     # set, adjust the window end.
     
-    if ( defined $self->{result_limit} && $self->{result_limit} ne 'all' &&
-	 $window_start + $self->{result_limit} < $window_end )
+    if ( defined $request->{result_limit} && $request->{result_limit} ne 'all' &&
+	 $window_start + $request->{result_limit} < $window_end )
     {
-	$window_end = $window_start + $self->{result_limit};
+	$window_end = $window_start + $request->{result_limit};
     }
     
     # The number of records actually returned is the length of the output
@@ -532,9 +594,9 @@ sub linebreak {
 
 sub get_config {
     
-    my ($self) = @_;
+    my ($request) = @_;
     
-    return $self->{ds}->get_config;
+    return $request->{ds}->get_config;
 }
 
 
@@ -545,12 +607,12 @@ sub get_config {
 
 sub get_connection {
     
-    my ($self) = @_;
+    my ($request) = @_;
     
-    return $self->{dbh} if ref $self->{dbh};
+    return $request->{dbh} if ref $request->{dbh};
     
-    $self->{dbh} = $self->{ds}{backend_plugin}->get_connection($self->{ds});
-    return $self->{dbh};
+    $request->{dbh} = $request->{ds}{backend_plugin}->get_connection($request->{ds});
+    return $request->{dbh};
 }
 
 
@@ -561,9 +623,9 @@ sub get_connection {
 
 sub set_cors_header {
 
-    my ($self, $arg) = @_;
+    my ($request, $arg) = @_;
     
-    $Web::DataService::FOUNDATION->set_cors_header($self, $arg);
+    $Web::DataService::FOUNDATION->set_cors_header($request, $arg);
 }
 
 
@@ -573,9 +635,9 @@ sub set_cors_header {
 
 sub set_content_type {
     
-    my ($self, $type) = @_;
+    my ($request, $type) = @_;
     
-    $Web::DataService::FOUNDATION->set_content_type($self, $type);
+    $Web::DataService::FOUNDATION->set_content_type($request, $type);
 }
 
 
@@ -586,15 +648,15 @@ sub set_content_type {
 
 sub single_result {
 
-    my ($self, $record) = @_;
+    my ($request, $record) = @_;
     
-    $self->clear_result;
+    $request->clear_result;
     return unless defined $record;
     
     croak "single_result: the argument must be a hashref\n"
 	unless ref $record && reftype $record eq 'HASH';
     
-    $self->{main_record} = $record;
+    $request->{main_record} = $record;
 }
 
 
@@ -605,16 +667,16 @@ sub single_result {
 
 sub list_result {
     
-    my $self = shift;
+    my $request = shift;
     
-    $self->clear_result;
+    $request->clear_result;
     return unless @_;
     
     # If we were given a single listref, just use that.
     
     if ( scalar(@_) == 1 && ref $_[0] && reftype $_[0] eq 'ARRAY' )
     {
-	$self->{main_result} = $_[0];
+	$request->{main_result} = $_[0];
 	return;
     }
     
@@ -639,7 +701,7 @@ sub list_result {
 	}
     }
     
-    $self->{main_result} = \@result;
+    $request->{main_result} = \@result;
 }
 
 
@@ -650,15 +712,15 @@ sub list_result {
 
 sub data_result {
     
-    my ($self, $data) = @_;
+    my ($request, $data) = @_;
     
-    $self->clear_result;
+    $request->clear_result;
     return unless defined $data;
     
     croak "data_result: the argument must be either a scalar or a scalar ref\n"
 	if ref $data && reftype $data ne 'SCALAR';
     
-    $self->{main_data} = ref $data ? $$data : $data;
+    $request->{main_data} = ref $data ? $$data : $data;
 }
 
 
@@ -669,18 +731,18 @@ sub data_result {
 
 sub values_result {
     
-    my $self = shift;
+    my $request = shift;
     
-    $self->clear_result;
+    $request->clear_result;
     
     if ( ref $_[0] eq 'ARRAY' )
     {
-	$self->{main_values} = $_[0];
+	$request->{main_values} = $_[0];
     }
     
     else
     {
-	$self->{main_values} = [ @_ ];
+	$request->{main_values} = [ @_ ];
     }
 }
 
@@ -692,15 +754,15 @@ sub values_result {
 
 sub sth_result {
     
-    my ($self, $sth) = @_;
+    my ($request, $sth) = @_;
     
-    $self->clear_result;
+    $request->clear_result;
     return unless defined $sth;
     
     croak "sth_result: the argument must be an object that implements 'fetchrow_hashref'\n"
 	unless ref $sth && $sth->can('fetchrow_hashref');
     
-    $self->{main_sth} = $sth;
+    $request->{main_sth} = $sth;
 }
 
 
@@ -712,15 +774,15 @@ sub sth_result {
 
 sub add_result {
     
-    my $self = shift;
+    my $request = shift;
     
-    $self->clear_result unless ref $self->{main_result} eq 'ARRAY';
+    $request->clear_result unless ref $request->{main_result} eq 'ARRAY';
     return unless @_;
     
     croak "add_result: arguments must be hashrefs\n"
 	unless ref $_[0] && reftype $_[0] eq 'HASH';
     
-    push @{$self->{main_result}}, @_;
+    push @{$request->{main_result}}, @_;
 }
 
 
@@ -730,12 +792,12 @@ sub add_result {
 
 sub clear_result {
     
-    my ($self) = @_;
+    my ($request) = @_;
     
-    delete $self->{main_result};
-    delete $self->{main_record};
-    delete $self->{main_data};
-    delete $self->{main_sth};
+    delete $request->{main_result};
+    delete $request->{main_record};
+    delete $request->{main_data};
+    delete $request->{main_sth};
 }
 
 

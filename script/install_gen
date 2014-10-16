@@ -6,16 +6,21 @@ wdsinstallfiles - helper script to create new Web::DataService applications
 
 =head1 SYNOPSIS
 
-wdsinstallfiles [options]
+wdsinstallfiles [options] [files]
 
 =head1 OPTIONS
 
     -h, --help            : print what you are currently reading
+    -f, --force           : force installation
     -p, --path            : the path where application will be created
                               (current directory if not specified)
     -x, --no-check        : don't check for the latest version of Web::DataService
                               (checking version implies internet connection)
     -v, --version         : print the version of Web::DataService being used
+
+If you name one or more files or file paths, i.e. "doc" or
+"bin/dataservice.pl", then only that file or files will be installed.
+Otherwise, all files necessary for the example application will be installed.
 
 =cut
 
@@ -46,11 +51,13 @@ my $no_check = 0;
 my $report_version = 0;
 my $name = undef;
 my $path = '.';
+my $force_install = 0;
 my $make = 0;
 
 
 GetOptions(
     "h|help"          => \$help,
+    "f|force"	      => \$force_install,
     "p|path=s"        => \$path,
     "x|no-check"      => \$no_check,
     "v|version"       => \$report_version,
@@ -81,6 +88,16 @@ if ( $report_version )
     print "Web::DataService $WDS_VERSION\n";
     exit 0;
 }
+
+# If filename arguments were specified, grab those.
+
+my (%INSTALL_FILTER);
+
+foreach my $f ( @ARGV )
+{
+    $INSTALL_FILTER{$f} = 1;
+}
+
 
 # Now determine which foundation framework we are using.  Currently, the only
 # one available is Dancer.
@@ -115,7 +132,14 @@ else
 	die "You must install Dancer in order to use Web::DataService.\n";
     }
     
-    die "You must run this program from the root directory of an already-installed Dancer application.  Try 'dancer -a myappname'.\n";
+    if ( $force_install )
+    {
+	version_check() unless $no_check;
+	unpack_files( &dancer_app_tree, &templates, '.' );
+    }
+    
+    die "You must run this program from the root directory of an already-installed Dancer application.  Try 'dancer -a myappname'.\n"
+	unless $force_install;
 }
 
 
@@ -172,7 +196,7 @@ sub dancer_app_tree {
 
 sub unpack_files {
     
-    my ($node, $templates, $file_root, $template_root) = @_;
+    my ($node, $templates, $file_root, $template_root, $subtree_override) = @_;
     
     while ( my ($name, $thing) = each %$node )
     {
@@ -181,10 +205,18 @@ sub unpack_files {
         my $file_path = catfile($file_root, $name);
 	my $template_path = $template_root ? "$template_root/$name" : $name;
 	
+	my $in_subtree = $subtree_override;
+	
+	if ( %INSTALL_FILTER )
+	{
+	    next unless $INSTALL_FILTER{$template_path} || $in_subtree;
+	    $in_subtree = 1;
+	}
+	
         if ( ref $thing eq 'HASH' )
 	{
             safe_mkdir($file_path);
-            unpack_files($thing, $templates, $file_path, $template_path);
+            unpack_files($thing, $templates, $file_path, $template_path, $in_subtree);
         }
 	
 	elsif ( ref $thing eq 'CODE' )

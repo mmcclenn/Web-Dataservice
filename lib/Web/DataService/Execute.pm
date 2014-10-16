@@ -248,7 +248,7 @@ sub execute_request {
     my ($ds, $request) = @_;
     
     my $path = $request->node_path;
-    my $format = $request->response_format;
+    my $format = $request->output_format;
     
     # If this was called as a class method rather than as an instance method,
     # then call 'select' to figure out the appropriate data service.
@@ -459,7 +459,7 @@ sub configure_request {
     # If the output format is not already set, then try to determine what
     # it should be.
     
-    unless ( $request->response_format )
+    unless ( $request->output_format )
     {
 	# If the special parameter 'format' is enabled, check to see if a
 	# value for that parameter was given.
@@ -484,7 +484,7 @@ sub configure_request {
 	# If we have successfully determined a format, then set the result
 	# object's output format attribute.
 	
-	$request->response_format($format) if $format;
+	$request->output_format($format) if $format;
     }
     
     # Next, determine the result limit and offset, if any.  If the special
@@ -522,19 +522,27 @@ sub configure_request {
     
     $request->display_counts($count_value) if defined $count_value;
     
-    my $response_linebreak = $request->special_value('linebreak') ||
+    my $output_linebreak = $request->special_value('linebreak') ||
 	$ds->node_attr($path, 'default_linebreak') || 'crlf';
     
-    $request->response_linebreak($response_linebreak);
+    $request->output_linebreak($output_linebreak);
     
     my $save_specified = $request->special_given('save');
     my $save_value = $request->special_value('save') || '';
     
-    if ( $save_specified && $save_value !~ qr{ ^ (?: no | off | 0 | false ) $ }xsi )
+    if ( $save_specified )
     {
-	$request->save_output(1);
-	$request->save_filename($save_value) if $save_value ne '' &&
-	    $save_value !~ qr{ ^ (?: yes | on | 1 | true ) $ }xsi;
+	if ( $save_value =~ qr{ ^ (?: no | off | 0 | false ) $ }xsi )
+	{
+	    $request->save_output(0);
+	}
+	
+	else
+	{
+	    $request->save_output(1);
+	    $request->save_filename($save_value) if $save_value ne '' &&
+		$save_value !~ qr{ ^ (?: yes | on | 1 | true ) $ }xsi;
+	}
     }
     
     # Determine which vocabulary to use.  If the special parameter 'vocab' is
@@ -542,7 +550,7 @@ sub configure_request {
     
     my $vocab_value = $request->special_value('vocab');
     
-    $request->response_vocab($vocab_value) if defined $vocab_value;
+    $request->output_vocab($vocab_value) if defined $vocab_value;
     
     # If an after_config_hook is defined for this path, call it.
     
@@ -566,7 +574,7 @@ sub generate_result {
 	unless $request->{_configured};
     
     my $path = $request->node_path;
-    my $format = $request->response_format;
+    my $format = $request->output_format;
     
     my $method = $ds->node_attr($path, 'method');
     my $arg = $ds->node_attr($path, 'arg');
@@ -589,29 +597,36 @@ sub generate_result {
     # the data service, which will be the default vocabulary if none were
     # explicitly defined.
     
-    unless ( my $vocab_value = $request->response_vocab )
+    unless ( my $vocab_value = $request->output_vocab )
     {
-	$vocab_value = $ds->{format}{$format}{default_vocab} //
+	$vocab_value = $ds->{format}{$format}{default_vocab} ||
 	    $ds->{vocab_list}[0];
 	
-	$request->response_vocab($vocab_value);
-    }
-    
-    # If the format indicates that the output should be returned as an
-    # attachment (which tells the browser to save it to disk), note this fact.
-    
-    if ( defined $ds->{format}{$format}{disposition} &&
-	 $ds->{format}{$format}{disposition} eq 'attachment' &&
-         defined $request->save_output && $request->save_output ne '0' )
-    {
-    	$request->save_output(1);
+	$request->output_vocab($vocab_value);
     }
     
     # Now that we know the format, we can set the response headers.
     
     $ds->_set_cors_header($request);
     $ds->_set_content_type($request);
-    $ds->_set_content_disposition($request, $request->save_filename) if $request->save_output;
+    
+    # If the format indicates that the output should be returned as an
+    # attachment (which tells the browser to save it to disk), note this fact.
+    
+    my $save_flag = $request->save_output;
+    my $disp = $ds->{format}{$format}{disposition};
+    
+    if ( defined $save_flag && $save_flag eq '0' )
+    {
+	#$ds->_set_content_disposition($request, 'inline');
+	$ds->_set_content_type($request, 'text/plain') if $ds->{format}{$format}{is_text};
+    }
+    
+    elsif ( ( defined $disp && $disp eq 'attachment' ) ||
+	    $save_flag )
+    {
+	$ds->_set_content_disposition($request, 'attachment', $request->save_filename);
+    }
     
     # Then set up the output.  This involves constructing a list of
     # specifiers that indicate which fields will be included in the output
@@ -697,195 +712,6 @@ sub generate_result {
 }
 
 
-# generate_doc ( request )
-# 
-# Generate and return a documentation page for this request.  The accepted
-# formats, one of which was selected when the request was created, are 'html'
-# and 'pod'.
-# 
-# If a documentation template corresponding to the specified path is found, it
-# will be used.  Otherwise, a default template will be used.
-
-sub generate_doc {
-    
-    my ($ds, $request) = @_;
-    
-    my $path = $request->node_path;
-    my $format = $request->response_format;
-    
-    # If this is not a valid request, then return a 404 error.
-    
-    die "404\n" if $request->{is_invalid_request} || 
-	$ds->node_attr($path, 'undocumented') ||
-	    $ds->node_attr($path, 'disabled');
-    
-    # If we are in 'one request' mode, initialize this request's primary
-    # role.  If we are not in this mode, then all of the roles will have
-    # been previously initialized.
-    
-    if ( $Web::DataService::ONE_REQUEST )
-    {
-	my $role = $ds->node_attr($path, 'role');
-	$ds->initialize_role($role) if $role;
-    }
-    
-    # If the output format is not already set, then try to determine what
-    # it should be.
-    
-    unless ( $format )
-    {
-	# If the special parameter 'format' is enabled, check to see if a
-	# value for that parameter was given.
-
-	$request->{raw_params} //= $Web::DataService::FOUNDATION->get_params($request);
-	
-	$format ||= $request->special_value('format');
-	
-	# Default to HTML.
-	
-	$format ||= 'html';
-	
-	$request->response_format($format);
-    }
-    
-    # We start by determining the values necessary to fill in the documentation
-    # template.  This may include one or more of: a title, parameters,
-    # response fields, etc.
-    
-    my $doc_title = $ds->node_attr($path, 'title') // $path;
-    
-    my $vars = { ds => $ds,
-		 request => $request,
-		 doc_title => $doc_title };
-    
-    # All documentation is public, so set the maximally permissive CORS header.
-    
-    $ds->_set_cors_header($request, "*");
-    
-    # Now determine the class that corresponds to this request's primary role
-    # and bless the request into that class.
-    
-    my $role = $ds->node_attr($request, 'role');
-    bless $request, $ds->documentation_class($role);
-    
-    # Now determine the location of the template for generating this
-    # documentation page.  If one has not been specified, we try the path
-    # appended with "/index.tt", and if that does not exist we try the
-    # path appended with "_doc.tt".  Or with whatever suffix has been
-    # specified for template files.  If none of these template files are
-    # present, we try the documentation error template as a backup.
-    
-    my $doc_suffix = $ds->{template_suffix} // "";
-    
-    my $doc_defs = $ds->node_attr($path, 'doc_defs') // $ds->check_doc("doc_defs${doc_suffix}");
-    my $doc_header = $ds->node_attr($path, 'doc_header') // $ds->check_doc("doc_header${doc_suffix}");
-    my $doc_footer = $ds->node_attr($path, 'doc_footer') // $ds->check_doc("doc_footer${doc_suffix}");
-    
-    # Now see if we can find a template for this documentation page.  If one
-    # was explicitly specified, we try that first.  Otherwise, try the node
-    # path suffixed by '_doc' with the template suffix added, and then
-    # '/index' with the template suffix.
-    
-    my $doc_template = $ds->node_attr($path, 'doc_template');
-    
-    if ( defined $doc_template )
-    {
-	die "404\n" if $doc_template eq '';
-	croak "template $doc_template: not found\n" unless $ds->check_doc($doc_template);
-    }
-    
-    else
-    {
-	my @try_template;
-	
-	if ( $path eq '/' )
-	{
-	    push @try_template, 'index' . $doc_suffix;
-	}
-	
-	else
-	{
-	    push @try_template, $path . '_doc' . $doc_suffix;
-	    push @try_template, $path . '/index' . $doc_suffix;
-	    push @try_template, $ds->node_attr($path, 'doc_default_op_template')
-		if $ds->node_has_operation($path);
-	    push @try_template, $ds->node_attr($path, 'doc_default_template');
-	}
-	
- 	foreach my $t ( @try_template )
-	{
-	    next unless defined $t;
-	    
-	    $doc_template = $t, last if $ds->check_doc($t);
-	}
-    } 
-    
-    # Now, if we have found a template that works then render it.
-    
-    if ( $doc_template )
-    {
-	my $doc_string = $ds->render_doc($doc_template, $doc_defs, $doc_header, $doc_footer, $vars);
-	
-	# If POD format was requested, return the documentation as is.
-	
-	if ( defined $format && $format eq 'pod' )
-	{
-	    $ds->_set_content_type($request, 'text/plain');
-	    return $doc_string;
-	}
-	
-	# Otherwise, convert the POD to HTML using the PodParser and return the result.
-	
-	else
-	{
-	    my $parser = Web::DataService::PodParser->new();
-	    
-	    $parser->parse_pod($doc_string);
-	    
-	    my $url_generator = sub {
-		if ( $_[0] =~ qr{ ^ (node|op|path) (abs|rel|site)? [:] ( [^#?]* ) (?: [?] ( [^#]* ) )? (?: [#] (.*) )? }xs )
-		{
-		    my $arg = $1;
-		    my $type = $2 || 'site';
-		    my $path = $3 || '/';
-		    my $params = $4;
-		    my $frag = $5;
-		    my $format;
-		    
-		    if ( $arg ne 'path' && $path =~ qr{ (.*) [.] ([^.]+) $ }x )
-		    {
-			$path = $1; $format = $2;
-		    }
-		    
-		    return $request->generate_url({ $arg => $path, type => $type, format => $format, 
-						    params => $params, fragment => $frag });
-		}
-		else
-		{
-		    return $_[0];
-		}
-	    };
-	    
-	    my $stylesheet = $ds->node_attr($path, 'doc_stylesheet') || 
-		$ds->generate_site_url({ path => 'css/dsdoc.css' });
-	    
-	    my $doc_html = $parser->generate_html({ css => $stylesheet, tables => 1,
-						    url_generator => $url_generator });
-	    
-	    $ds->_set_content_type($request, 'text/html');
-	    return $doc_html;
-	}
-    }
-    
-    # If no valid template file was found, we return an error result.
-    
-    else
-    {
-	die "404\n";
-    }
-}
-
-
 # _call_hooks ( path, hook, request )
 # 
 # If the specified hook has been defined for the specified path, call each of
@@ -945,7 +771,7 @@ sub _set_content_type {
     
     unless ( $ct )
     {
-	my $format = $request->response_format;
+	my $format = $request->output_format;
 	$ct = $ds->{format}{$format}{content_type} || 'text/plain';
     }
     
@@ -955,7 +781,15 @@ sub _set_content_type {
 
 sub _set_content_disposition {
     
-    my ($ds, $request, $filename) = @_;
+    my ($ds, $request, $disp, $filename) = @_;
+    
+    # If we were given a disposition of 'inline', then set that.
+    
+    if ( $disp eq 'inline' )
+    {
+	$Web::DataService::FOUNDATION->set_header($request, 'Content-Disposition' => 'inline');
+	return;
+    }
     
     # If we weren't given an explicit filename, check to see if one was set
     # for this node.
@@ -971,7 +805,7 @@ sub _set_content_disposition {
     
     unless ( $filename =~ qr{ [^.] [.] \w+ $ }xs )
     {
-	$filename .= '.' . $request->response_format;
+	$filename .= '.' . $request->output_format;
     }
     
     $Web::DataService::FOUNDATION->set_header($request, 'Content-Disposition' => 
@@ -1072,7 +906,7 @@ sub determine_output_names {
 }
 
 
-# determine_response_format ( outer, inner )
+# determine_output_format ( outer, inner )
 # 
 # This method is called by the error reporting routine if we do not know the
 # output format.  We are given (possibly) both types of objects and need to
@@ -1082,7 +916,7 @@ sub determine_output_names {
 # This method need only return a value if that value is not 'html', because
 # that is the default.
 
-sub determine_response_format {
+sub determine_output_format {
 
     my ($ds, $outer, $inner) = @_;
     
@@ -1140,7 +974,7 @@ sub determine_response_format {
 
 
 my %CODE_STRING = ( 400 => "Bad Request", 
-		    404 => "Not Found", 
+		    404 => "Not Found",
 		    415 => "Invalid Media Type",
 		    500 => "Server Error" );
 
@@ -1218,13 +1052,14 @@ sub error_result {
     # Get the proper data service instance from the inner request, in case we
     # were called as a class method.
     
-    $ds = $inner->isa('Web::DataService::Request') ? $inner->ds : $Web::DataService::WDS_INSTANCES[0];
+    $ds = defined $inner && $inner->isa('Web::DataService::Request') ? $inner->ds
+	: $Web::DataService::WDS_INSTANCES[0];
     
     # Next, try to determine the format of the result
     
     my $format;
-    $format ||= $inner->response_format if $inner;
-    $format ||= $ds->determine_response_format($outer, $inner);
+    $format ||= $inner->output_format if $inner;
+    $format ||= $ds->determine_output_format($outer, $inner);
     
     my ($code);
     my (@errors, @warnings);
@@ -1255,7 +1090,21 @@ sub error_result {
     {
 	$code = $1;
 	
-	if ( $CODE_STRING{$code} )
+	if ( $code eq '404' )
+	{
+	    my $path = $Web::DataService::FOUNDATION->get_request_path($outer);
+	    if ( defined $path && $path ne '' )
+	    {
+		@errors = ("The path '$path' was not found on this server.");
+	    }
+	    
+	    else
+	    {
+		@errors = ("This request is invalid.");
+	    }
+	}
+	
+	elsif ( $CODE_STRING{$code} )
 	{
 	    @errors = $CODE_STRING{$code};
 	}
@@ -1282,7 +1131,7 @@ sub error_result {
     
     my $format_class = $ds->{format}{$format}{package} if $format;
     
-    if ( defined $format_class && $format_class->can('emit_error') )
+    if ( $format_class && $format_class->can('emit_error') )
     {
 	my $error_body = $format_class->emit_error($code, \@errors, \@warnings);
 	my $content_type = $ds->{format}{$format}{content_type} || 'text/plain';
@@ -1298,7 +1147,7 @@ sub error_result {
     
     else
     {
-	my $text = $CODE_STRING{$code};
+	my $text = $CODE_STRING{$code} || 'Error';
 	my $error = "<ul>\n";
 	my $warning = '';
 	

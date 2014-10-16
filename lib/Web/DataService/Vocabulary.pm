@@ -59,6 +59,18 @@ sub define_vocab {
 	    
 	    my $record = bless { name => $name }, 'Web::DataService::Vocab';
 	    
+	    # If this entry is for the 'null' vocabulary, then use the
+	    # existing record.  If this record is to be disabled,
+	    # remove it from the vocabulary list.
+	    
+	    if ( $name eq 'null' )
+	    {
+		$record = $ds->{vocab}{null};
+		shift @{$ds->{vocab_list}} if $item->{disabled};
+	    }
+	    
+	    # Now set the attributes for this vocabulary.
+	    
 	    foreach my $k ( keys %$item )
 	    {
 		croak "define_vocab: invalid attribute '$k'" unless $VOCAB_DEF{$k};
@@ -165,8 +177,8 @@ sub document_vocabs {
     
     foreach my $format ( @{$ds->{format_list}} )
     {
-	my $default_vocab = $ds->{format}{$format}{default_vocab} || $ds->{vocab_list}[0];
-	push @{$default_for{$default_vocab}}, "C<$format>";
+	my $default_vocab = $ds->{format}{$format}{default_vocab} // $ds->{vocab_list}[0];
+	push @{$default_for{$default_vocab}}, "C<$format>" if $default_vocab;
     }
     
     # Go through the list of defined vocabularies in order, 
@@ -177,7 +189,13 @@ sub document_vocabs {
     my $doc_header = @paths ? " | Documentation" : '';
     
     my $doc = "=for wds_table_header Vocabulary* | Name | Default for $doc_header $ext_header\n\n";
-    $doc .= "=over 4\n\n";
+    $doc .= "=over\n\n";
+    
+    if ( $options->{valid} )
+    {
+	$doc = "=for wds_table_no_header Value* | Description\n\n";
+	$doc .= "=over\n\n";
+    }
     
  VOCABULARY:
     foreach my $name (@vocabs)
@@ -188,6 +206,13 @@ sub document_vocabs {
 	my $doc_link = $ds->node_link($frec->{doc_node}) if $frec->{doc_node};
 	
 	next VOCABULARY if $frec->{undocumented};
+	
+	if ( $options->{valid} )
+	{
+	    $doc .= "=item C<$frec->{name}>\n\n";
+	    $doc .= "$frec->{doc_string}\n\n" if $frec->{doc_string};
+	    next;
+	}
 	
 	$doc .= "=item $title | C<$frec->{name}> | $def_list";
 	$doc .= " | $doc_link" if $doc_link && @paths && $options->{extended};

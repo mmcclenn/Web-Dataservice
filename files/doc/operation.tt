@@ -1,12 +1,14 @@
 
-<% DOCSTRING %>
+<% DESCRIPTION_SECTION(opt_force=1) %>
 
-<% USAGE %>
+<% USAGE_SECTION %>
 
-<% PARAMETERS %>
+<% PARAMETER_SECTION(opt_force=1) %>
 
-<% METHODS %>
+<% METHOD_SECTION(opt_force=1) %>
 
-<% RESPONSE %>
+<% RESPONSE_SECTION(opt_force=1) %>
 
-<% FORMATS %>
+<% FORMAT_SECTION %>
+
+<% VOCAB_SECTION %>

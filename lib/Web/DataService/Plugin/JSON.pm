@@ -235,7 +235,8 @@ sub emit_object {
 	
 	if ( defined $f->{sub_record} )
 	{
-	    $request->configure_block($f->{sub_record});
+	    my $ds = $request->ds;
+	    $ds->configure_block($request, $f->{sub_record});
 	    
 	    my $output_list = $request->{block_field_list}{$f->{sub_record}};
 	    my $proc_list = $request->{block_proc_list}{$f->{sub_record}};

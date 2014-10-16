@@ -60,7 +60,7 @@ sub render_doc {
     
     my $templates = { defs => $defs, header => $header,
 		      main => $main, footer => $footer };
-    $DB::single = 1;
+    
     $ds->{templating_plugin}->render_template($ds, $ds->{doc_engine}, $vars, $templates);
 }
 

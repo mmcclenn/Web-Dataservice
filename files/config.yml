@@ -19,8 +19,7 @@ data1.0:
 
 port: 3000
 charset: "UTF-8"
-show_errors: 1
-log: "warning"
+environment: "production"
 
 # If you wish to access a backend datastore via DBI, you can uncomment the following and substitute the
 # appropriate settings.  You will need to make sure that your main application requires the module
