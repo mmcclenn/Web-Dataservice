@@ -60,7 +60,7 @@ following special prefixes.  Any link specified with LE<lt>E<gt> is checked to s
 it starts with one of these, and if so then it is replaced by an auto-generated
 URL which includes the appropriate path prefix, selector key, format
 specifier, etc. for this data service instance.  The examples given below are
-for the example application:
+from the L<example application|Web::DataService::Tutorial>:
 
 =over
 
@@ -93,9 +93,59 @@ example:
 
 =back
 
+The remainder of the link is parsed as follows:
+
+=over
+
+=item *
+
+Everything up to the first '?' or '#' is interpreted as a node path.  If it
+ends in '.something', that suffix is removed and interpreted as a format
+(except with the C<path:> prefix).
+
+=item *
+
+If the link ends in '#something', this is removed and then appended to the end
+of the generated URL.
+
+=item *
+
+If the link includes a '?', everything after it is interpreted as a parameter
+string.  Additional parameters might be automatically added, depending on
+which data service features are active.
+
+=back
+
+The syntax described here is fixed, but the resulting URL is generated
+according to the particular data service features and special parameters that
+are active.  So it might, for example, contain a C<format> parameter if that
+special parameter is active and if the feature C<format_suffix> is disabled.
 In this way, you can specify embedded links without worrying about the details
 of path prefix, data service features, etc.  In fact, you can change these
-later and the documentation pages will automatically adjust!
+later and the generated URLs will automatically adjust!
+
+=head2 Embedded html
+
+You may embed HTML into your documentation templates by using the Pod commands
+C<=begin html>, C<=end html>, and C<=for html>.  Any content specified using
+these commands will be output as-is when documentation pages are generated in
+HTML format, whereas most Pod translators will simply ignore this content.  If
+you wish to include data service URLs in this content, use the L<URL/"URL">
+element.
+
+For example, if you wish to put an image on one of your documentation pages,
+you could do it as follows:
+
+    =for html <img src="http://somewhere.org/some/image.gif">
+
+If you wish to make an image available via your data service and also display
+it on a page, try the following:
+
+    =for html <img src="<% URL('path:images/my_image.gif') %>">
+
+In order for this to work you would also need to define a data service node
+with path "images" and a "file_dir" attribute that points to the directory on
+disk where f<my_image.gif> is located.
 
 =head1 ELEMENTS
 
@@ -293,6 +343,27 @@ with VOCAB_SECTION.  Use it as follows:
 
     <% VOCABS %>
 
+=head2 URL
+
+This element is used to generate arbitrary URLs in accordance with the data
+service features and special parameters that are currently active.  See
+L<Embedded links|/"Embedded links"> above for a description of the syntax.
+You will probably only need to use this element if you include L<embedded
+html/"Embedded html"> in your templates.  In the rest of your documentation
+you can just enclose any URLs in LE<lt>E<gt> and they will be automatically
+translated.  For example, you could put something like the following in
+f<doc_header.tt>:
+
+    =begin html
+    <div class="banner">
+        <img id="logo" src="<% URL('path:images/my_logo.png') %>">
+        <h1 id="title">My Data Service: <% doc_title %></h1>
+    </div>
+    =end html
+
+In order for this to work you would also need to define a data service node
+with path "images" and a "file_dir" attribute that points to the directory on
+disk where f<my_logo.png> is located.
 
 =head1 AUTHOR
 

@@ -23,6 +23,7 @@ our (%FORMAT_DEF) = (name => 'ignore',
 		     disposition => 'single',
 		     uses_header => 'single',
 		     is_text => 'single',
+		     encode_as_text => 'single',
 		     default_vocab => 'single',
 		     doc_node => 'single',
 		     module => 'single',
@@ -98,10 +99,10 @@ sub define_format {
 	    
 	    # Set defaults and check values.
 	    
-	    $record->{uses_header} = 1 if $name eq 'txt' || $name eq 'tsv' || $name eq 'csv';
-	    $record->{is_text} = 1 if $FORMAT_CT{$name};
-	    
 	    $record->{content_type} ||= $FORMAT_CT{$name};
+	    $record->{uses_header} //= 1 if $name eq 'txt' || $name eq 'tsv' || $name eq 'csv';
+	    $record->{is_text} //= 1 if $record->{content_type} =~ /(x(?:ht)?ml|text|json|javascript)/
+		|| $record->{encode_as_text};
 	    
 	    croak "define_format: you must specify an HTTP content type for format '$name' using the attribute 'content_type'"
 		unless $record->{content_type};

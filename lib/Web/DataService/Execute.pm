@@ -620,6 +620,7 @@ sub generate_result {
     {
 	#$ds->_set_content_disposition($request, 'inline');
 	$ds->_set_content_type($request, 'text/plain') if $ds->{format}{$format}{is_text};
+	$request->{content_type_is_text} = 1;
     }
     
     elsif ( ( defined $disp && $disp eq 'attachment' ) ||

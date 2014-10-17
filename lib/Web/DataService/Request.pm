@@ -354,15 +354,7 @@ sub generate_url {
     
     my ($self, $attrs) = @_;
     
-    my $url = $self->{ds}->generate_site_url($attrs);
-    
-    if ( defined $attrs->{type} && $attrs->{type} eq 'abs' )
-    {
-	$url =~ s{^/}{};
-	$url = $self->base_url . $url;
-    }
-    
-    return $url;
+    return $self->{ds}->generate_site_url($attrs);
 }
 
 
@@ -843,10 +835,12 @@ respectively.
 =head3 generate_url ( attrs )
 
 This method returns a URL generated from the specified attributes, which must be given
-either as a hashref or as separate arguments:
+either as a hashref or as a string:
 
-    $url = $ds->generate_site_url( operation => 'abc/def', format => 'json' );
-    $url = $ds->generate_site_url( { operation => 'abc/def', format => 'json' } );
+    # either of the following:
+    
+    $url = $request->generate_url( { op => 'abc/def', format => 'json', params => 'foo=1' } );
+    $url = $request->generate_url( "op:abc/def.json?foo=1" );
 
 The attributes are as follows:
 
@@ -855,29 +849,36 @@ The attributes are as follows:
 =item node
 
 Generate a URL which will request documentation using the node path given by
-the value of this attribute.
+the value of this attribute.  In the string form, this is represented by a
+prefix of "node:".
 
 =item op
 
 Generate a URL which will request a data service operation using the node path
-given by the value of this attribute.
+given by the value of this attribute.  In the string form, this is represented
+by a prefix of "op:".
 
 =item path
 
 Generate a URL which will request the exact path given.  This is used to
-generate URLs for requesting files, such as CSS files.
+generate URLs for requesting files, such as CSS files.  In the string form,
+this is represented by a prefix of "path:".
 
 =item format
 
 The generated URL will request output in the specified format.  Depending upon
 the features enabled for this data service, that may mean either adding the
 specified value as a suffix to the URL path, or adding a special parameter.
+In the string form, this is represented by adding '.' followed by the format
+to the path (this syntax is fixed no matter which data service features are
+enabled).
 
 =item params
 
 Configure the URL to include the specified parameters.  The value of this
-attribute must be either an arrayref with an even number of elements or
-a single URL parameter string such as C<"foo=1&bar=2">.
+attribute must be either an arrayref with an even number of elements or a
+single URL parameter string such as C<"foo=1&bar=2">.  In the string form,
+this is represented by a '?' followed by the parameter string.
 
 =item type
 
@@ -886,10 +887,12 @@ The value of this attribute must be either C<abs>, C<rel>, or C<site>.  If
 "http[s]://hostname[:port]/.  If "site", then the generated URL will begin
 with "/" followed by the path prefix for this data service (if any).  If
 "relative", no prefix will be added to the generated URL.  In this case, you
-should make sure to specify a path that will work properly relative to the URL
+must make sure to specify a path that will work properly relative to the URL
 of the page on which you intend to display it.
 
-If this attribute is not specified, it defaults to "site".
+If this attribute is not specified, it defaults to "site".  In the string
+form, this is represented by modifying the prefix, i.e. "oprel:" or "opabs:"
+instead of just "op:".
 
 =back
 

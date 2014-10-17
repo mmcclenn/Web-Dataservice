@@ -56,3 +56,4 @@ t/01-basic.t
 t/02-request.t
 t/03-doc.t
 t/boilerplate.t
+Makefile.PL

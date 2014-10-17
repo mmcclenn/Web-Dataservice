@@ -16,7 +16,7 @@ Web::DataService - a framework for building data service applications for the We
 
 =head1 VERSION
 
-Version 0.24
+Version 0.25
 
 =head1 SYNOPSIS
 
@@ -55,7 +55,7 @@ as Mojolicious and Catalyst soon.
 
 package Web::DataService;
 
-our $VERSION = '0.24';
+our $VERSION = '0.25';
 
 use Carp qw( carp croak confess );
 use Scalar::Util qw( reftype blessed weaken );
@@ -988,7 +988,7 @@ sub is_mode {
 }
 
 
-# generate_url ( attrs )
+# generate_site_url ( attrs )
 # 
 # Generate a URL according to the specified attributes:
 # 
@@ -1010,11 +1010,42 @@ sub is_mode {
 
 sub generate_site_url {
 
-    my $self = shift;
+    my ($self, $attrs) = @_;
     
-    my $attrs = ref $_[0] eq 'HASH' ? $_[0] 
-	      : scalar(@_) % 2 == 0 ? { @_ }
-				    : croak "generate_url: odd number of arguments";
+    # If the attributes were given as a string rather than a hash, unpack them.
+    
+    unless ( ref $attrs )
+    {
+	return '/' . $self->{path_prefix} unless defined $attrs && $attrs ne '' && $attrs ne '/';
+	
+	if ( $attrs =~ qr{ ^ (node|op|path) (abs|rel|site)? [:] ( [^#?]* ) (?: [?] ( [^#]* ) )? (?: [#] (.*) )? }xs )
+	{
+	    my $arg = $1;
+	    my $type = $2 || 'site';
+	    my $path = $3 || '/';
+	    my $params = $4;
+	    my $frag = $5;
+	    my $format;
+	    
+	    if ( $arg ne 'path' && $path =~ qr{ (.*) [.] ([^.]+) $ }x )
+	    {
+		$path = $1; $format = $2;
+	    }
+	    
+	    $attrs = { $arg => $path, type => $type, format => $format, 
+		       params => $params, fragment => $frag };
+	}
+	
+	else
+	{
+	    return $attrs;
+	}
+    }
+    
+    elsif ( ref $attrs ne 'HASH' )
+    {
+	croak "generate_site_url: the argument must be a hashref or a string\n";
+    }
     
     # If a custom routine was specified for this purpose, call it.
     
@@ -1032,7 +1063,7 @@ sub generate_site_url {
     
     unless ( defined $path )
     {
-	carp "generate_url: you must specify a URL path\n";
+	carp "generate_site_url: you must specify a URL path\n";
     }
     
     elsif ( ! $attrs->{path} && $path =~ qr{ (.*) [.] ([^.]+) $ }x )
@@ -1814,10 +1845,12 @@ parameter is not enabled.
 
 =head3 generate_site_url
 
-This method works the same as the L<generate_url|Web::DataService::Request/"generate_url ( attrs )">
-method of L<Web::DataService::Request>.  However, it can only generate URLs of
-type "rel" or "site".  If you want to generate an absolute URL, use the latter
-method.
+This method is called by the
+L<generate_url|Web::DataService::Request/"generate_url ( attrs )"> method of
+L<Web::DataService::Request>.  You should be aware that if you call it outside
+of the context of a request it will not be able to generate absolute URLs.  In
+most applications, you will never need to call this directly and can instead
+use the latter method.
 
 =head3 get_connection
 

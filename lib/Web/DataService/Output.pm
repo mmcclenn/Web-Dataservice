@@ -1834,7 +1834,22 @@ sub _generate_compound_result {
     
     $output .= $format_class->emit_footer($request, $field_list);
     
-    return $output;
+    # Determine if we need to encode the output into the proper character set.
+    # Usually Dancer does this for us, but only if it recognizes the content
+    # type as text.  For these formats, the definition should set the
+    # attribute 'encode_as_text' to true.
+    
+    my $output_charset = $ds->{_config}{charset};
+    my $must_encode;
+    
+    if ( $output_charset 
+	 && $ds->{format}{$format}{encode_as_text}
+	 && ! $request->{content_type_is_text} )
+    {
+	$must_encode = 1;
+    }
+    
+    return $must_encode ? encode($output_charset, $output) : $output;
 }
 
     # If the flag 'process_resultset' is set, then we need to fetch and
@@ -1898,14 +1913,30 @@ sub _stream_compound_result {
     
     my $format = $request->output_format;
     my $format_class = $ds->{format}{$format}{package};
+    my $format_is_text = $ds->{format}{$format}{is_text};
     
     croak "could not generate a result in format '$format': no implementing class"
 	unless $format_class;
     
+    # Determine the output character set, because we will need to encode text
+    # responses in it.
+    
+    my $output_charset = $ds->{_config}{charset};
+    
+    #return $must_encode ? encode($output_charset, $output) : $output;
+    
     # First send out the partial output previously stashed by
     # generate_compound_result().
     
-    $writer->write( encode_utf8($ds->{stashed_output}) );
+    if ( $output_charset && $format_is_text )
+    {
+	$writer->write( encode($output_charset, $ds->{stashed_output}) );
+    }
+    
+    else
+    {
+	$writer->write( $ds->{stashed_output} );
+    }
     
     # Then process the remaining rows.
     
@@ -1932,7 +1963,20 @@ sub _stream_compound_result {
 	
 	$output .= $format_class->emit_record($request, $record);
 	
-	$writer->write( encode_utf8($output) ) if defined $output and $output ne '';
+	unless ( defined $output and $output ne '' )
+	{
+	    # do nothing
+	}
+	
+	elsif ( $output_charset && $format_is_text )
+	{
+	    $writer->write( encode($output_charset, $output) );
+	}
+	
+	else
+	{
+	    $writer->write( $output );
+	}
 	
 	# Keep count of the output records, and stop if we have exceeded the
 	# limit. 
