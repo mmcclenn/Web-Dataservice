@@ -148,13 +148,24 @@ output format uses it.  If you are defining a custom format that includes an
 optional header, you should give this attribute a true value.  All of the Text
 builtin formats set this by default.
 
-=head2 is_text
+=head2 encode_as_text
 
-If this attribute is given a true value, then the output of this format is
-assumed to be structured text.  Responses in this format are then able to be
-displayed in browser pages, if the request includes the parameter C<save=no>,
-even if they would otherwise be saved to disk.  This attribute is set to true
-for all of the predefined formats.
+If this attribute is given a true value, then the output of this format will
+be encoded in the output character set (specified by the 'charset' attribute
+in the application configuration file) before being sent.  This attribute is
+required because the foundation framework L<Dancer> only encodes output if its
+content type matches C</(x(?:ht)?ml|text|json|javascript)/>.  If you are
+defining a custom format whose content is character data but whose content
+type does not match this regexp, you must set this attribute to true.
+
+If you are defining a custom format for binary data, then you should B<not>
+set this attribute.  A good example would be a format such as 'png', which
+would be used with binary image data.  This kind of format should be used only
+with operation methods that read binary data from the backend or from a file
+and send it using the
+L<data_result|Web::DataService::Request/data_result-data> method without doing
+anything in the method code that would cause perl to apply Character semantics
+to the data.
 
 =head2 disabled
 

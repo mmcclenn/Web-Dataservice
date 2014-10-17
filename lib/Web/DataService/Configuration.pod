@@ -5,9 +5,10 @@ Web::DataService::Configuration - how to configure a data service
 
 =head1 SYNOPSIS
 
-This page describes how to configure a data service with
-L<Web::DataService>.  See the following subpages for information about the
-various kinds of data service elements and the attributes that describe them:
+This page describes how to configure a data service with L<Web::DataService>,
+covering the configuration attributes that apply to the data service as a
+whole.  A full data service definition includes several different kinds of
+data service elements, which are documented on the following pages:
 
 =over
 
@@ -18,7 +19,7 @@ them.
 
 =item L<Web::DataService::Configuration::Format>
 
-How to define response formats, and the attributes available for defining
+How to define output formats, and the attributes available for defining
 them.
 
 =item L<Web::DataService::Configuration::Vocabulary>
@@ -46,7 +47,7 @@ The various configuration methods provided by L<Web::DataService> all use a
 consistent syntax.  With the possible exception of an initial name argument,
 all of the rest of the arguments must be either hashrefs or strings.  The
 hashrefs each configure some object, and the strings each document the object
-that they follow.  We refer to this mix of attribute hashrefs and
+whose definition they follow.  We refer to this mix of attribute hashrefs and
 documentation strings as a I<definition list>.
 
     $ds->define_format(
@@ -97,42 +98,45 @@ operations must be placed in these modules.
 =item 2.
 
 Generate a new L<instance of Web::DataService|/Data service instantiation>.
+The rest of the steps will be carried out using method calls on this instance.
 
 =item 3.
 
-Define one or more L<output vocabularies|/Vocabulary definitions> using
-C<define_vocab>.  This step is optional, and a default vocabulary consisting
-of the field names and values obtained from the backend will be automatically
+Define one or more L<output
+vocabularies|Web::DataService::Configuration::Vocabulary> using
+C<define_vocab>.  This step is optional, and a "null" vocabulary consisting of
+the field names and values obtained from the backend will be automatically
 used if you do not specify any.
 
 =item 4.
 
-Define one or more L<response formats|/Response format definitions> using
+Define one or more L<output formats|Web::DataService::Configuration::Format> using
 C<define_format>.  This must follow any vocabulary definitions, and must
 precede the node definitions.
 
 =item 5.
 
-Define some L<data service nodes|/Node definitions> using C<define_node>.
+Define some L<data service nodes|Web::DataService::Configuration::Node> using C<define_node>.
 
 =item 6.
 
-Define one or more L<output blocks|/Output block definitions> using
+Define one or more L<output blocks|Web::DataService::Configuration::Output> using
 C<define_block>.  These may occur in any order with respect to the node
 definitions.
 
 =item 7.
 
-Define L<value sets|/Set definitions> using C<define_set> (or
-C<define_output_map>).  This step is optional, but you will need to do this if
-you wish to provide variable output.  These definitions must occur before any
-output blocks that depend on them.
+Define L<value sets|Web::DataService::Configuration::Set> using C<define_set>
+(or C<define_output_map>).  This step is optional, but you will need to do
+this if you wish to provide optional output blocks or parameters with
+enumerated values.  These definitions must occur before any output blocks or
+rulesets that depend on them.
 
 =item 8.
 
-Define one or more L<parameter validation rulesets|/Ruleset definitions> using
-C<define_ruleset>.  These may occur in any order with respect to the other
-definitions.
+Define one or more L<parameter validation
+rulesets|Web::DataService::Configuration::Ruleset> using C<define_ruleset>.
+These may occur in any order with respect to the other definitions.
 
 =back
 

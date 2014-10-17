@@ -1,8 +1,11 @@
 Revision history for Web-DataService
 
-0.26    2014-10-??
+0.251    2014-10-17
 
-- Fixed a bug in character-set encoding
+- Fixed a bug that was causing text output not to be properly encoded in some circumstances
+- Added format attribute 'encode_as_text'
+- Fixed a bug that caused the 'Access-Control-Allow-Origin' header to not be sent under some circumstances
+- Improved the documentation of the configuration process
 
 0.25    2014-10-16
 

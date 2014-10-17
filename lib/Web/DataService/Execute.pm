@@ -758,7 +758,7 @@ sub _set_cors_header {
     
     if ( (defined $arg && $arg eq '*') || $ds->node_attr($request, 'public_access') )
     {
-	$Web::DataService::FOUNDATION->set_cors_header("*");
+	$Web::DataService::FOUNDATION->set_cors_header($request->outer, "*");
     }
 }
 
@@ -776,7 +776,7 @@ sub _set_content_type {
 	$ct = $ds->{format}{$format}{content_type} || 'text/plain';
     }
     
-    $Web::DataService::FOUNDATION->set_content_type($request, $ct);
+    $Web::DataService::FOUNDATION->set_content_type($request->outer, $ct);
 }
 
 
@@ -788,7 +788,7 @@ sub _set_content_disposition {
     
     if ( $disp eq 'inline' )
     {
-	$Web::DataService::FOUNDATION->set_header($request, 'Content-Disposition' => 'inline');
+	$Web::DataService::FOUNDATION->set_header($request->outer, 'Content-Disposition' => 'inline');
 	return;
     }
     
@@ -809,7 +809,7 @@ sub _set_content_disposition {
 	$filename .= '.' . $request->output_format;
     }
     
-    $Web::DataService::FOUNDATION->set_header($request, 'Content-Disposition' => 
+    $Web::DataService::FOUNDATION->set_header($request->outer, 'Content-Disposition' => 
 					 qq{attachment; filename="$filename"});
 }
 
