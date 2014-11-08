@@ -210,7 +210,7 @@ sub generate_doc {
 }
 
 
-# list_subnodes ( )
+# get_nodelist ( )
 # 
 # Return a list of sub-nodes of the current one.  This will include all
 # sub-nodes with a value for the node attribute 'place', in order by the value
@@ -228,7 +228,7 @@ sub get_nodelist {
 }
 
 
-# document_subnodes ( )
+# document_nodelist ( )
 # 
 # Return a documentation string in Pod format listing the subnodes (if any)
 # given for this node.  See &list_subnodes above.

@@ -239,11 +239,10 @@ sub set_values {
     
     my ($ds, $name) = @_;
     
-    return unless defined $name;
-    
     my $set = $ds->{set}{$name};
     
-    return unless ref $set eq 'Web::DataService::Set';
+    croak "set_values: set '$name' not found\n"
+	unless ref $set eq 'Web::DataService::Set';
     
     my @list;
     
@@ -262,5 +261,24 @@ sub set_values {
     return @list;
 }
 
+
+# map_value ( set_name, value )
+# 
+# If the given value is a member of the named set, then return the 'maps_to'
+# value if any was defined.  Return undef otherwise.
+
+sub map_value {
+    
+    no warnings 'uninitialized';
+    
+    my ($ds, $name, $value) = @_;
+    
+    my $set = $ds->{set}{$name};
+    
+    croak "set_values: set '$name' not found\n"
+	unless ref $set eq 'Web::DataService::Set';
+    
+    return $set->{value}{$value}{maps_to};
+}
 
 1;

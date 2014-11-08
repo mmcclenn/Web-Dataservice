@@ -740,8 +740,8 @@ sub configure_block {
     
     unless ( ref $block_list eq 'ARRAY' )
     {
-	$request->{block_field_list} = undef;
-	$request->{block_proc_list} = undef;
+	$request->{block_field_list}{$block_name} = undef;
+	$request->{block_proc_list}{$block_name} = undef;
 	return;
     }
     
@@ -1290,11 +1290,11 @@ sub document_response {
     # string.
     
     return '' unless @blocks;
-			     
+    
     # Otherwise, determine the set of vocabularies that are allowed for this
     # path.  If none are specifically selected for this path, then all of the
     # vocabularies defined for this data service are allowed.
-			     
+    
     my $vocabularies; $vocabularies = $ds->node_attr($path, 'allow_vocab') || $ds->{vocab};	
     
     unless ( ref $vocabularies eq 'HASH' && keys %$vocabularies )
@@ -1358,6 +1358,74 @@ sub document_response {
 	    $doc_string .= $ds->document_field($block_label, \@vocab_list, $r)
 		unless $r->{undocumented};
 	}
+    }
+    
+    $doc_string .= "\n=back\n\n";
+    
+    return $doc_string;
+}
+
+
+sub document_summary {
+
+    my ($ds, $path) = @_;
+    
+    # Return the empty string unless a summary block was defined for this path.
+    
+    my $summary_block = $ds->node_attr($path, 'summary');
+    return '' unless $summary_block;
+    
+    # Otherwise, determine the set of vocabularies that are allowed for this
+    # path.  If none are specifically selected for this path, then all of the
+    # vocabularies defined for this data service are allowed.
+    
+    my $vocabularies; $vocabularies = $ds->node_attr($path, 'allow_vocab') || $ds->{vocab};	
+    
+    unless ( ref $vocabularies eq 'HASH' && keys %$vocabularies )
+    {
+	return '';
+    }
+    
+    my @vocab_list = grep { $vocabularies->{$_} && 
+			    ref $ds->{vocab}{$_} &&
+			    ! $ds->{vocab}{$_}{disabled} } @{$ds->{vocab_list}};
+    
+    unless ( @vocab_list )
+    {
+	return "";
+    }
+    
+    # Now generate the header for the documentation, in Pod format.  We
+    # include the special "=for wds_table_header" line to give PodParser.pm the
+    # information it needs to generate an HTML table.
+    
+    my $doc_string = '';
+    my $field_count = scalar(@vocab_list);
+    my $field_string = join ' / ', @vocab_list;
+    
+    if ( $field_count > 1 )
+    {
+	$doc_string .= "=for wds_table_header Field name*/$field_count | Block!anchor(block:) | Description\n\n";
+	$doc_string .= "=over 4\n\n";
+	$doc_string .= "=item $field_string\n\n";
+    }
+    
+    else
+    {
+	$doc_string .= "=for wds_table_header Field name* | Block | Description\n\n";
+	$doc_string .= "=over 4\n\n";
+    }
+    
+    # Now determine the summary output list.
+    
+    my $output_list = $ds->{block}{$summary_block}{output_list};
+    return '' unless ref $output_list eq 'ARRAY';
+    
+    foreach my $r (@$output_list)
+    {
+	next unless defined $r->{output};
+	$doc_string .= $ds->document_field('summary', \@vocab_list, $r)
+	    unless $r->{undocumented};
     }
     
     $doc_string .= "\n=back\n\n";
@@ -1569,6 +1637,14 @@ sub process_record {
 		@result = join($p->{join}, @{$record->{$set_field}})
 		    if ref $record->{$set_field} eq 'ARRAY';
 	    }
+	}
+	
+	# Otherwise, we just use the vaoue of the source field.
+	
+	else
+	{
+	    @result = ref $record->{$source_field} eq 'ARRAY' ?
+		@{$record->{$source_field}} : $record->{$source_field};
 	}
 	
 	# If the value of 'set' is '*', then we're done.  This is generally

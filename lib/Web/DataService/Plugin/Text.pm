@@ -97,6 +97,15 @@ sub emit_header {
 	$output .= $class->emit_line($request, "Warning:", $_) foreach @msgs;
     }
     
+    # If we have summary data to output, do so now.
+    
+    if ( $request->{summary_data} && $request->{summary_field_list} )
+    {
+	my @summary_fields = map { $_->{name} } @{$request->{summary_field_list}};
+	$output .= $class->emit_line($request, @summary_fields);
+	$output .= $class->emit_record($request, $request->{summary_data}, $request->{summary_field_list});
+    }
+    
     # If any header material was generated, add a line to introduce the start
     # of the actual data.
     

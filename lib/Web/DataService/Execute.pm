@@ -635,6 +635,21 @@ sub generate_result {
     
     $ds->_setup_output($request);
     
+    # If a summary block has been specified for this request, configure it as
+    # well. 
+    
+    if ( my $summary_block = $ds->node_attr($request, 'summary') )
+    {
+	if ( $ds->configure_block($request, $summary_block) )
+	{
+	    $request->{summary_field_list} = $request->{block_field_list}{$summary_block};
+	}
+	else
+	{
+	    $request->add_warning("Summary block '$summary_block' not found");
+	}
+    }
+    
     # Now determine the class that corresponds to this request's primary role
     # and bless the request into that class.
     

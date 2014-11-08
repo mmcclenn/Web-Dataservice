@@ -112,7 +112,7 @@
             END;
             GET param_doc;
         ELSIF opt_force;
-            "\n=head2 $section_label.params\n\n";
+            "\n=head2 $section_label.usage\n\n";
             GET sub_message("MSG_PARAM_NONE_DEFINED"); "\n\n";
         END;
     END;
@@ -185,6 +185,11 @@
 	ELSE;
 	    sub_message("MSG_RESPONSE_NONE_DEFINED");
 	END;
+	SET summary_doc = request.document_summary;
+	IF summary_doc;
+	    sub_message("MSG_RESPONSE_SUMMARY"); "\n\n";
+	    summary_doc;
+        END;
     END;
     
     MACRO RESPONSE_SECTION INCLUDE RESPONSE_SECTION;
@@ -194,8 +199,8 @@
   	IF response_doc.match('^MSG_'); sub_message(response_doc);
 	ELSIF response_doc; response_doc;
 	ELSE; sub_message("MSG_RESPONSE_NONE_DEFINED");
-        END;
-    END;
+	END;
+   END;
     
     MACRO RESPONSE INCLUDE RESPONSE;
     
@@ -246,7 +251,7 @@
     MACRO FORMATS INCLUDE FORMATS;
     
     #
-    # VOCAB_SECTION, VOCABS: Document the vocabularies allowed by this URL path
+    # VOCAB_SECTIOn, VOCABS: Document the vocabularies allowed by this URL path
     # -------------------------------------------------------------------------
     
     BLOCK VOCAB_SECTION;

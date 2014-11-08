@@ -108,6 +108,15 @@ sub emit_header {
 	$output .= qq<\n],\n>;
     }
     
+    # Check if we have summary data to output.
+    
+    if ( $request->{summary_data} && $request->{summary_field_list} )
+    {
+	$output .= qq<"summary": >;
+	$output .= $class->emit_object($request, $request->{summary_data}, $request->{summary_field_list}) || '""';
+	$output .= ",\n";
+    }
+    
     # The actual data will go into an array, in a field called "records".
     
     $output .= qq<"records": [\n>;

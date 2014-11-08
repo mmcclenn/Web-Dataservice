@@ -641,6 +641,19 @@ sub set_content_type {
 }
 
 
+# summary_data ( record )
+# 
+# Add a set of summary data to the result.  The argument must be a single hashref.
+
+sub summary_data {
+    
+    my ($request, $summary) = @_;
+    
+    croak 'summary_data: the argument must be a hashref' unless ref $summary eq 'HASH';
+    $request->{summary_data} = $summary;
+}
+
+
 # single_result ( record )
 # 
 # Set the result of this operation to the single specified record.  Any

@@ -55,7 +55,7 @@ as Mojolicious and Catalyst soon.
 
 package Web::DataService;
 
-our $VERSION = '0.251';
+our $VERSION = '0.252';
 
 use Carp qw( carp croak confess );
 use Scalar::Util qw( reftype blessed weaken );

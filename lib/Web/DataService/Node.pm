@@ -35,6 +35,7 @@ our (%NODE_DEF) = ( path => 'ignore',
 		    output => 'list',
 		    output_label => 'single',
 		    optional_output => 'single',
+		    summary => 'single',
 		    public_access => 'single',
 		    default_format => 'single',
 		    default_limit => 'single',
@@ -72,6 +73,12 @@ our (%NODE_NONHERITABLE) = ( title => 1,
 
 our (%NODE_ATTR_DEFAULT) = ( default_header => 1 );
 
+our (%EXTENDED_DEF) = ( path => 1,
+			type => 1,
+			name => 1,
+			disp => 1,
+		      );
+
 # define_node ( attrs... )
 # 
 # Set up a "path" entry, representing a complete or partial URL path.  This
@@ -91,7 +98,7 @@ sub define_node {
     my ($last_node);
     
     # Now we go through the rest of the arguments.  Hashrefs define new
-    # directories, while strings add to the documentation of the directory
+    # nodes, while strings add to the documentation of the node
     # whose definition they follow.
     
     foreach my $item (@_)
@@ -473,6 +480,169 @@ sub _create_list_entry {
 }
 
 
+# extended_doc ( attrs ... )
+# 
+# Add extended documentation to one or more nodes.  The documentation strings
+# defined by this call will be used to extend the documentation provided in
+# the original node definitions.  By default, this extended documentation will
+# be appended to the documentation string (if any) specified in the calls to
+# 'define_node', for display at the top of the documentation page for each
+# node.  The original documentation strings will be used to document lists of
+# nodes.
+
+sub extended_doc {
+    
+    my $ds = shift;
+    
+    my ($last_node);
+    
+    # Now we go through the rest of the arguments.  Hashrefs select or other
+    # elements to be documented, while strings add to the documentation of the
+    # selected element.
+    
+    foreach my $item (@_)
+    {
+	# A hashref selects a node to be documented.
+	
+	if ( ref $item eq 'HASH' )
+	{
+	    croak "extended_doc: each definition must include a non-empty value for either 'path' or 'type'\n"
+		unless (defined $item->{path} && $item->{path} ne '' ||
+			defined $item->{type} && $item->{type} ne '');
+	    
+	    croak "define_node: invalid path '$item->{path}'\n" if $item->{path} ne '/' && 
+		$item->{path} =~ qr{ ^ / | / $ | // | [?#] }xs;
+	    
+	    $last_node = $ds->_select_extended_doc($item);
+	}
+	
+	elsif ( not ref $item )
+	{
+	    $ds->_add_extended_doc($last_node, $item);
+	}
+	
+	else
+	{
+	    croak "extended_doc: the arguments must be a list of hashrefs and strings\n";
+	}
+    }
+    
+    croak "extended_doc: arguments must include at least one hashref of attributes\n"
+	unless $last_node;
+}
+
+
+# _select_extended_doc ( attrs )
+# 
+# Return a reference to the extended documentation record corresponding to the
+# specified attributes.  Create the record if it does not already exist.
+
+sub _select_extended_doc {
+    
+    my ($ds, $item) = @_;
+    
+    my $disp = $item->{disp} || '';
+    my $type = $item->{type} || 'node';
+    my $path = $item->{path};
+    my $name = $path || $item->{name};
+
+    croak "extended_doc: you must specify either 'name' or 'path' in each set of attributes\n"
+	unless $name;
+    
+ KEY:
+    foreach my $key ( keys %$item )
+    {
+	croak "extended_doc '$name': unknown attribute '$key'\n"
+	    unless $EXTENDED_DEF{$key};
+    }
+    
+    croak "extended_doc '$name': value of disp must be either 'replace', 'add' or 'para'\n"
+	unless $disp eq '' || $disp eq 'replace' || $disp eq 'add' || $disp eq 'para';
+    
+    if ( $path )
+    {
+	croak "extended_doc '$path': you may not specify both 'path' and 'name'\n"
+	    if $item->{name};
+	
+	croak "extended_doc '$path': type must be 'node' if you also specify 'path'\n"
+	    if $type ne 'node';
+	
+	croak "extended_node '$path': no such node has been defined\n"
+	    unless ref $ds->{node_attrs}{$path} eq 'HASH';
+	
+	$ds->{extdoc_node}{$path} ||= { path => $path, disp => 'para', type => 'node' };
+	$ds->{extdoc_node}{$path}{disp} = $disp if $disp;
+	return $ds->{extdoc_node}{$path};
+    }
+    
+    elsif ( $type eq 'format' )
+    {
+	croak "extended_doc: you must specify either a path or a name for every record\n"
+	    unless $name;
+	
+	croak "extended_doc '$name': no such format has been defined\n"
+	    unless ref $ds->{format}{$name} eq 'Web::DataService::Format';
+	
+	$ds->{extdoc_format}{$name} ||= { name => $name, disp => 'para', type => 'format' };
+	$ds->{extdoc_format}{$name}{disp} = $disp if $disp;
+	return $ds->{extdoc_format}{$name};
+    }
+    
+    elsif ( $type eq 'vocab' )
+    {
+	croak "extended_doc: you must specify either a path or a name for every record\n"
+	    unless $name;
+	
+	croak "extended_doc '$name': no such vocabulary has been defined\n"
+	    unless ref $ds->{format}{$name} eq 'Web::DataService::Vocab';
+	
+	$ds->{extdoc_vocab}{$name} ||= { name => $name, disp => $disp, type => 'vocab' };
+	$ds->{extdoc_vocab}{$name}{disp} = $disp if $disp;
+	return $ds->{extdoc_vocab}{$name};
+    }
+    
+    else
+    {
+	croak "extended_doc '$name': you must specify an element type, i.e. 'vocab' or 'format'\n"
+	    unless $type;
+	
+	croak "extended_doc '$type': you must specify a node path\n"
+	    if $type eq 'node';
+	
+	croak "extended_doc '$name': invalid type '$type', must be either 'node', 'format' or 'vocab'\n"
+	    unless $type eq 'node' || $type eq 'format' || $type eq 'vocab';
+	
+	croak "extended_doc '$name': invalid attributes";
+    }
+}
+
+
+sub _add_extended_doc {
+    
+    my ($ds, $item, $doc) = @_;
+    
+    return unless defined $doc;
+    
+    my $name = $item->{path} || $item->{name};
+    
+    croak "extended_doc '$name': only strings may be added to documentation: $doc is not valid"
+	if ref $doc;
+    
+    # If the string starts with either '>' or '>>', add an extra blank line so
+    # that it becomes a new paragraph.  We ignore an initial '!'.  If you wish
+    # to mark a node as undocumented, do so in the 'define_node' call.
+    
+    $doc =~ s{^>>?}{\n}xs;
+    $doc =~ s{^[!]}{}xs;
+    
+    # Now add the documentation string.
+    
+    $item->{doc_string} = '' unless defined $item->{doc_string};
+    $item->{doc_string} .= "\n" if $item->{doc_string} ne '';
+    $item->{doc_string} .= $doc;
+}
+
+
 # node_defined ( path )
 # 
 # Return true if the specified path has been defined, false otherwise.
@@ -737,12 +907,12 @@ sub add_node_doc {
     
     my ($ds, $node, $doc) = @_;
     
-    return unless defined $doc and $doc ne '';
+    return unless defined $doc;
     
     croak "only strings may be added to documentation: '$doc' is not valid"
 	if ref $doc;
     
-    # If the first documentation string start with !, mark the node as
+    # If the first documentation string starts with !, mark the node as
     # undocumented and remove the '!'.
     
     unless ( $node->{doc_string} )
@@ -757,7 +927,7 @@ sub add_node_doc {
     # Now add the documentation string.
     
     $node->{doc_string} = '' unless defined $node->{doc_string};
-    $node->{doc_string} .= "\n" if $node->{doc_string} ne '';
+    $node->{doc_string} .= "\n" if $node->{doc_string} ne '' && $doc ne '';
     $node->{doc_string} .= $doc;
 }
 

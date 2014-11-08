@@ -15,11 +15,37 @@ use Moo::Role;
 
 # document_node ( )
 # 
-# Return the documentation string for this node, if one was defined.
+# Return the documentation string for this node, if one was defined.  If an
+# "extended_doc" string was also defined for this node, return it as well.
 
 sub document_node {
-
-    return $_[0]->ds->node_attr($_[0], 'doc_string');
+    
+    my ($request) = @_;
+    
+    my $ds = $request->ds;
+    my $path = $request->node_path;
+    my $extended = $ds->{extdoc_node}{$path};
+    
+    if ( ref $extended eq 'HASH' )
+    {
+	my $disp = $extended->{disp};
+	
+	if ( $disp eq 'replace' )
+	{
+	    return $extended->{doc_string};
+	}
+	
+	my $doc_string = $ds->node_attr($path, 'doc_string') // '';
+	
+	$doc_string .= "\n\n" if $disp eq 'para' && $doc_string ne '';
+	
+	return $doc_string . $extended->{doc_string};
+    }
+    
+    else
+    {
+	return $ds->node_attr($path, 'doc_string');
+    }
 }
 
 
@@ -206,6 +232,22 @@ sub document_response {
     my $ds = $request->{ds};
     
     return $ds->document_response($request->node_path, $options);
+}
+
+
+# document_summary ( )
+# 
+# Return a documentation string in POD format describing the fields that can
+# be included in the summary block.  If no summary block was specified for
+# this operation, return the empty string.
+
+sub document_summary {
+
+    my ($request, $options) = @_;
+    
+    my $ds = $request->{ds};
+    
+    return $ds->document_summary($request->node_path, $options);
 }
 
 
