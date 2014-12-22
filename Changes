@@ -1,6 +1,28 @@
 Revision history for Web-DataService
 
-0.251    2014-10-17
+0.253   2014-12-21
+
+- Added method 'delete_output_field' to remove a field from the output.  This can
+  be used by operation methods to remove fields that are determined to be unnecessary.
+  Especially useful for text-format output.
+- Fixed a bug that was causing single quotes to be improperly doubled in CSV output.
+
+0.252   2014-11-07 
+
+- You can now specify a summary block for any operation, with the node attribute 'summary'
+- This block will be included in the output header, before any records are output
+- New request method 'document_summary' to document the list of fields
+- New request method 'summary_data' which takes a hash of fields with which the
+  block will be filled in.
+- You can now specify extended documentation for a node, with the method 'extended_doc'.
+  This can be used to specify the documentation that will appear at the top of an
+  operation page, without having to create a custom template.
+- Added method 'map_value' which transforms a set value to its 'maps_to' value
+- The 'set_values' method now throws an exception if given an invalid set name
+- Fixed a bug that would wipe out the field lists of configured blocks if one bad
+  block name was passed to 'configure_boock'.
+
+0.251   2014-10-17
 
 - Fixed a bug that was causing text output not to be properly encoded in some circumstances
 - Added format attribute 'encode_as_text'

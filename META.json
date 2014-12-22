@@ -44,7 +44,7 @@
    "provides" : {
       "Web::DataService" : {
          "file" : "lib/Web/DataService.pm",
-         "version" : "0.252"
+         "version" : "0.253"
       },
       "Web::DataService::Document" : {
          "file" : "lib/Web/DataService/Document.pm"
@@ -110,5 +110,5 @@
          "http://dev.perl.org/licenses/"
       ]
    },
-   "version" : "0.252"
+   "version" : "0.253"
 }

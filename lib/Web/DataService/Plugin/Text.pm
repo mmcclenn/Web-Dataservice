@@ -102,6 +102,7 @@ sub emit_header {
     if ( $request->{summary_data} && $request->{summary_field_list} )
     {
 	my @summary_fields = map { $_->{name} } @{$request->{summary_field_list}};
+	$output .= $class->emit_line($request, "Summary:");
 	$output .= $class->emit_line($request, @summary_fields);
 	$output .= $class->emit_record($request, $request->{summary_data}, $request->{summary_field_list});
     }
@@ -279,7 +280,7 @@ sub csv_clean {
     
     # Next, double all quotes and textify whitespace control characters
     
-    $string =~ s/("|'|\n|\r)/$TXTESCAPE{$1}/ge;
+    $string =~ s/("|\n|\r)/$TXTESCAPE{$1}/ge;
     
     # Finally, delete all other control characters (they shouldn't be in the
     # database in the first place, but unfortunately some rows do contain

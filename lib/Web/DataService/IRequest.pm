@@ -280,6 +280,32 @@ sub output_field_list {
 }
 
 
+# delete_output_field ( field_name )
+# 
+# Delete the named field from the output list.  This can be called from the
+# operation method if it becomes clear at some point that certain fields will
+# not be needed.  This can be especially useful for text-format output.
+
+sub delete_output_field {
+    
+    my ($request, $field_name) = @_;
+    
+    return unless defined $field_name && $field_name ne '';
+    
+    my $list = $request->{field_list};
+    
+    foreach my $i ( 0..$#$list )
+    {
+	no warnings 'uninitialized';
+	if ( $request->{field_list}[$i]{field} eq $field_name )
+	{
+	    splice(@$list, $i, 1);
+	    return;
+	}
+    }
+}
+
+
 # debug ( )
 # 
 # Return true if we are in debug mode.
