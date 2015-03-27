@@ -16,7 +16,7 @@ Web::DataService - a framework for building data service applications for the We
 
 =head1 VERSION
 
-Version 0.253
+Version 0.254
 
 =head1 SYNOPSIS
 
@@ -55,7 +55,7 @@ as Mojolicious and Catalyst soon.
 
 package Web::DataService;
 
-our $VERSION = '0.253';
+our $VERSION = '0.254';
 
 use Carp qw( carp croak confess );
 use Scalar::Util qw( reftype blessed weaken );
@@ -292,6 +292,7 @@ sub BUILD {
 	next unless defined $s && $s ne '';
 	my $key = $s;
 	my $name = $SPECIAL_PARAM{$s};
+	my @aliases;
 	
 	# If 'standard' was specified, enable the "standard" set of parameters
 	# with their default names (but don't override any that have already
@@ -319,21 +320,28 @@ sub BUILD {
 	# If we get an argument that looks like 'param=name', then enable the
 	# feature 'param' but use 'name' as the accepted parameter name.
 	
-	elsif ( $s =~ qr{ ^ (\w+) = (\w+) $ }xs )
+	elsif ( $s =~ qr{ ^ (\w+) = (\w+) (?: / ( \w [/\w]+ ) )? $ }xs )
 	{
 	    $key = $1;
 	    $name = $2;
+	    
+	    if ( $3 )
+	    {
+		@aliases = grep { qr{ \w } } split(qr{/}, $3);
+	    }
 	}
 	
 	# Now, complain if the user gives us something unrecognized, or an
 	# invalid parameter name.
 	
 	croak "unknown special parameter '$key'\n" unless $SPECIAL_PARAM{$key};
-	croak "invalid parameter name '$name' - bad character\n" if $name =~ /[^\w]/;
+	croak "invalid parameter name '$name' - bad character\n" if $name =~ qr{[^\w/]};
 	
-	# Enable this parameter with the specified name.
+	# Enable this parameter with the specified name.  If any aliases were
+	# specified, then record them.
 	
 	$self->{special}{$key} = $name;
+	$self->{special_alias}{$key} = \@aliases if @aliases;
     }
     
     # Make sure there are no feature or special parameter conflicts.

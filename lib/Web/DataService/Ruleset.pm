@@ -316,6 +316,12 @@ sub generate_special_rule {
     
     my $rule = { optional => $ds->{special}{$param} };
     
+    # If any aliases were defined for this special parameter, enable them as
+    # well.
+    
+    $rule->{alias} = $ds->{special_alias}{$param}
+	if ref $ds->{special_alias}{$param} eq 'ARRAY';
+    
     # Add the necessary validator and other attributes.
     
     if ( $param eq 'limit' ) {

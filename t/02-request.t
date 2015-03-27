@@ -54,7 +54,7 @@ like( $result, qr{^"Data URL","//.*:\d+/data1.0/list.txt"}m, 'data url' );
 
 like( $result, qr{^"","show","hist"}m, 'parameter "show"' );
 
-like( $result, qr{^"Records Found:","16"}m, 'records found' );
+like( $result, qr{^"Records Found","16"}m, 'records found' );
 
 like( $result, qr{"pop1900","pop1790"}m, 'optional fields' );
 
