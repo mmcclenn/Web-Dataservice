@@ -193,6 +193,21 @@ sub filter_hash {
 }
 
 
+# param_keys ( )
+# 
+# Return a list of strings representing the cleaned parameter keys from this
+# request.  These will often be the same as the original parameter names, but
+# may be different if 'alias' or 'key' was specified in any of the relevant
+# validation rules.
+
+sub param_keys {
+    
+    my ($request) = @_;
+    
+    return $request->{valid}->keys();
+}
+
+
 # clean_param ( name )
 # 
 # Return the cleaned value of the named parameter, or the empty string if it
@@ -264,7 +279,42 @@ sub param_given {
     my ($request, $name) = @_;
     
     return unless ref $request->{valid};
-    return exists $request->{valid}{raw}{$name};
+    return exists $request->{valid}{clean}{$name};
+}
+
+
+# exception ( code, message )
+# 
+# Return an exception object with the specified HTTP result code and
+# message. This can be used to return an error result.
+
+sub exception {
+    
+    my ($request, $code, $message) = @_;
+    
+    croak "Bad exception code '$code', must be an HTTP result code"
+	unless defined $code && $code =~ qr{^\d\d\d$};
+    
+    unless ( $message )
+    {
+	if ( $code eq '400' )
+	{
+	    $message = 'Parameter error';
+	}
+	
+	elsif ( $code eq '404' )
+	{
+	    $message = 'Not found';
+	}
+	
+	else
+	{
+	    $message = 'Internal error: please contact the website administrator';
+	}
+    }
+    
+    my $exception = { code => $code, message => $message };
+    return bless $exception, 'Web::DataService::Exception';
 }
 
 

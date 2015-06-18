@@ -19,7 +19,8 @@ use Moo::Role;
 our (%SET_DEF) = (value => 'single',
 		  maps_to => 'single',
 		  disabled => 'single',
-		  undocumented => 'single');
+		  undocumented => 'single',
+		  doc_string => 'single');
 
 # define_map ( name, specification... )
 # 

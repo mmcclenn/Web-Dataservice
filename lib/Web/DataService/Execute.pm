@@ -1029,6 +1029,11 @@ sub error_result {
 	    Dancer::debug("CAUGHT ERROR: " . $error->message);
 	}
 	
+	elsif ( $error->isa('Web::DataService::Exception') )
+	{
+	    Dancer::debug("CAUGHT EXCEPTION: " . $error->{message});
+	}
+	
 	else
 	{
 	    Dancer::debug("CAUGHT OTHER ERROR");
@@ -1093,13 +1098,21 @@ sub error_result {
 	$code = "400";
     }
     
+    elsif ( ref $error eq 'Web::DataService::Exception' )
+    {
+	@errors = $error->{message};
+	$code = $error->{code};
+    }
+    
     # If the error message begins with a 3-digit number, then that should be
     # used as the code and the rest of the message as the error text.
     
     elsif ( $error =~ qr{ ^ (\d\d\d) \s+ (.+) }xs )
     {
 	$code = $1;
-	@errors = $2;
+	my $msg = $2;
+	$msg =~ s/\n$//;
+	push @errors, $msg;
     }
     
     elsif ( $error =~ qr{ ^ (\d\d\d) }xs )
@@ -1153,6 +1166,7 @@ sub error_result {
 	my $content_type = $ds->{format}{$format}{content_type} || 'text/plain';
 	
 	$Web::DataService::FOUNDATION->set_content_type($outer, $content_type);
+	$Web::DataService::FOUNDATION->set_header($outer, 'Content-Disposition' => 'inline');
 	$Web::DataService::FOUNDATION->set_cors_header($outer, "*");
 	$Web::DataService::FOUNDATION->set_status($outer, $code);
 	$Web::DataService::FOUNDATION->set_body($outer, $error_body);
@@ -1188,6 +1202,7 @@ $warning
 END_BODY
     
 	$Web::DataService::FOUNDATION->set_content_type($outer, 'text/html');
+	$Web::DataService::FOUNDATION->set_header($outer, 'Content-Disposition' => 'inline');
 	$Web::DataService::FOUNDATION->set_status($outer, $code);
 	$Web::DataService::FOUNDATION->set_body($outer, $body);
     }

@@ -1022,8 +1022,8 @@ respectively.
 =head2 Operation methods
 
 The following methods are only available with operation requests.  They can be
-called from the operation methods written by the application author and
-included in the role module(s).
+called from any of the operation methods included in the application role
+module(s).
 
 =head3 get_connection
 
@@ -1034,6 +1034,13 @@ was required in your main application before Web::DataService.
 Assuming that the proper connection information is present in the application
 configuration file, this method will return a connection to your backend data
 store.
+
+=head3 param_keys ( )
+
+Returns a list of the parameter keys corresponding to the request parameters.
+These will generally be the same as the parameter names, but may
+be different if you include the keys C<key> and/or C<alias> in the parameter
+validation rulesets (see L<ruleset configuration|Web::DataService::Configuration::Ruleset>).
 
 =head3 clean_param ( param )
 
@@ -1253,6 +1260,12 @@ methods.
 Specify the value for the "Content-type" HTTP response header.  You will
 probably not need to call this, since it is set automatically based on the
 selected response format.
+
+=h3ad3 exception ( code, message )
+
+Returns an exception object which can be used as an argument to C<die>.  This
+will abort processing of the current request and generate an HTTP error
+result.  The first argument must be a valid HTTP error code.
 
 =head2 Result methods
 

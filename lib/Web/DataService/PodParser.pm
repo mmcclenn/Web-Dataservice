@@ -1044,7 +1044,7 @@ sub generate_html_content {
     elsif ( ref $content eq 'HASH' )
     {
 	my $code = $content->{code};
-	my $subcontent = $self->generate_html_content($content->{content}) || '';
+	my $subcontent = $self->generate_html_content($content->{content}) // '';
 	my $href = $content->{target} || $content->{content} || '';
 	
 	if ( $code eq 'L' )

@@ -150,12 +150,36 @@ sub generate_doc {
     {
 	my $doc_string = $ds->render_doc($doc_template, $doc_defs, $doc_header, $doc_footer, $vars);
 	
+	my $url_generator = sub {
+	    if ( $_[0] =~ qr{ ^ (node|op|path) (abs|rel|site)? [:] ( [^#?]* ) (?: [?] ( [^#]* ) )? (?: [#] (.*) )? }xs )
+	    {
+		my $arg = $1;
+		my $type = $2 || 'site';
+		my $path = $3 || '/';
+		my $params = $4;
+		my $frag = $5;
+		my $format;
+		
+		if ( $arg ne 'path' && $path =~ qr{ (.*) [.] ([^.]+) $ }x )
+		{
+		    $path = $1; $format = $2;
+		}
+		
+		return $request->generate_url({ $arg => $path, type => $type, format => $format, 
+						params => $params, fragment => $frag });
+	    }
+	    else
+	    {
+		return $_[0];
+	    }
+	};
+	
 	# If POD format was requested, return the documentation as is.
 	
 	if ( defined $format && $format eq 'pod' )
 	{
 	    $ds->_set_content_type($request, 'text/plain');
-	    return $doc_string;
+	    return $ds->convert_pod_links($doc_string, $url_generator);
 	}
 	
 	# Otherwise, convert the POD to HTML using the PodParser and return the result.
@@ -165,30 +189,6 @@ sub generate_doc {
 	    my $parser = Web::DataService::PodParser->new();
 	    
 	    $parser->parse_pod($doc_string);
-	    
-	    my $url_generator = sub {
-		if ( $_[0] =~ qr{ ^ (node|op|path) (abs|rel|site)? [:] ( [^#?]* ) (?: [?] ( [^#]* ) )? (?: [#] (.*) )? }xs )
-		{
-		    my $arg = $1;
-		    my $type = $2 || 'site';
-		    my $path = $3 || '/';
-		    my $params = $4;
-		    my $frag = $5;
-		    my $format;
-		    
-		    if ( $arg ne 'path' && $path =~ qr{ (.*) [.] ([^.]+) $ }x )
-		    {
-			$path = $1; $format = $2;
-		    }
-		    
-		    return $request->generate_url({ $arg => $path, type => $type, format => $format, 
-						    params => $params, fragment => $frag });
-		}
-		else
-		{
-		    return $_[0];
-		}
-	    };
 	    
 	    my $stylesheet = $ds->node_attr($path, 'doc_stylesheet') || 
 		$ds->generate_site_url({ path => 'css/dsdoc.css' });
@@ -373,5 +373,36 @@ sub _make_usage_doc {
     return $doc_string;
 }
 
+
+# convert_pod_links ( doc_string )
+# 
+# Convert the contents of all L<...>, L<<...>>, etc. elements to proper links.
+
+sub convert_pod_links {
+    
+    my ($ds, $doc_string, $urlgen) = @_;
+    
+    $doc_string =~ s{L<<<(.*?)>>>}{'L<<<' . $ds->convert_pod_link($1, $urlgen) . '>>>'}ge;
+    $doc_string =~ s{L<<(.*?)>>}{'L<<' . $ds->convert_pod_link($1, $urlgen) . '>>'}ge;
+    $doc_string =~ s{L<(.*?)>}{'L<' . $ds->convert_pod_link($1, $urlgen). '>'}ge;
+    
+    return $doc_string;
+}
+
+
+sub convert_pod_link {
+    
+    my ($ds, $target, $urlgen) = @_;
+    
+    if ( $target =~ qr{ ^ (.*?) \| (.*) }xs )
+    {
+	return "$1|" . $urlgen->($2);
+    }
+    
+    else
+    {
+	return $urlgen->($target);
+    }
+}
 
 1;

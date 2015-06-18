@@ -1,5 +1,24 @@
 Revision history for Web-DataService
 
+0.26    2015-06-17
+
+- Miscellaneous bug fixes:
+  - Eliminated unnecessary dependency on $ENV{PWD}, which was causing problems
+    because this variable is not always available.
+  - URL generation in documentation pages now works properly with Pod format.
+  - Fixed a bug that was causing links to be generated incorrectly if the link
+    text was '0'.
+  - Output block inclusion now works recursively.
+  - Output fields with the 'dedup' option set now get a blank value in text output
+    records.
+  - You can now set 'doc_string' directly when defining set values.
+
+- New request method 'param_keys', which returns a list of keys corresponding
+  to the parameters given in this request.
+- New request method 'exception', which generates an exception object.  This
+  can be passed to die() instead of a string.
+
+
 0.254   2015-03-18
 
 - It is now possible to add aliases for the special parameters.

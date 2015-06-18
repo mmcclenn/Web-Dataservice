@@ -66,7 +66,7 @@ like( $header, qr{^=head1 Example Data Service: Main Documentation}m, 'pod title
 
 like( $result, qr{^=for wds_table_header Format\* \| Suffix \| Documentation \| Description}m, 'pod table descriptor' );
 
-like( $result, qr{^=item L<Single state\|node:single>}m, 'pod node link' );
+like( $result, qr{^=item L<Single state\|/data1.0/single_doc.html>}m, 'pod node link' );
 
 eval {
     $result = `cd files; $^X bin/dataservice.pl GET /data1.0/single_doc.pod`;
@@ -82,4 +82,4 @@ like( $result, qr{^The name of the state}m, 'single_doc basic item body' );
 
 like( $result, qr{^=item pop1900 \( hist \)}m, 'single_doc optional item' );
 
-like( $result, qr{^L<Plain text formats\|node:formats/text>}m, 'single_doc format' );
+like( $result, qr{^L<Plain text formats\|/data1.0/formats/text_doc.html>}m, 'single_doc format' );

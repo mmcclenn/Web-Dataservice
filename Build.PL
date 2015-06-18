@@ -14,7 +14,7 @@ my $builder = Module::Build->new(
 	'Dancer' => 1,
 	'Moo' => 1,
         'namespace::clean' => 0.16,
-        'HTTP::Validate' => 0.45,
+        'HTTP::Validate' => 0.47,
 	'JSON' => 2,
 	'YAML' => 0,
     },

@@ -16,7 +16,7 @@ Web::DataService - a framework for building data service applications for the We
 
 =head1 VERSION
 
-Version 0.254
+Version 0.26
 
 =head1 SYNOPSIS
 
@@ -55,7 +55,7 @@ as Mojolicious and Catalyst soon.
 
 package Web::DataService;
 
-our $VERSION = '0.254';
+our $VERSION = '0.26';
 
 use Carp qw( carp croak confess );
 use Scalar::Util qw( reftype blessed weaken );
@@ -89,7 +89,7 @@ with 'Web::DataService::Node', 'Web::DataService::Set',
 
 our (@CARP_NOT) = qw(Web::DataService::Request Moo);
 
-HTTP::Validate->VERSION(0.45);
+HTTP::Validate->VERSION(0.47);
 
 
 our @HTTP_METHOD_LIST = ('GET', 'HEAD', 'POST', 'PUT', 'DELETE');
@@ -426,7 +426,7 @@ sub BUILD {
 	
 	unless ( defined $doc_dir )
 	{
-	    my $default = $ENV{PWD} . '/doc';
+	    my $default = 'doc';
 	    
 	    if ( -r $default )
 	    {
@@ -451,7 +451,7 @@ sub BUILD {
 	
 	if ( $doc_dir )
 	{
-	    $doc_dir = $ENV{PWD} . '/' . $doc_dir
+	    $doc_dir = './' . $doc_dir
 		unless $doc_dir =~ qr{ ^ / }xs;
 	    
 	    croak "the documentation template directory '$doc_dir' is not readable: $!\n"
@@ -479,7 +479,7 @@ sub BUILD {
     
 	if ( $output_dir )
 	{
-	    $output_dir = $ENV{PWD} . '/' . $output_dir
+	    $output_dir = './' . $output_dir
 		unless $output_dir =~ qr{ ^ / }xs;
 	    
 	    croak "the output template directory '$output_dir' is not readable: $!\n"

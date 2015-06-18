@@ -82,17 +82,14 @@ sub define_block {
 	
 	$ds->add_doc($block, $item) if $type eq 'output';
 	
-	# Add the record to the appropriate list.
+	# Add the record to the appropriate list(s).
 	
 	if ( $type eq 'include' )
 	{
 	    push @{$ds->{block}{$name}{include_list}}, $item;
 	}
 	
-	else
-	{
-	    push @{$ds->{block}{$name}{output_list}}, $item;
-	}
+	push @{$ds->{block}{$name}{output_list}}, $item;
     }
     
     $ds->process_doc($block);
@@ -131,6 +128,7 @@ our %OUTPUT_DEF = (output => 'type',
 		   split => 'regexp',
 		   join => 'single',
 		   tables => 'set',
+		   disabled => 'single',
 		   doc_string => 'single');
 
 our %SELECT_KEY = (select => 1, tables => 1);
@@ -138,12 +136,12 @@ our %SELECT_KEY = (select => 1, tables => 1);
 our %FIELD_KEY = (dedup => 1, name => 1, value => 1, always => 1, sub_record => 1, if_field => 1, 
 		  not_field => 1, if_block => 1, not_block => 1, if_format => 1, not_format => 1,
 		  if_vocab => 1, not_vocab => 1,
-		  text_join => 1, xml_join => 1, doc_string => 1, show_as_list => 1, undocumented => 1);
+		  text_join => 1, xml_join => 1, doc_string => 1, show_as_list => 1, disabled => 1, undocumented => 1);
 
 our %PROC_KEY = (set => 1, append => 1, from => 1, from_each => 1, 
 		 if_vocab => 1, not_vocab => 1, if_block => 1, not_block => 1,
 	         if_format => 1, not_format => 1, if_field => 1, not_field => 1,
-		 code => 1, lookup => 1, split => 1, join => 1, default => 1);
+		 code => 1, lookup => 1, split => 1, join => 1, default => 1, disabled => 1);
 
 sub check_output_record {
     
@@ -302,7 +300,7 @@ sub _setup_output {
 	    
 	    if ( $block && ref $ds->{block}{$block} eq 'Web::DataService::Block' )
 	    {
-		$request->{block_hash}{$block} = 1;
+		$request->{block_hash}{$block} = $key;
 		push @blocks, $block;
 	    }
 	    
@@ -333,13 +331,17 @@ sub _setup_output {
     # are included.
     
     my %uniq_block;
+    my @include_scan = @blocks;
+    my $bound = 0;
     
  INCLUDE_BLOCK:
-    foreach my $block (@blocks)
+    while ( my $block = shift @include_scan )
     {
-	# Make sure that each block is checked only once.
+	# Make sure that each block is checked only once, and add a bounds
+	# check to prevent a runaway loop.
 	
 	next if $uniq_block{$block}; $uniq_block{$block} = 1;
+	next if ++$bound > 999;
 	
 	my $include_list = $ds->{block}{$block}{include_list};
 	next unless ref $include_list eq 'ARRAY';
@@ -397,26 +399,21 @@ sub _setup_output {
 	    
 	    $request->{block_keys}{$include_key} = 1 if $include_key;
 	    $request->{block_hash}{$include_block} = 1 if $include_block;
-	    push @blocks, $include_block if $include_block;
+	    push @include_scan, $include_block if $include_block;
 	}
     }
     
     # Now run through all of the blocks we have identified and collect up the
     # various kinds of records they contain.
     
-    %uniq_block = ();
+    %uniq_block = ();	# $$$$
     
  BLOCK:
     foreach my $block (@blocks)
     {
-	# Make sure that each block is only processed once, even if it is
-	# listed more than once.
-	
-	next if $uniq_block{$block}; $uniq_block{$block} = 1;
-	
 	# Add this block to the output configuration.
 	
-	$ds->add_output_block($request, $block);
+	$ds->add_output_block($request, \%uniq_block, $block);
     }
     
     my $a = 1;	# We can stop here when debugging
@@ -430,7 +427,12 @@ sub _setup_output {
 
 sub add_output_block {
 
-    my ($ds, $request, $block_name) = @_;
+    my ($ds, $request, $uniq_block, $block_name) = @_;
+    
+    # Make sure that each block is only processed once, even if it is
+    # listed more than once.
+    
+    return if $uniq_block->{$block_name}; $uniq_block->{$block_name} = 1;
     
     # Generate a warning if the specified block does not exist, but do
     # not abort the request.
@@ -612,8 +614,8 @@ sub add_output_block {
 	    # comes up again.
 	    
 	    my $include_block = $r->{include_block};
-	    next RECORD if $request->{block_hash}{$include_block};
-	    $request->{block_hash}{$include_block} = 1;
+	    next RECORD if $uniq_block->{$include_block};
+	    $uniq_block->{$include_block} = 1;
 	    
 	    # Get the list of block records, or add a warning if no block
 	    # was defined under that name.
@@ -1258,6 +1260,7 @@ sub document_response {
     # specified.
     
     my $optional_output = $ds->node_attr($path, 'optional_output');
+    my $reverse_map;
     
     if ( $optional_output && ref $ds->{set}{$optional_output} eq 'Web::DataService::Set' )
     {
@@ -1271,6 +1274,8 @@ sub document_response {
 	    next VALUE unless defined $block_name;
 	    next VALUE if $output_map->{value}{$label}{disabled} || 
 		$output_map->{value}{$label}{undocumented};
+	    
+	    $reverse_map->{$block_name} = $label;
 	    
 	    if ( ref $ds->{block}{$block_name} eq 'Web::DataService::Block' )
 	    {
@@ -1355,7 +1360,7 @@ sub document_response {
 	foreach my $r (@$output_list)
 	{
 	    next unless defined $r->{output};
-	    $doc_string .= $ds->document_field($block_label, \@vocab_list, $r)
+	    $doc_string .= $ds->document_field($block_label, \@vocab_list, $r, $reverse_map)
 		unless $r->{undocumented};
 	}
     }
@@ -1424,7 +1429,7 @@ sub document_summary {
     foreach my $r (@$output_list)
     {
 	next unless defined $r->{output};
-	$doc_string .= $ds->document_field('summary', \@vocab_list, $r)
+	$doc_string .= $ds->document_field('summary', \@vocab_list, $r, {})
 	    unless $r->{undocumented};
     }
     
@@ -1436,7 +1441,7 @@ sub document_summary {
 
 sub document_field {
     
-    my ($ds, $block_key, $vocab_list, $r) = @_;
+    my ($ds, $block_key, $vocab_list, $r, $rev_map) = @_;
     
     my @names;
     
@@ -1458,11 +1463,11 @@ sub document_field {
     {
 	if ( ref $r->{if_block} eq 'ARRAY' )
 	{
-	    $block_key = join(', ', @{$r->{if_block}});
+	    $block_key = join(', ', map { $rev_map->{$_} // $_ } @{$r->{if_block}});
 	}
 	else
 	{
-	    $block_key = $r->{if_block};
+	    $block_key = $rev_map->{$r->{if_block}} // $r->{if_block};
 	}
     }
     
@@ -1772,6 +1777,13 @@ sub _generate_single_result {
     my $proc_list = $request->{proc_list};
     my $field_list = $request->{field_list};
     
+    # Make sure we have at least one field to output.
+    
+    unless ( ref $field_list && @$field_list )
+    {
+	$request->add_warning("No output fields were defined for this request.");
+    }
+    
     # Generate the initial part of the output, before the first record.
     
     my $output = $format_class->emit_header($request, $field_list);
@@ -1785,8 +1797,12 @@ sub _generate_single_result {
     
     if ( $request->{output_record_hook} )
     {
-	$ds->call_hook($request->{output_record_hook}, $request, $request->{main_record})
-	    or return;
+	unless ( $ds->call_hook($request->{output_record_hook}, $request, $request->{main_record}) )
+	{
+	    $output .= $format_class->emit_empty($request);
+	    $output .= $format_class->emit_footer($request);
+	    return $output;
+	}
     }
     
     # Generate the output corresponding to our single record.
@@ -1860,6 +1876,7 @@ sub _generate_compound_result {
     # available and our total output size exceeds the threshold, switch over
     # to streaming.
     
+ RECORD:
     while ( my $record = $ds->_next_record($request) )
     {
 	# If there are any processing steps to do, then process this record.
@@ -1872,7 +1889,7 @@ sub _generate_compound_result {
 	if ( $request->{output_record_hook} )
 	{
 	    $ds->call_hook($request->{output_record_hook}, $request, $request->{main_record})
-		or return;
+		or next RECORD;
 	}
 	
 	# Generate the output for this record, preceded by a record separator if
@@ -1905,6 +1922,14 @@ sub _generate_compound_result {
     
     # If we get here, then we did not initiate streaming.  So add the
     # footer and return the output data.
+    
+    # If we didn't output any records, give the formatter a chance to indicate
+    # this. 
+    
+    unless ( $request->{actual_count} )
+    {
+	$output .= $format_class->emit_empty($request);
+    }
     
     # Generate the final part of the output, after the last record.
     
@@ -2136,6 +2161,7 @@ sub _generate_empty_result {
     
     my $output = $format_class->emit_header($request);
     
+    $output .= $format_class->emit_empty($request);
     $output .= $format_class->emit_footer($request);
     
     return $output;

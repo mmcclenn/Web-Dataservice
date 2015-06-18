@@ -118,18 +118,11 @@ sub emit_header {
     # Now, if any output fields were specified for this request, list them in
     # a header line.
     
-    if ( ref $field_list eq 'ARRAY' )
+    if ( ref $field_list eq 'ARRAY' && @$field_list )
     {
 	my @fields = map { $_->{name} } @$field_list;
 	
 	$output .= $class->emit_line($request, @fields);
-    }
-    
-    # Otherwise, note that no fields are available.
-    
-    else
-    {
-	$output .= $class->emit_line($request, "THIS REQUEST DID NOT GENERATE ANY OUTPUT RECORDS");
     }
     
     # Return the text that we have generated.
@@ -152,6 +145,18 @@ sub generate_label {
     my $label = join(' ', map { ucfirst } @components);
     
     return $label;
+}
+
+
+# emit_empty ( )
+# 
+# Return the string (if any) to output in lieu of an empty result set.
+
+sub emit_empty {
+    
+    my ($class, $request) = @_;
+    
+    return $class->emit_line($request, "THIS REQUEST RETURNED NO RECORDS");
 }
 
 
@@ -207,6 +212,12 @@ sub emit_record {
 	
 	$v = '' if $f->{if_field} and not $record->{$f->{if_field}};
 	$v = '' if $f->{not_field} and $record->{$f->{not_field}};
+	
+	# Cancel out any field with a 'dedup' attribute if its value is the same
+	# as the value of the field indicated by the attribute.
+	
+	$v = '' if $f->{dedup} and defined $record->{$f->{field}} and defined $record->{$f->{dedup}}
+	    and $record->{$f->{field}} eq $record->{$f->{dedup}};
 	
 	# If the value is an array, join it into a string.  If no joining
 	# string was specified, use a comma.

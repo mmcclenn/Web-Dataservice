@@ -88,8 +88,8 @@ sub emit_header {
 	my $counts = $request->result_counts;
 	
 	$output .= '"elapsed_time":' . sprintf("%.3g", $request->{elapsed}) . ",\n";
-	$output .= '"records_found":' . json_clean($counts->{found}) . ",\n";
-	$output .= '"records_returned":' . json_clean($counts->{returned}) . ",\n";
+	$output .= '"records_found":' . json_clean($counts->{found} || '0') . ",\n";
+	$output .= '"records_returned":' . json_clean($counts->{returned} || '0') . ",\n";
 	$output .= '"record_offset":' . json_clean($counts->{offset}) . ",\n"
 	    if defined $counts->{offset} && $counts->{offset} > 0;
     }
@@ -132,6 +132,18 @@ sub emit_header {
 sub emit_separator {
     
     return ",\n";
+}
+
+
+# emit_empty ( )
+# 
+# Return the string (if any) to output in lieu of an empty result set.
+
+sub emit_empty {
+    
+    my ($class, $request) = @_;
+    
+    return '';
 }
 
 
