@@ -220,6 +220,7 @@ sub emit_object {
 	# Skip any field that is empty, unless 'always' or 'value' is set.
 	
 	my $field = $f->{field};
+	my $data_type = $f->{data_type};
 	
 	next unless $f->{always} or defined $f->{value} or 
 	    defined $record->{$field} and $record->{$field} ne '';
@@ -272,7 +273,7 @@ sub emit_object {
 		}
 		else
 		{
-		    $value = json_clean($value);
+		    $value = json_clean($value, $data_type);
 		}
 	    }
 	    
@@ -295,13 +296,13 @@ sub emit_object {
 		}
 		else
 		{
-		    $value = json_clean($value);
+		    $value = json_clean($value, $data_type);
 		}
 	    }
 	    
 	    else
 	    {
-		$value = json_clean($value);
+		$value = json_clean($value, $data_type);
 	    }
 	}
 	
@@ -323,7 +324,7 @@ sub emit_object {
 	
 	else
 	{
-	    $value = json_clean($value);
+	    $value = json_clean($value, $data_type);
 	}
 	
 	# Now, add the value to the growing output.  Add a comma before each
@@ -441,15 +442,18 @@ my (%ESCAPE) = ( '\\' => '\\\\', '"' => '\\"', "\t" => '\\t', "\n" => '\\n',
 
 sub json_clean {
     
-    my ($string) = @_;
+    my ($string, $data_type) = @_;
     
     # Return an empty string unless the value is defined.
     
     return '""' unless defined $string and $string ne '';
     
-    # Do a quick check for numbers.  If it matches, return the value as-is.
+    # Do a quick check for numbers.  If it matches, return the value as-is
+    # unless the data_type is 'str'.  In that case, the field value is
+    # intended to be a string so we should quote it even if it looks like a number.
     
-    return $string if $string =~ qr{ ^ -? (?: [1-9][0-9]* | 0 ) (?: \. [0-9]+ )? (?: [Ee] -? [0-9]+ )? $ }x;
+    return $string if $string =~ qr{ ^ -? (?: [1-9][0-9]* | 0 ) (?: \. [0-9]+ )? (?: [Ee] -? [0-9]+ )? $ }x
+	and not (defined $data_type && $data_type eq 'str');
     
     # Do another quick check for okay characters.  If there's nothing exotic,
     # just return the quoted value.

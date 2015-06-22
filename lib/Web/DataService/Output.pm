@@ -131,7 +131,7 @@ our %OUTPUT_DEF = (output => 'type',
 		   disabled => 'single',
 		   doc_string => 'single');
 
-our %SELECT_KEY = (select => 1, tables => 1);
+our %SELECT_KEY = (select => 1, tables => 1, if_block => 1);
 
 our %FIELD_KEY = (dedup => 1, name => 1, value => 1, always => 1, sub_record => 1, if_field => 1, 
 		  not_field => 1, if_block => 1, not_block => 1, if_format => 1, not_format => 1,
@@ -584,12 +584,14 @@ sub add_output_block {
 		
 		elsif ( $key eq 'data_type' )
 		{
-		    my $type_value = $r->{$key};
-		    croak "unknown value '$r->{$key}' for data_type: must be one of 'int', 'pos', 'dec'"
+		    my $type_value = $r->{data_type};
+		    croak "unknown value '$r->{data_type}' for data_type: must be one of 'int', 'pos', 'dec', 'str'"
 			unless lc $type_value eq 'int' || lc $type_value eq 'pos' ||
-			    lc $type_value eq 'dec';
+			    lc $type_value eq 'dec' || lc $type_value eq 'str';
 		    
-		    push @{$request->{proc_list}}, { check => $r->{output}, type => $r->{$key} };
+		    $field->{data_type} = $r->{data_type};
+		    push @{$request->{proc_list}}, { check => $r->{output}, data_type => $r->{data_type} }
+			unless $r->{data_type} eq 'str';
 		}
 		
 		elsif ( $key ne 'output' )
@@ -1498,7 +1500,7 @@ sub process_record {
 	
 	if ( exists $p->{check} )
 	{
-	    $ds->check_field_type($record, $p->{check}, $p->{type}, $p->{subst});
+	    $ds->check_field_type($record, $p->{check}, $p->{data_type}, $p->{subst});
 	    next;
 	}
 	
@@ -1902,9 +1904,11 @@ sub _generate_compound_result {
 	# Keep count of the output records, and stop if we have exceeded the
 	# limit.
 	
+	$request->{actual_count}++;
+	
 	if ( defined $request->{result_limit} && $request->{result_limit} ne 'all' )
 	{
-	    last if ++$request->{actual_count} >= $request->{result_limit};
+	    last if $request->{actual_count} >= $request->{result_limit};
 	}
 	
 	# If streaming is a possibility, check whether we have passed the

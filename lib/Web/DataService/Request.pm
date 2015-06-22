@@ -216,8 +216,24 @@ sub _match_node {
 	# flag to 0 (unless it has already been set) to indicate that the request
 	# path does not fully match a defined node.
 	
-	while ( $node_path ne '' && ! exists $ds->{node_attrs}{$node_path} )
+	while ( $node_path ne '' )
 	{
+	    # If we find a node with attributes, stop here.
+	    
+	    last if exists $ds->{node_attrs}{$node_path};
+	    
+	    # If this is a documentation request and a template exists that
+	    # would correspond to the current node path, then create the node
+	    # and stop here.
+	    
+	    if ( $self->{is_doc_request} and my $doc_path = $ds->check_for_template($node_path) )
+	    {
+		$ds->make_doc_node($node_path, $doc_path);
+		last;
+	    }
+	    
+	    # Otherwise, lop off the last path component and try again.
+	    
 	    $self->{is_node_path} //= 0;
 	    
 	    if ( $node_path =~ qr{ ^ (.*) / (.*) }xs )

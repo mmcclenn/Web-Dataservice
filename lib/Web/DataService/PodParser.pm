@@ -467,10 +467,10 @@ sub add_directive {
 	$self->{pending}{no_header} = 1 if $cmd eq 'wds_table_no_header';
     }
     
-    elsif ( $directive =~ qr{ ^ wds_nav }xs )
+    elsif ( $directive =~ qr{ ^ wds_nav | ^ wds_node }xs )
     {
-	# ignore this, as it would have been processed above had it had an
-	# argument.
+	# Ignore these directives.  They have no effect on subsequent document
+	# contents, so we do not need to store them.
     }
     
     elsif ( $directive =~ qr{ ^ wds_title \s+ (.+) }xs )
@@ -1052,11 +1052,12 @@ sub generate_html_content {
 	    # URIs of the form "node:..." or "path:..." are turned into site-relative
 	    # URLs.
 	    
-	    if ( $href =~ qr{ ^ (?: node|op|path ) (abs|rel|site )? [:] }xs )
+	    if ( $href =~ qr{ ^ (?: node|op|path ) (abs|rel|site )? [:] (.*) }xs )
 	    {
 		my $target = $self->{url_generator}->($href) // '';
 		my $blank = defined $1 && $1 eq 'abs' ? 'target="_blank"' : '';
-		$subcontent ||= $target;
+		my $path = defined $2 && $2 ne '' ? $2 : 'BAD';
+		$subcontent ||= $path;
 		return qq{<a class="pod_link" ${blank}href="$target">$subcontent</a>};
 	    }
 	    

@@ -29,15 +29,33 @@ sub check_doc {
     
     return unless defined $template_path && $template_path ne '';
     
-    my $template_full_path = $Web::DataService::FOUNDATION->file_path($ds->{doc_template_dir}, $template_path);
+    my $full_path = $Web::DataService::FOUNDATION->file_path($ds->{doc_template_dir}, $template_path);
     
-    if ( -e $template_full_path )
+    if ( -e $full_path )
     {
-	return $template_path if -r $template_full_path;
+	return $template_path if -r $full_path;
 	croak "template $template_path: $!";
     }
     
     return;
+}
+
+
+# read_doc_partial ( path )
+# 
+# Read the first 2048 characters of the specified template file and return
+# them. 
+
+sub read_doc_partial {
+    
+    my ($ds, $template_path) = @_;
+    
+    my $full_path = $Web::DataService::FOUNDATION->file_path($ds->{doc_template_dir}, $template_path);
+    
+    open(my $fh, "<", $full_path) || die "cannot read documentation template '$full_path': $!";
+    sysread($fh, my $contents, 2048);
+    
+    return $contents;
 }
 
 

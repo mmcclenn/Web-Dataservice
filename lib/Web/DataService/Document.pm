@@ -210,6 +210,58 @@ sub generate_doc {
 }
 
 
+# check_for_template ( path )
+# 
+# Return true if a documentation template exists for the specified node path.
+# Return false if not.  Throw an exception if the file exists but is not
+# readable. 
+
+sub check_for_template {
+
+    my ($ds, $path) = @_;
+    
+    my $doc_suffix = $ds->{template_suffix} // "";
+    
+    my $check1 = $path . '_doc' . $doc_suffix;
+    
+    return $check1 if $ds->check_doc( $check1 );
+    
+    my $check2 = $path . '/index' . $doc_suffix;
+    
+    return $check2 if $ds->check_doc( $check2 );
+    
+    return; # otherwise
+}
+
+
+# make_doc_node ( path, doc_path )
+# 
+# Create a documentation node for the specified path, reading the title from
+# the template file.  The second method parameter is the actual (relative)
+# path of the file on disk.
+
+sub make_doc_node {
+    
+    my ($ds, $path, $doc_path) = @_;
+    
+    my $new_attrs = { path => $path };
+    
+    my $partial_contents = $ds->read_doc_partial($doc_path);
+    
+    while ( $partial_contents =~ m{ ^ =for \s+ wds_node \s* (.*) $ }gxmi )
+    {
+	my $expr = $1;
+	
+	if ( $expr =~ qr{ (\w+) \s* = \s* (.+) }xs )
+	{
+	    $new_attrs->{$1} = $2;
+	}
+    }
+    
+    $ds->_create_path_node($new_attrs, '', '');
+}
+
+
 # get_nodelist ( )
 # 
 # Return a list of sub-nodes of the current one.  This will include all

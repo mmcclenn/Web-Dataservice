@@ -388,7 +388,7 @@ sub process_record {
 
 sub result_limit {
     
-    return $_[0]->{result_limit} ne 'all' && $_[0]->{result_limit};
+    return defined $_[0]->{result_limit} && $_[0]->{result_limit} ne 'all' && $_[0]->{result_limit};
 }
 
 

@@ -16,7 +16,7 @@ Web::DataService - a framework for building data service applications for the We
 
 =head1 VERSION
 
-Version 0.26
+Version 0.261
 
 =head1 SYNOPSIS
 
@@ -55,7 +55,7 @@ as Mojolicious and Catalyst soon.
 
 package Web::DataService;
 
-our $VERSION = '0.26';
+our $VERSION = '0.261';
 
 use Carp qw( carp croak confess );
 use Scalar::Util qw( reftype blessed weaken );

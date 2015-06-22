@@ -1,5 +1,17 @@
 Revision history for Web-DataService
 
+0.261   2015-06-22
+
+- Documentation nodes are now automatically auto-instantiated if a template file
+  exists.  No need to explicitly create a node for each file.
+- New Pod directive "=for wds_node ..." sets node attributes, title in particular.  This
+  must appear in the first 2048 bytes of the template file.
+- Output fields with data_type => 'str' are now quoted in JSON output even if the
+  value looks like a number.
+- Output records of type 'select' can now have an 'if_block' attribute.
+- Auto-generated links now default their link text to the node path without the base.
+- Bug fix: output plugin method 'emit_empty' was being called when it shouldn't have been.
+
 0.26    2015-06-17
 
 - Miscellaneous bug fixes:
@@ -17,7 +29,8 @@ Revision history for Web-DataService
   to the parameters given in this request.
 - New request method 'exception', which generates an exception object.  This
   can be passed to die() instead of a string.
-
+- Output plugins now include the method 'emit_empty', which is called if no
+  output records were generated.
 
 0.254   2015-03-18
 
