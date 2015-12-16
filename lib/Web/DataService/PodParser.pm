@@ -1,1178 +1,786 @@
 # 
-# This is a home-grown POD-to-HTML translator, because Pod::Simple::HTML does
-# not work properly.
+# PodParser2.pm - a pod-to-html translater subclassed from Pod::Simple
 # 
 
-
+use strict;
 
 package Web::DataService::PodParser;
+use Pod::Simple;
 
-use strict;
+our(@ISA) = qw(Pod::Simple);
 
 
 # new ( options )
 # 
-# Create a new POD parser.
+# Create a new POD parser, subclassing Pod::Simple.
 
 sub new {
 
     my ($class, $options) = @_;
     
-    my $new = { default => { } };
-    bless $new, $class;
+    # Create a new Pod::Simple parser.  We tell it to accept all targets
+    # because Pod::Simple behaves strangely when it encounters targets it
+    # doesn't know what to do with.  We turn off the automatically generated
+    # errata section, since we will be generating this ourselves.  Finally, we
+    # provide it a subroutine that will strip indentation from verbatim blocks
+    # according to the indentation on the first line.
     
-    $new->init_doc;
+    my $new = $class->SUPER::new;
     
-    return $new;
-}
-
-
-# init_doc ( )
-# 
-# Initialize the parser with a new empty document model.
-
-sub init_doc {
+    $new->accept_targets('*');
+    $new->accept_targets_as_text('wds_nav');
+    $new->no_errata_section(1);
+    $new->strip_verbatim_indent(sub {
+	my $lines = shift;
+	(my $indent = $lines->[0]) =~ s/\S.*//;
+	return $indent;
+    });
     
-    my ($self) = @_;
+    # Decorate the parser with some fields relevant to this subclass.
     
-    $self->{encoding} = 'ISO-8859-1';	# This is the default for POD
-    $self->{line_no} = 0;
-    $self->{body} = [];
-    $self->{stack} = [$self];
-    $self->{errors} = [];
-    $self->{current} = undef;
-    $self->{list_level} = 0;
-    $self->{format_lavel} = 0;
-}
-
-
-# add_pod ( doc_string )
-# 
-# This routine takes in a document string that should be in POD format, parses
-# it, and adds it to the current document model.  This routine may be called
-# multiple times to add additional document content.  Note, however, that if
-# you want the line numbers to mean anything then the entire source document
-# must be presented in one or more calls to this method.
-
-sub parse_pod {
+    $new->{wds_fields} = { body => [ '' ], target => [ 'body' ],
+			   listlevel => 0, listcol => 0 };
     
-    my $self = $_[0];
-    
-    my $mode = 'skip';
-    my $format;
-    
-    # Now process the input one line at a time.
-    
-    foreach my $line (split /\r?\n/, $_[1])
+    if ( ref $options eq 'HASH' )
     {
-	$self->next_line;
-	
-	# If we are in 'skip' mode, then ignore everything until we encounter
-	# a command paragraph.
-	
-	if ( $mode eq 'skip' )
+	foreach my $k ( keys %$options )
 	{
-	    next unless $line =~ /^=(pod|head?|over|item|back|begin|end|for|encoding|cut)/;
-	    $mode = 'pod';
+	    $new->{wds_fields}{options}{$k} = $options->{$k};
+	}
+    }
+    
+    # Create a secondary parser to handle lines of the form "=for target =head3 title"
+    
+    $new->{wds_fields}{secondary} = Pod::Simple->new;
+    
+    $new->{wds_fields}{secondary}{wds_fields} = { body => [ '' ], target => [ 'body' ],
+						  listlevel => 0, listcol => 0 };
+    
+    return bless $new;
+}
+
+
+sub _handle_element_start {
+    
+    my ($parser, $element_name, $attr_hash) = @_;
+    
+    my $wds = $parser->{wds_fields};
+    
+    if ( $wds->{options}{debug} )
+    {
+	print STDERR "START $element_name";
+	
+	foreach my $k (keys %$attr_hash)
+	{
+	    print STDERR " $k=" . $attr_hash->{$k};
 	}
 	
-	# If we are in 'format' mode, then pass everything through literally
-	# until we encounter an '=end format'.
-	
-	elsif ( $mode eq 'format' )
+	print STDERR "\n";
+    }
+    
+    if ( $wds->{pending_columns} )
+    {
+	unless ( $element_name eq 'over-text' )
 	{
-	    unless ( $line =~ /^=end\s+(\w+)/ )
+	    push @{$wds->{errors}}, [ $wds->{header_source_line}, 
+		   "improperly placed '=for wds_table_header': must immediately precede '=over'" ];
+	    $wds->{header_source_line} = undef;
+	    $wds->{table_no_header} = undef;
+	    $wds->{pending_columns} = undef;
+	}
+    }
+    
+    if ( $element_name eq 'Para' && ! $wds->{listlevel} )
+    {
+	my $attrs = qq{ class="pod_para"};
+	
+	if ( $wds->{pending_anchor} )
+	{
+	    $attrs .= qq{ id="$wds->{pending_anchor}"};
+	    $wds->{pending_anchor} = undef;
+	}
+	
+	$parser->add_output_text( qq{\n\n<p$attrs>} );
+    }
+    
+    elsif ( $element_name eq 'Data' )
+    {
+	# nothing to do here -- treat contents of Data sections as regular
+	# text
+    }
+    
+    elsif ( $element_name eq 'Verbatim' )
+    {
+	$parser->add_output_text( qq{<pre class="pod_verbatim">} );
+    }
+    
+    elsif ( $element_name =~ qr{ ^ head ( \d ) }xs )
+    {
+	my $attrs = qq{ class="pod_heading"};
+	
+	if ( $wds->{pending_anchor} )
+	{
+	    $attrs .= qq{ id="$wds->{pending_anchor}"};
+	    $wds->{pending_anchor} = undef;
+	}
+	
+	$parser->add_output_text( qq{\n\n<h$1$attrs>} );
+    }
+    
+    elsif ( $element_name =~ qr{ ^ over-(bullet|number) $ }xs )
+    {
+	my $tag = $1 eq 'bullet' ? 'ul' : 'ol';
+	my $class = $wds->{listlevel} > 1 ? 'pod_list2' : 'pod_list';
+	my $attrs = qq{ class="$class"};
+	
+	if ( $wds->{pending_anchor} )
+	{
+	    $attrs .= qq{ id="$wds->{pending_anchor}"};
+	    $wds->{pending_anchor} = undef;
+	}
+	
+	$parser->add_output_text( qq{\n\n<$tag$attrs>} );
+	$wds->{listlevel}++;
+    }
+    
+    elsif ( $element_name =~ qr{ ^ item-(bullet|number) $ }xs )
+    {
+	my $class = $wds->{listlevel} > 1 ? 'pod_def2' : 'pod_def';
+	my $attrs = qq{ class="$class"};
+	
+	if ( $1 =~ qr{^n}i && defined $attr_hash->{'~orig_content'} && defined $attr_hash->{number} )
+	{
+	    $attr_hash->{'~orig_content'} =~ qr{ (\d+) }xs;
+	    if ( $1 ne $attr_hash->{number} )
 	    {
-		$self->add_content($line);
-		next;
+		$attrs .= qq{ value="$1"};
 	    }
+	}
+	
+	if ( $wds->{pending_anchor} )
+	{
+	    $attrs .= qq{ id="$wds->{pending_anchor}"};
+	    $wds->{pending_anchor} = undef;
+	}
+	
+	$parser->add_output_text( qq{\n\n<li$attrs>} );
+    }
+    
+    elsif ( $element_name =~ qr{ ^ over-text $ }xs )
+    {
+	my $tag = $wds->{options}{no_tables} ? 'dl' : 'table';
+	my $class = $wds->{listlevel} > 0 ? 'pod_list2' : 'pod_list';
+	my $attrs = qq{ class="$class"};
+	
+	if ( $wds->{pending_anchor} )
+	{
+	    $attrs .= qq{ id="$wds->{pending_anchor}"};
+	    $wds->{pending_anchor} = undef;
+	}
+	
+	$parser->add_output_text( qq{\n\n<$tag$attrs>} );
+	
+	# If we were given a set of table columns, and the 'no_tables' option
+	# was not given, then remember that list for the remainder of the
+	# table.  Unless 'no_header' was given, emit the header now.
+	
+	my $table_def = { n_cols => 0, n_subs => 0 };
+	
+	$table_def->{no_header} = 1 if $wds->{table_no_header};
+	
+	if ( $wds->{pending_columns} && ! $wds->{options}{no_tables} ) # $$$
+	{
+	    my @columns;
 	    
-	    # If the =end didn't match the =begin, just keep going.
+	    my $class = $wds->{listlevel} > 0 ? 'pod_th2' : 'pod_th';
 	    
-	    unless ( $1 eq $format )
+	    $parser->add_output_text( qq{\n\n<tr class="$class">} ) unless $table_def->{no_header};
+	    
+	    foreach my $col ( @{$wds->{pending_columns}} )
 	    {
-		$self->add_content($line);
-		next;
-	    }
-	    
-	    $self->end_format;
-	    $mode = 'pod';
-	}
-	
-	# If we get here, then we're in 'pod' mode.  A blank line ends a paragraph.
-	
-	if ( $line eq '' )
-	{
-	    $self->end_node;
-	    next;
-	}
-	
-	# If we've found a verbatim line, then add it to the document as
-	# such.
-	
-	elsif ( $line =~ /^([ \t]+)(.*)/ )
-	{
-	    $self->add_verbatim($1, $2);
-	    next;
-	}
-	
-	# If we've got a command paragraph, process it.
-	
-	elsif ( $line =~ /^=(\w+)\s*(.*)/ )
-	{
-	    my $cmd = $1;
-	    my $content = $2;
-	    
-	    # If this command is anything but =over, delete any pending column
-	    # definitions.
-	    
-	    delete $self->{pending} if $cmd ne 'over';
-	    
-	    # If the line starts with "=for wds_nav", then just pass the
-	    # remainder of the line through.  This command indicates content
-	    # that should be ignored for POD output, because its purpose is
-	    # web-page navigation.
-	    
-	    if ( $cmd eq 'for' && $content =~ qr{ ^ wds_nav \s+ (.*) }xs )
-	    {
-		my $rest = $1;
+		my $col_def;
+		my $attrs = '';
+		my $multiplicity = 1;
 		
-		if ( $rest =~ qr{ ^ = (\w+) \s* (.*) }xs )
+		$table_def->{n_cols}++;
+		
+		if ( $col =~ qr{ ^ (.+) / ( \d+ ) $ }xs )
 		{
-		    $cmd = $1;
-		    $content = $2;
+		    $col = $1;
+		    $attrs = qq{ colspan="$2"};
+		    $table_def->{n_subs} += $2;
+		    $multiplicity = $2;
+		    $table_def->{expect_subheader} = 1;
+		}
+		
+		elsif ( $table_def->{n_subs} )
+		{
+		    $attrs = qq{ rowspan="2"};
+		}
+		
+		if ( $col =~ qr{ ^ (.*) [*] $ }xs )
+		{
+		    $col_def = { name => $1, term => 1 };
+		    $col = $1;
 		}
 		
 		else
 		{
-		    $self->add_content($rest);
-		    next;
-		}
-	    }
-	    
-	    # Otherwise, process the commands as we find them.
-	    
-	    if ( $cmd =~ /head([1-9])/ )
-	    {
-		$self->add_heading($1, $content);
-	    }
-	    
-	    elsif ( $cmd eq 'over' )
-	    {
-		$self->add_list($content);
-	    }
-	    
-	    elsif ( $cmd eq 'item' )
-	    {
-		$self->add_item($content);
-	    }
-	    
-	    elsif ( $cmd eq 'back' )
-	    {
-		$self->end_list;
-	    }
-	    
-	    elsif ( $cmd eq 'encoding' )
-	    {
-		$self->set_encoding($content);
-	    }
-	    
-	    elsif ( $cmd eq 'begin' )
-	    {
-		$mode = 'format';
-		$format = $content;
-		$self->add_format($format);
-	    }
-	    
-	    elsif ( $cmd eq 'for' )
-	    {
-		if ( $content =~ qr{ ^ wds_ }x )
-		{
-		    $self->add_directive($content);
+		    $col_def = { name => $col };
 		}
 		
-		elsif ( $content =~ qr{ ^ (\w+) \s+ (.*) }x )
-		{
-		    $self->add_format($1);
-		    $self->add_content($2);
-		}
+		push @columns, $col_def foreach 1..$multiplicity;
 		
-		elsif ( $content =~ qr{ ^ (\w+) $ } )
-		{
-		    $self->add_format($1);
-		}
+		$parser->add_output_text( qq{<td$attrs>$col</td>} ) unless $table_def->{no_header};
 	    }
 	    
-	    elsif ( $cmd eq 'end' )
+	    $table_def->{columns} = \@columns;
+	    
+	    $parser->add_output_text( qq{</tr>\n\n} ) unless $table_def->{no_header};
+	}
+	
+	unshift @{$wds->{table_def}}, $table_def;
+	
+	$wds->{pending_columns} = undef;
+	$wds->{header_source_line} = undef;
+	$wds->{table_no_header} = undef;
+	
+	$wds->{listlevel}++;
+	$wds->{listcol} = 0;
+    }
+    
+    elsif ( $element_name =~ qr{ ^ item-text $ }xsi )
+    {
+	if ( $wds->{listcol} > 0 )
+	{
+	    if ( $wds->{options}{no_tables} )
 	    {
-	        $self->end_format($1);
+		$parser->add_output_text( qq{\n</dd>} );
 	    }
 	    
-	    elsif ( $cmd eq 'cut' )
+	    elsif ( $wds->{listcol} == 2 )
 	    {
-		$mode = 'skip';
+		$parser->add_output_text( qq{\n</td></tr>} );
 	    }
-	    
-	    # If we have an unrecognized command, emit an error but collect up
-	    # whatever's in the paragraph anyway.
+	}
+	
+	unshift @{$wds->{body}}, '';
+	unshift @{$wds->{target}}, 'item-text';
+    }
+    
+    elsif ( $element_name eq 'Para' && $wds->{listlevel} )
+    {
+	my $class = $wds->{listlevel} > 1 ? 'pod_def2' : 'pod_def';
+	my $attrs = qq{ class="$class"};
+	
+	if ( $wds->{pending_anchor} )
+	{
+	    $attrs .= qq{ id="$wds->{pending_anchor}"};
+	    $wds->{pending_anchor} = undef;
+	}
+	
+	if ( $wds->{listcol} == 1 )
+	{
+	    if ( $wds->{options}{no_tables} )
+	    {
+		$parser->add_output_text( qq{\n<dd><p$attrs>} );
+	    }
 	    
 	    else
 	    {
-		$self->add_error("unrecognized command: =$cmd");
-		$self->add_content($content);
+		$parser->add_output_text( qq{<p$attrs>} );
 	    }
-	}
-	
-	# If we get down to here, then we've found an ordinary paragraph.  So
-	# just add it to the document model.
-	
-	else
-	{
-	    $self->add_content($line);
-	}
-    }
-    
-    $self->end_node;
-    
-    if ( $self->{list_level} )
-    {
-	$self->add_error("unclosed =over section");
-    }
-    
-    if ( $self->{format_level} )
-    {
-	$self->add_error("unclosed =begin section");
-    }
-}
-
-
-sub set_encoding {
-    
-    my ($self, $encoding) = @_;
-    
-    $self->{encoding} = $encoding;
-}
-
-
-sub next_line {
-    
-    my ($self) = @_;
-    
-    $self->{line_no}++;
-}
-
-
-sub add_node {
-
-    my ($self, $attrs) = @_;
-    
-    $self->end_node;
-    
-    my $node = $attrs;
-    $node->{line_no} = $self->{line_no};
-    bless $node, 'PodParser::Node';
-    
-    push @{$self->{stack}[-1]{body}}, $node;
-    $self->{current} = $node;
-    
-    return $node;
-}
-
-
-sub add_heading {
-
-    my ($self, $level, $content) = @_;
-    
-    if ( $self->{list_level} )
-    {
-	$self->add_error("you are either missing a =back, or you put a =head in the wrong place");
-	$self->end_list while $self->{list_level};
-    }
-    
-    $self->add_node({ type => 'head', level => $level, content => $content });
-}
-
-
-sub add_list {
-
-    my ($self, $indent) = @_;
-    
-    $self->{list_level}++;
-    
-    my $list_node = $self->add_node({ type => 'list', level => $self->{list_level}, indent => $indent,
-				      body => [], list_type => '' });
-    
-    $list_node->{column_spec} = $self->{pending}{column_spec};
-    $list_node->{no_header} = $self->{pending}{no_header};
-    
-    delete $self->{pending};
-    
-    push @{$self->{stack}}, $list_node;
-    $self->{current} = undef;
-}
-
-
-sub add_item {
-
-    my ($self, $content) = @_;
-    
-    unless ( $self->{list_level} )
-    {
-	$self->add_error("misplaced =item: should not occur except between =over and =back");
-	$self->add_list(4);
-    }
-    
-    $self->add_node({ type => 'item', content => $content });
-    
-    my $current_list = $self->{stack}[-1];
-    
-    unless ( $current_list->{list_type} )
-    {
-	if ( $content eq '*' )
-	{
-	    $current_list->{list_type} = '*';
-	}
-	
-	elsif ( $content =~ /^[0-9][.,)]?$/ )
-	{
-	    $current_list->{list_type} = '1';
 	}
 	
 	else
 	{
-	    $current_list->{list_type} = 'g';
-	}
-    }
-}
-
-
-sub end_list {
-
-    my ($self) = @_;
-    
-    unless ( $self->{list_level} )
-    {
-	$self->add_error("you have a mismatched =back here");
-	return;
-    }
-    
-    $self->{list_level}--;
-    pop @{$self->{stack}};
-    $self->{current} = undef;
-}
-
-
-sub add_format {
-    
-    my ($self, $format) = @_;
-    
-    my $format_node = $self->add_node({ type => 'format', format => $format, body => [] });
-    
-    push @{$self->{stack}}, $format_node;
-    $self->{format_level}++;
-    
-    $self->{current} = $self->add_node({ type => 'literal', content => '' });
-}
-
-
-sub end_format {
-    
-    my ($self) = @_;
-    
-    if ( $self->{format_level} )
-    {
-	$self->{format_level}--;
-	pop @{$self->{stack}};
-	$self->{current} = undef;
-    }
-}
-
-
-sub add_content { 
-
-    my ($self, $content) = @_;
-    
-    if ( $self->{current} && ( $self->{current}{type} eq 'head' || 
-			       $self->{current}{type} eq 'para' ||
-			       $self->{current}{type} eq 'item' ||
-			       $self->{current}{type} eq 'literal' ) )
-    {
-	$self->{current}{content} .= "\n$content";
-    }
-    
-    else
-    {
-	$self->add_node({ type => 'para', content => $content });
-    }
-}
-
-
-sub add_verbatim {
-
-    my ($self, $indent, $content) = @_;
-    
-    $indent =~ s{\t}{        }g;
-    my $indl = length($indent);
-    
-    if ( $self->{current} && $self->{current}{type} eq 'verbatim' )
-    {
-	my $extra = '';
-	
-	if ( $indl > $self->{current}{indent} )
-	{
-	    $extra = ' ' x ( $indl - $self->{current}{indent} );
+	    $parser->add_output_text( qq{\n<p$attrs>} );
 	}
 	
-	$self->{current}{content} .= "\n$extra$content";
+	$wds->{listcol} = 2;
     }
     
-    else
-    {    
-	$self->add_node({ type => 'verbatim', indent => $indl, content => $content });
-    }
-}
-
-
-sub end_node {
-
-    my ($self) = @_;
-    
-    if ( $self->{current} and ( $self->{current}{type} eq 'head' ||
-				$self->{current}{type} eq 'para' ||
-				$self->{current}{type} eq 'item' ) )
+    elsif ( $element_name eq 'L' )
     {
-	$self->{current}{content} = $self->decode_content($self->{current}{line_no}, $self->{current}{content})
-    }
-    
-    elsif ( $self->{current} and $self->{current}{type} eq 'literal' )
-    {
-	$self->end_format;
-    }
-    
-    $self->{current} = undef;
-}
-
-
-sub add_directive {
-
-    my ($self, $directive) = @_;
-    
-    if ( $directive =~ /^(wds_table_(?:no_)?header)\s+(.*)/ )
-    {
-	my $cmd = $1;
-	my $column_spec = $2;
-	my @columns = split qr{ \s+ \| \s+ }x, $column_spec;
+	my $href;
 	
-	$self->{pending}{column_spec} = \@columns;
-	$self->{pending}{no_header} = 1 if $cmd eq 'wds_table_no_header';
-    }
-    
-    elsif ( $directive =~ qr{ ^ wds_nav | ^ wds_node }xs )
-    {
-	# Ignore these directives.  They have no effect on subsequent document
-	# contents, so we do not need to store them.
-    }
-    
-    elsif ( $directive =~ qr{ ^ wds_title \s+ (.+) }xs )
-    {
-	$self->{html_title} = $1;
-    }
-    
-    else
-    {
-	$self->add_error("invalid directive '$directive'");
-    }
-}
-
-
-sub decode_content {
-    
-    my ($self, $line_no, $input) = @_;
-    
-    return '' unless defined $input;
-    return $input unless $input =~ qr{ [A-Z]< }x;
-    
-    my @stack;
-    
-    while ( $input )
-    {
-	if ( $input =~ qr{ ^ ( [A-Z] <{1,4} ) (.*) }xs )
+	if ( $attr_hash->{raw} =~ qr{ ^ (?: [^|]* [|] )? (.*) }xs )
 	{
-	    $input = $2;
-	    push @stack, $1;
+	    $href = $1;
 	}
 	
-	elsif ( $input =~ qr{ ^ > (.*) }xs )
+	else
 	{
-	    $input = $1;
-	    if ( $stack[-1] =~ qr{ ^ > }x ) {
-		$stack[-1] .= '>';
-	    } else {
-		push @stack, '>';
+	    $href = $attr_hash->{to} || "/$attr_hash->{section}";
+	}
+	
+	$wds->{override_text} = $href if $attr_hash->{'content-implicit'};
+	
+	my $url_gen = $wds->{options}{url_generator};
+	$href = $url_gen->($href) if $href && ref $url_gen eq 'CODE';
+	
+	my $target = '';
+	$target = qq{ target="_blank"} if $href =~ qr{ ^ https?: }xsi;
+	
+	$parser->add_output_text( qq{<a class="pod_link" href="$href"$target>} );
+    }
+    
+    elsif ( $element_name =~ qr{ ^ ( B | I | F | C | S ) $ }xs )
+    {
+	my $code = $1;
+	
+	if ( $wds->{body}[0] =~ qr{<span class="pod_(.)">$}s )
+	{
+	    my $enclosing = $1;
+	    
+	    if ( $enclosing eq 'B' && $code eq 'C' )
+	    {
+		substr($wds->{body}[0], -3, 1) = "term";
+		$wds->{no_span} = 1;
 	    }
 	    
-	    # try to reduce
-	    
-	    my $match = 0;
-	    
-	    foreach my $i (2..@stack)
+	    elsif ( $enclosing eq 'C' && $code eq 'B' )
 	    {
-		$match = $i, last if
-		    defined $stack[-$i] &&
-		    !ref $stack[-$i] &&
-		    $stack[-$i] =~ qr{ ^ [A-Z] < }x &&
-		    length($stack[-$i]) == length($stack[-1]) + 1;
+		substr($wds->{body}[0], -3, 1) = "term2";
+		$wds->{no_span} = 1;
+	    }
+	}
+	
+	else
+	{
+	    $parser->add_output_text( qq{<span class="pod_$code">} );
+	}
+    }
+    
+    elsif ( $element_name =~ qr{ ^ ( X | Z ) $ }xs )
+    {
+	unshift @{$wds->{body}}, '';
+	unshift @{$wds->{target}}, 'xz';
+    }
+    
+    elsif ( $element_name eq 'for' )
+    {
+	unshift @{$wds->{body}}, '';
+	unshift @{$wds->{target}}, $attr_hash->{target};
+	
+	if ( $element_name eq 'for' && $attr_hash->{target} eq 'wds_pod' )
+	{
+	    $wds->{for_wds_pod} = 1;
+	}
+    }
+    
+    my $a = 1;	# we can stop here when debugging
+}
+
+
+sub _handle_element_end {
+    
+    my ($parser, $element_name, $attr_hash) = @_;
+    
+    my $wds = $parser->{wds_fields};
+    
+    if ( $wds->{options}{debug} )
+    {
+	print STDERR "END $element_name";
+	
+	foreach my $k (keys %$attr_hash)
+	{
+	    print STDERR " $k=" . $attr_hash->{$k};
+	}
+	
+	print STDERR "\n";
+    }
+    
+    if ( $element_name eq 'Para' )
+    {
+	$parser->add_output_text( qq{</p>} );
+    }
+    
+    elsif ( $element_name eq 'Verbatim' )
+    {
+	$parser->add_output_text( qq{</pre>} );
+    }
+    
+    elsif ( $element_name eq 'Data' )
+    {
+	# nothing to do here -- treat contents of Data sections as regular
+	# text
+    }
+    
+    elsif ( $element_name =~ qr{ ^ head ( \d ) $ }xsi )
+    {
+	$parser->add_output_text( qq{</h$1>} );
+    }
+    
+    elsif ( $element_name =~ qr{ ^ over-(bullet|number) $ }xs )
+    {
+	my $tag = $1 eq 'bullet' ? 'ul' : 'ol';
+	$parser->add_output_text( qq{\n\n</$tag>} );
+	$wds->{listlevel}--;
+    }
+    
+    elsif ( $element_name =~ qr{ ^ item-(bullet|number) $ }xs )
+    {
+	$parser->add_output_text( qq{</li>} );
+    }
+    
+    elsif ( $element_name eq 'over-text' )
+    {
+	if ( $wds->{options}{no_tables} )
+	{
+	    $parser->add_output_text( qq{</dd>} ) if $wds->{listcol} > 1;
+	    $parser->add_output_text( qq{\n\n</dl>} );
+	}
+	
+	else
+	{
+	    $parser->add_output_text( qq{\n</td></tr>} ) if $wds->{listcol} > 0;
+	    $parser->add_output_text( qq{\n\n</table>} );
+	}
+	
+	$wds->{listlevel}--;
+	$wds->{listcol} = $wds->{listlevel} > 0 ? 2 : 0;
+	shift @{$wds->{table_def}};
+    }
+    
+    elsif ( $element_name eq 'item-text' )
+    {
+	my $item_text = shift @{$wds->{body}};
+	shift @{$wds->{target}};
+	
+	my $table_def = $wds->{table_def}[0];
+	
+	if ( ref $table_def->{columns} eq 'ARRAY' )
+	{
+	    my $last;
+	    
+	    if ( $item_text =~ qr{ (.*) \s+ [(] \s+ ( [^)]+ ) \s+ [)] }xs )
+	    {
+		$item_text = $1;
+		$last = $2;
 	    }
 	    
-	    if ( $match )
+	    my @values = split qr{ \s+ [|/] \s+ }xs, $item_text;
+	    push @values, $last if defined $last && $last ne '';
+	    
+	    if ( $table_def->{expect_subheader} )
 	    {
-		my $cn = { code => substr($stack[-$match], 0, 1) };
-		pop @stack;
-		my @content = splice @stack, -($match - 2), $match - 2;
-		pop @stack;
+		$table_def->{expect_subheader} = undef;
 		
-		if ( $cn->{code} eq 'L' && @content )
+		my $class = $wds->{listlevel} > 1 ? 'pod_th2' : 'pod_th';
+		
+		$parser->add_output_text( qq{\n\n<tr class="$class">} );
+		
+		foreach my $i ( 0 .. $table_def->{n_subs} - 1 )
 		{
-		    if ( $content[-1] =~ qr{ (.*?) \| (.*) $ }x )
+		    my $v = @values ? shift(@values) : '';
+		    $parser->add_output_text( qq{<td>$v</td>} );
+		}
+		
+		$parser->add_output_text( qq{</tr>\n\n</td></tr>\n} );
+		$wds->{listcol} = 0;
+	    }
+	    
+	    else
+	    {
+		$parser->add_output_text( qq{\n\n<tr>} );
+		
+		my @cols = @{$table_def->{columns}};
+		pop @cols;
+		
+		foreach my $col ( @cols )
+		{
+		    my $v = @values ? shift(@values) : '';
+		    my $attrs = '';
+		    
+		    if ( $wds->{pending_anchor} )
 		    {
-			$content[-1] = $1;
-			$cn->{target} = $2;
+			$attrs .= qq{ id="$wds->{pending_anchor}"};
+			$wds->{pending_anchor} = undef;
 		    }
+		    
+		    if ( $col->{term} )
+		    {
+			my $class = $wds->{listlevel} > 1 ? 'pod_term2' : 'pod_term';
+			$attrs .= qq{ class="$class"};
+		    }
+		    
 		    else
 		    {
-			$cn->{target} = $content[-1];
-			@content = ();
+			my $class = $wds->{listlevel} > 1 ? 'pod_def2' : 'pod_def';
+			$attrs .= qq{ class="$class"};
 		    }
+		    
+		    $parser->add_output_text( qq{<td$attrs>$v</td>\n} );
 		}
 		
-		if ( @content == 0 ) {
-		    $cn->{content} = '';
-		} elsif ( @content == 1 ) {
-		    $cn->{content} = $content[0];
-		} else {
-		    $cn->{content} = \@content;
-		}
-		
-		push @stack, $cn;
+		my $class = $wds->{listlevel} > 1 ? 'pod_def2' : 'pod_def';
+		$parser->add_output_text( qq{<td class="$class">} );
+		$wds->{listcol} = 2;
 	    }
-	}
-	
-	elsif ( $input =~ qr{ ^ (.+?) ( (?: [A-Z]< | > | $ ) .*) }xs )
-	{
-	    $input = $2;
-	    push @stack, $1;
 	}
 	
 	else
 	{
-	    push @stack, $input;
-	    last;
-	}
-    }
-	
-    return \@stack;
-}
-
-
-sub add_error {
-    
-    my ($self, $errmsg) = @_;
-    
-    push @{$self->{errors}}, { line_no => $self->{line_no}, msg => $errmsg };
-    
-    $self->add_node({ type => 'error', line_no => $self->{line_no}, content => $errmsg });
-}
-
-
-sub generate_html {
-
-    my ($self, $attrs) = @_;
-    
-    my $output = '';
-    my $encoding = $self->{encoding} eq 'utf8' ? 'UTF-8' : $self->{encoding};
-    my $css = $attrs->{css};
-    
-    $self->{generate_tables} = $attrs->{tables};
-    $self->{url_generator} = $attrs->{url_generator};
-    $self->{html_list_level} = 0;
-    $self->{html_expect_subhead} = 0;
-    $self->{html_stack} = ["<body>"];
-    
-    return $output unless ref $self->{body} eq 'ARRAY';
-    
-    # Start by going through the document and finding some basic information.
-    
-    unless ( $self->{html_title} )
-    {
-	foreach my $node ( @{$self->{body}} )
-	{
-	    if ( $node->{type} eq 'head' )
-	    {
-		$self->{html_title} = $self->generate_text_content($node->{content});
-		last;
-	    }
-	}
-	
-	$self->{html_title} ||= '';
-    }
-    
-    # Now add a header.
-    
-    $output .= "<html><head><title>$self->{html_title}</title>\n";
-    $output .= "<meta http-equiv=\"Content-Type\" content=\"text/html; charset=$encoding\" >\n";
-    $output .= "<link rel=\"stylesheet\" type=\"text/css\" title=\"pod_stylesheet\" href=\"$css\">\n" if $css;
-    $output .= "</head>\n\n";
-    
-    # Now the body.
-    
-    $output .= "<body class=\"pod\">\n\n";
-    $output .= "<!-- generated by Web::DataService::PodParser.pm - do not change this file, instead alter the code that produced it -->\n";
-    
-    foreach my $node ( @{$self->{body}} )
-    {
-	$output .= $self->generate_html_node($node);
-    }
-    
-    # If any error messages occurred, note this now.
-    
-    if ( ref $self->{errors} eq 'ARRAY' && @{$self->{errors}} )
-    {
-	$output .= "\n<h2>Errors occurred when generating this document.  Check the HTML source for details.</h2>\n\n";
-    }
-    
-    $output .= "\n</body>\n";
-    $output .= "</html>\n";
-    
-    return $output;
-}
-
-
-sub generate_html_node {
-
-    my ($self, $node) = @_;
-    
-    my $output = '';
-    
-    if ( $node->{type} eq 'head' )
-    {
-	my $tag = "h$node->{level}";
-	my $name = $self->generate_text_content($node->{content});
-	my $content = $self->generate_html_content($node->{content});
-	
-	$output .= "<$tag class=\"pod_heading\"><a name=\"$name\">$content</a></$tag>\n\n";
-    }
-    
-    elsif ( $node->{type} eq 'para' )
-    {
-	$output .= "<p class=\"pod_para\">" . $self->generate_html_content($node->{content}) . "</p>\n\n";
-    }
-    
-    elsif ( $node->{type} eq 'verbatim' )
-    {
-	$output .= $self->generate_html_verbatim($node);
-    }
-    
-    elsif ( $node->{type} eq 'list' )
-    {
-	$output .= $self->generate_html_list($node);
-    }
-    
-    elsif ( $node->{type} eq 'format' )
-    {
-	if ( $node->{format} eq 'html' )
-	{
-	    $output .= $self->generate_html_literal($node->{body});
-	}
-    }
-    
-    elsif ( $node->{type} eq 'error' )
-    {
-	$output .= $self->generate_html_error($node);
-    }
-    
-    else
-    {
-	$output .= "<!-- skipped node type '$node->{type}' -->\n";
-    }
-    
-    return $output;
-}
-
-
-sub generate_html_list {
-    
-    my ($self, $node) = @_;
-    
-    $self->{html_list_level}++;
-    
-    my $output = '';
-    my $in_item = 0;
-    
-    $output .= $self->generate_html_open_list($node);
-    
-    foreach my $subnode ( @{$node->{body}} )
-    {
-	if ( $subnode->{type} eq 'item' )
-	{
-	    $output .= $self->generate_html_close_item if $in_item;
-	    $output .= $self->generate_html_open_item($node, $subnode);
-	    $in_item = 1;
-	}
-	
-	elsif ( $subnode->{type} eq 'para' )
-	{
-	    $output .= $self->generate_html_para($subnode);
-	}
-	
-	elsif ( $subnode->{type} eq 'format' )
-	{
-	    if ( $subnode->{format} eq 'html' )
-	    {
-		$output .= $self->generate_html_literal($subnode->{body});
-	    }
-	}
-	
-	elsif ( $subnode->{type} eq 'verbatim' )
-	{
-	    $output .= $self->generate_html_verbatim($subnode);
-	}
-	
-	elsif ( $subnode->{type} eq 'list' )
-	{
-	    $output .= $self->generate_html_list($subnode);
-	}
-	
-	elsif ( $subnode->{type} eq 'error' )
-	{
-	    $output .= $self->generate_html_error($subnode);
-	}
-    }
-    
-    $output .= $self->generate_html_close_item if $in_item;
-    $output .= $self->generate_html_close_list;
-    $self->{html_list_level}--;
-    return $output;
-}
-
-
-
-sub generate_html_open_list {
-
-    my ($self, $node) = @_;
-    
-    my $class = $self->{html_list_level} > 1 ? "pod_list2" : "pod_list";
-    
-    if ( $self->{generate_tables} && $node->{list_type} ne '*' )
-    {
-	push @{$self->{html_stack}}, "<table>";
-	my $output = "<table class=\"$class\">\n";
-	
-	if ( ref $node->{column_spec} eq 'ARRAY' )
-	{
-	    $self->configure_html_list($node, @{$node->{column_spec}});
-	    $output .= $self->generate_html_list_header($node) unless $node->{no_header};
-	}
-	
-	return $output;
-    }
-    
-    elsif ( $node->{list_type} eq '*' )
-    {
-	push @{$self->{html_stack}}, "<ul>";
-	return "<ul class=\"$class\">\n";
-    }
-    
-    else
-    {
-	push @{$self->{html_stack}}, "<dl>";
-	return "<dl class=\"$class\">\n";
-    }
-}
-
-
-sub generate_html_close_list {
-
-    my ($self) = @_;
-
-    if ( $self->{html_stack}[-1] eq "<table>" )
-    {
-	$self->{html_first_item} = 0;
-	pop @{$self->{html_stack}};
-	return "</table>\n\n";
-    }
-    
-    elsif ( $self->{html_stack}[-1] eq "<ul>" )
-    {
-	pop @{$self->{html_stack}};
-	return "</ul>\n\n";
-    }
-    
-    else
-    {
-	pop @{$self->{html_stack}};
-	return "</dl>\n\n";
-    }
-}
-
-
-sub configure_html_list {
-
-    my ($self, $node, @headcol) = @_;
-    
-    $node->{heads} = [];
-    $node->{subhead_count} = 0;
-    $node->{columns} = [];
-    
-    my $has_subhead = 0;
-    
-    foreach my $col (@headcol)
-    {
-	my $span = undef;
-	my $cols = 1;
-	my $term = 0;
-	
-	my $column_rec = {};
-	
-	if ( $col =~ qr{ ^ (.*) / (\d+) $ }x )
-	{
-	    $col = $1;
-	    if ( $2 > 1 )
-	    {
-		$span = $2;
-		$cols = $2;
-		$node->{subhead_count} += $2;
-	    }
-	}
-	
-	if ( $col =~ qr{ (.*) \* $ }x )
-	{
-	    $col = $1;
-	    $column_rec->{term} = 1;
-	}
-	
-	if ( $col =~ qr{ (.*) !anchor\(([^)]+)\) $ }x )
-	{
-	    $col = $1;
-	    $column_rec->{anchor} = $2;
-	}
-	
-	my $head_rec = { name => $col, span => $span };
-	
-	push @{$node->{heads}}, $head_rec;
-	push @{$node->{columns}}, $column_rec foreach (1..$cols);
-    }
-}
-
-
-sub generate_html_list_header {
-
-    my ($self, $node) = @_;
-    
-    my $thclass = $self->{html_list_level} > 1 ? 'pod_th2' : 'pod_th';
-    my $output .= "<tr class=\"$thclass\">";
-    
-    foreach my $col ( @{$node->{heads}} )
-    {
-	if ( $col->{span} )
-	{
-	    $output .= "<td colspan=$col->{span}>$col->{name}</td>";
-	}
-	
-	elsif ( $node->{subhead_count} )
-	{
-	    $output .= "<td rowspan=2>$col->{name}</td>";
-	}
-	
-	else
-	{
-	    $output .= "<td>$col->{name}</td>";
-	}
-    }
-    
-    $self->{expect_subhead} = 1 if $node->{subhead_count};
-    
-    $output .= "</tr>\n\n";
-    return $output;
-}
-
-
-sub generate_html_open_item {
-    
-    my ($self, $list_node, $node) = @_;
-    
-    my $termclass = $self->{html_list_level} > 1 ? "pod_term2" : "pod_term";
-    my $defclass = $self->{html_list_level} > 1 ? "pod_def2" : "pod_def";
-    
-    if ( $self->{html_stack}[-1] eq "<table>" )
-    {
-	my $thclass = $self->{html_list_level} > 1 ? "pod_th2" : "pod_th";
-	
-	unless ( ref $list_node->{heads} eq 'ARRAY' )
-	{
-	    my $content = $self->generate_html_content($node->{content});
-	    return "<tr><td class=\"$termclass\">$content</td>\n<td class=\"$defclass\">"
-	}
-	
-	my $text = $self->generate_html_content($node->{content});
-	$text =~ s/ \)$//;
-	
-	my @fields = split qr{ [()/|] }, $text;
-	
-	if ( $self->{expect_subhead} )
-	{
-	    $self->{expect_subhead} = 0;
+	    my $termclass = $wds->{listlevel} > 1 ? 'pod_term2' : 'pod_term';
+	    my $defclass = $wds->{listlevel} > 1 ? 'pod_def2' : 'pod_def';
+	    my $attrs = ''; $attrs .= qq{ class="$termclass"};
 	    
-	    my $output = "<tr class=\"$thclass\">";
-	    
-	    foreach my $i (0..$list_node->{subhead_count}-1)
+	    if ( $wds->{pending_anchor} )
 	    {
-		my $text = $fields[$i] || '';
-		$output .= "<td>$text</td>";
+		$attrs .= qq{ id="$wds->{pending_anchor}"};
+		$wds->{pending_anchor} = undef;
 	    }
 	    
-	    $output .= "</tr>\n\n";
-	    return $output;
-	}
-	
-	else
-	{
-	    my $output = "<tr>";
-	    
-	    foreach my $i (0..$#{$list_node->{columns}}-1)
+	    if ( $wds->{options}{no_tables} )
 	    {
-		my $text = $fields[$i] || '';
-		my $col = $list_node->{columns}[$i];
-		my $class = $col->{term} ? $termclass : $defclass;
-		$text = $self->generate_html_anchor($text, $col->{anchor}) if $col->{anchor};		
-		$output .= "<td class=\"$class\">$text</td>";
-	    }
-	    
-	    $output .= "\n<td class=\"$defclass\">";
-	    return $output;
-	}
-    }
-    
-    elsif (  $self->{html_stack}[-1] eq "<ul>" )
-    {
-	return "<li class=\"$defclass\">"
-    }
-    
-    else
-    {
-	my $content = $self->generate_html_content($node->{content});
-	return "<dt class=\"$termclass\">$content</dt><dd class=\"$defclass\">\n";
-    }
-}
-
-
-sub generate_html_close_item {
-    
-    my ($self) = @_;
-    
-    if ( $self->{html_stack}[-1] eq "<table>" )
-    {
-	return "</td></tr>\n\n"
-    }
-    
-    elsif ( $self->{html_stack}[-1] eq "<ul>" )
-    {
-	return "</li>\n"
-    }
-    
-    else
-    {
-	return "</dd>\n";
-    }
-}
-
-
-sub generate_html_para {
-
-    my ($self, $node) = @_;
-    
-    my $output = "<p class=\"pod_para\">";
-    $output .= $self->generate_html_content($node->{content});
-    $output .= "</p>\n";
-    
-    return $output;
-}
-
-
-sub generate_html_verbatim {
-    
-    my ($self, $node) = @_;
-    
-    my $output = "<pre class=\"pod_verbatim\">";
-    $output .= $self->generate_text_content($node->{content});
-    $output .= "</pre>\n";
-}
-
-
-my (%SUBST) = (
-    '<' => '&lt;',
-    '>' => '&gt;',
-    '&' => '&amp;',
-    '"' => '&quot;',
-    "'" => '&apos;',
-);
-
-
-sub generate_html_content {
-
-    my ($self, $content) = @_;
-    
-    return unless defined $content;
-    
-    unless ( ref $content )
-    {
-	$content =~ s{ ([<>&"']) }{$SUBST{$1}}xg;
-	return $content;
-    }
-    
-    elsif ( ref $content eq 'ARRAY' )
-    {
-	my $output = '';
-	
-	foreach my $subnode ( @$content )
-	{
-	    $output .= $self->generate_html_content($subnode);
-	}
-	
-	return $output;
-    }
-    
-    elsif ( ref $content eq 'HASH' )
-    {
-	my $code = $content->{code};
-	my $subcontent = $self->generate_html_content($content->{content}) // '';
-	my $href = $content->{target} || $content->{content} || '';
-	
-	if ( $code eq 'L' )
-	{
-	    # URIs of the form "node:..." or "path:..." are turned into site-relative
-	    # URLs.
-	    
-	    if ( $href =~ qr{ ^ (?: node|op|path ) (abs|rel|site )? [:] (.*) }xs )
-	    {
-		my $target = $self->{url_generator}->($href) // '';
-		my $blank = defined $1 && $1 eq 'abs' ? 'target="_blank"' : '';
-		my $path = defined $2 && $2 ne '' ? $2 : 'BAD';
-		$subcontent ||= $path;
-		return qq{<a class="pod_link" ${blank}href="$target">$subcontent</a>};
+		$parser->add_output_text( qq{\n\n<dt$attrs>$item_text</dt>\n<dd class="$defclass">} );
 	    }
 	    
 	    else
 	    {
-		my $window = $href =~ qr{ ^ \w+ : }xs ? 'target="_blank"' : '';
-		$subcontent ||= $href;
-		return qq{<a class="pod_link" $window href="$href">$subcontent</a>};
+		$parser->add_output_text( qq{\n\n<tr><td$attrs>$item_text</td>\n<td class="$defclass">} );
+	    }
+	    
+	    $wds->{listcol} = 2;
+	}
+    }
+    
+    elsif ( $element_name eq 'L' )
+    {
+	$parser->add_output_text( qq{</a>} );
+	$wds->{override_text} = undef;
+    }
+    
+    elsif ( $element_name =~ qr{ ^ ( B | I | F | C | S ) $ }xs )
+    {
+	if ( $wds->{no_span} )
+	{
+	    $wds->{no_span} = undef;
+	}
+	
+	else
+	{
+	    $parser->add_output_text( qq{</span>} );
+	}
+    }
+    
+    elsif ( $element_name =~ qr{ ^ ( X | Z ) $ }xs )
+    {
+	shift @{$wds->{body}};
+	shift @{$wds->{target}};
+    }
+    
+    elsif ( $element_name eq 'for' )
+    {
+	my $body = shift @{$wds->{body}};
+	my $target = shift @{$wds->{target}};
+	
+	if ( $target eq 'wds_title' )
+	{
+	    $wds->{title} = $body;
+	}
+	
+	elsif ( $target eq 'wds_anchor' )
+	{
+	    $wds->{pending_anchor} = $body;
+	}
+	
+	elsif ( $target =~ qr{ ^ wds_table_ (no_)? header $ }xs )
+	{
+	    $wds->{table_no_header} = 1 if $1;
+	    my @columns = split qr{ \s+ [|] \s+ }xs, $body;
+	    $wds->{pending_columns} = \@columns;
+	    $wds->{header_source_line} = $attr_hash->{start_line};
+	}
+	
+	elsif ( $target =~ qr{ ^ [:]? wds_nav $ }xs )
+	{
+	    $parser->add_output_text( $body );
+	}
+	
+	elsif ( $target eq 'wds_pod' )
+	{
+	    if ( lc $body eq 'on' )
+	    {
+		if ( $wds->{suppress_pod} )
+		{
+		    my $line = $wds->{suppress_line};
+		    push @{$wds->{errors}}, [ $attr_hash->{start_line}, "you already turned 'wds_pod' on at line '$line'" ];
+		}
+		
+		else
+		{
+		    $wds->{suppress_pod} = 1;
+		    $wds->{suppress_line} = $attr_hash->{start_line};
+		    $wds->{suppress_output}++;
+		}
+	    }
+	    
+	    elsif ( lc $body eq 'off' )
+	    {
+		$wds->{suppress_pod} = undef;
+		$wds->{suppress_line} = undef;
+		$wds->{suppress_output}-- if $wds->{suppress_output};
+	    }
+	    
+	    else
+	    {
+		push @{$wds->{errors}}, [ $attr_hash->{start_line}, "unrecognized value '$body' for target 'wds_pod'" ];
+	    }
+	    
+	    $wds->{for_wds_pod} = undef;
+	}
+	
+	elsif ( $target eq 'html' )
+	{
+	    my $url_gen = $wds->{options}{url_generator};
+	    
+	    if ( ref $url_gen eq 'CODE' )
+	    {
+		$body =~ s{ href=" ([^"]+) " }{ 'href="' . $url_gen->($1) . '"' }xsie;
+	    }
+	    
+	    $parser->add_output_text( $body );
+	}
+	
+	elsif ( $target eq 'comment' || $target eq 'wds_comment' )
+	{
+	    # ignore content
+	}
+	
+	else
+	{
+	    push @{$wds->{errors}}, [ $attr_hash->{start_line}, "unrecognized target '$target'" ];
+	}
+    }
+    
+    my $a = 1;	# we can stop here when debugging
+}
+
+
+our (%HTML_ENTITY) = ( '<' => '&lt;', '>' => '&gt;' );
+
+sub _handle_text {
+    
+    my ($parser, $text) = @_;
+    
+    my $wds = $parser->{wds_fields};
+    
+    if ( $wds->{options}{debug} )
+    {
+	print STDERR "TEXT $text\n";
+    }
+    
+    if ( defined $wds->{override_text} )
+    {
+	$text = $wds->{override_text};
+	$wds->{override_text} = undef;
+    }
+    
+    unless ( $wds->{target}[0] eq 'html' )
+    {    
+	$text =~ s/([<>])/$HTML_ENTITY{$1}/ge;
+    }
+    
+    $parser->add_output_text( $text );
+}
+
+
+sub add_output_text {
+    
+    my $wds = $_[0]{wds_fields};
+    
+    return if $wds->{suppress_output} and @{$wds->{body}} == 1;
+    
+    $wds->{body}[0] .= $_[1];
+}
+
+
+sub error_output {
+    
+    my ($parser) = @_;
+    
+    my $wds = $parser->{wds_fields};
+    
+    my $error_output = '';
+    my @error_lines;
+    
+    foreach my $error ( @{$wds->{errors}} )
+    {
+	push @error_lines, qq{<li>Line $error->[0]: $error->[1]</li>\n};
+    }
+    
+    my $errata = $parser->errata_seen;
+    
+    if ( ref $errata eq 'HASH' && %$errata )
+    {
+	my @lines = sort { $a <=> $b } keys %$errata;
+	
+	foreach my $line ( @lines )
+	{
+	    foreach my $message ( @{$errata->{$line}} )
+	    {
+		next if $message =~ qr{ alternative \s text .* non-escaped \s [|] }xs;
+		
+		push @error_lines, qq{<li> line $line: $message</li>\n};
 	    }
 	}
-	
-	elsif ( $code eq 'I' or $code eq 'F' )
-	{
-	    return "<em>" . $subcontent . "</em>";
-	}
-	
-	elsif ( $code eq 'B' )
-	{
-	    return "<strong>" . $subcontent . "</strong>";
-	}
-	
-	elsif ( $code eq 'C' )
-	{
-	    return "<tt>" . $subcontent . "</tt>";
-	}
-	
-	elsif ( $code eq 'E' )
-	{
-	    return "&$subcontent;";
-	}
     }
-}
-
-
-sub generate_html_anchor {
     
-    my ($self, $content, $prefix) = @_;
-    
-    return $content if $self->{anchor_hash}{$content};
-    $self->{anchor_hash}{$content} = 1;
-    
-    $prefix //= '';
-    
-    return qq{<a name="$prefix$content">$content</a>};
-}
-
-
-sub generate_text_content {
-
-    my ($self, $content) = @_;
-    
-    unless ( ref $content )
+    if ( @error_lines )
     {
-	$content =~ s{ ([<>&"']) }{$SUBST{$1}}xg;
-	return $content;
+	$error_output .= "<h2 class=\"pod_errors\">Errors were found in the source for this page:</h2>\n\n<ul>\n";
+	$error_output .= $_ foreach @error_lines;
+	$error_output .= "</ul>\n\n";
     }
     
-    elsif ( ref $content eq 'ARRAY' )
-    {
-	my $output = '';
-	
-	foreach my $subnode ( @$content )
-	{
-	    my $suboutput = $self->generate_text_content($subnode);
-	    $output .= $suboutput if defined $suboutput;
-	}
-	
-	return $output;
-    }
-    
-    elsif ( ref $content eq 'HASH' )
-    {
-	my $code = $content->{code};
-	
-	if ( $code eq 'L' )
-	{
-	    return $content->{text};
-	}
-	
-	elsif ( $code eq 'I' or $code eq 'F' or $code eq 'C' or $code eq 'B' )
-	{
-	    return $self->generate_text_content($content->{content});
-	}
-	
-	elsif ( $code eq 'E' )
-	{
-	    return "&$content->{content};";
-	}
-    }
+    return $error_output;
 }
 
 
-sub generate_html_literal {
-
-    my ($self, $body) = @_;
+sub output {
     
-    my $output = '';
+    my ($parser) = @_;
     
-    foreach my $subnode ( @$body )
+    my $wds = $parser->{wds_fields};
+    
+    my $header = $wds->{options}{html_header};
+    my $footer = $wds->{options}{html_footer};
+    
+    my $encoding = $parser->detected_encoding() || 'ISO-8859-1';
+    my $css = $wds->{options}{css};
+    
+    # If no html header was provided, generate a default one.
+    
+    unless ( $header )
     {
-	$output .= $subnode->{content};
+	$header  = "<html><head>";
+	$header .= "<title>$wds->{title}</title>" if defined $wds->{title} && $wds->{title} ne '';
+	$header .= "\n";
+	$header .= "<meta http-equiv=\"Content-Type\" content=\"text/html; charset=$encoding\" >\n";
+	$header .= "<link rel=\"stylesheet\" type=\"text/css\" title=\"pod_stylesheet\" href=\"$css\">\n" if $css;
+	$header .= "</head>\n\n";
+	
+	$header .= "<body class=\"pod\">\n\n";
+	$header .= "<!-- generated by Web::DataService::PodParser.pm - do not change this file, instead alter the code that produced it -->\n";
     }
     
-    return $output
+    # If errors occurred, list them now.
+    
+    my $error_output = $parser->error_output;
+    
+    # If no html footer was provided, generate a default one.
+    
+    unless ( $footer )
+    {
+	$footer  = "\n</body>\n";
+	$footer .= "</html>\n";
+    }
+    
+    return $header . $parser->{wds_fields}{body}[0] . $error_output . $footer;
 }
 
-
-sub generate_html_error {
-
-    my ($self, $node) = @_;
-    
-    my $line = $node->{line_no} ? " at line $node->{line_no}" : "";
-    
-    return "\n<!-- ERROR$line: $node->{content} -->\n\n";
-}
 
 1;
 

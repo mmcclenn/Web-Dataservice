@@ -174,7 +174,9 @@ sub generate_doc {
 	    }
 	};
 	
-	# If POD format was requested, return the documentation as is.
+	# If Pod format was requested, return the documentation as is.  The
+	# only change we need to make is to convert our special link syntax to
+	# standard Pod syntax.
 	
 	if ( defined $format && $format eq 'pod' )
 	{
@@ -186,18 +188,16 @@ sub generate_doc {
 	
 	else
 	{
-	    my $parser = Web::DataService::PodParser->new();
-	    
-	    $parser->parse_pod($doc_string);
-	    
 	    my $stylesheet = $ds->node_attr($path, 'doc_stylesheet') || 
 		$ds->generate_site_url({ path => 'css/dsdoc.css' });
 	    
-	    my $doc_html = $parser->generate_html({ css => $stylesheet, tables => 1,
-						    url_generator => $url_generator });
+	    my $parser = Web::DataService::PodParser->new({ css => $stylesheet, debug => 1,
+							    url_generator => $url_generator });
+	    
+	    $parser->parse_string_document($doc_string);
 	    
 	    $ds->_set_content_type($request, 'text/html');
-	    return $doc_html;
+	    return $parser->output;
 	}
     }
     
