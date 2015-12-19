@@ -329,26 +329,32 @@ sub _handle_element_start {
     {
 	my $code = $1;
 	
-	if ( $wds->{body}[0] =~ qr{<span class="pod_(.)">$}s )
+	my $tag = 'span';
+	# $tag = 'strong' if $element_name eq 'B';
+	# $tag = 'em' if $element_name eq 'I';
+	# $tag = 'code' if $element_name eq 'C';
+	
+	if ( $wds->{body}[0] =~ qr{<(?:span|strong|em|code) class="pod_(.)">$}s )
 	{
 	    my $enclosing = $1;
 	    
 	    if ( $enclosing eq 'B' && $code eq 'C' )
 	    {
-		substr($wds->{body}[0], -3, 1) = "term";
+		$wds->{body}[0] =~ s{<[^>]+>$}{<span class="pod_term">}s;
+		#substr($wds->{body}[0], -3, 1) = "term";
 		$wds->{no_span} = 1;
 	    }
 	    
 	    elsif ( $enclosing eq 'C' && $code eq 'B' )
 	    {
-		substr($wds->{body}[0], -3, 1) = "term2";
+		$wds->{body}[0] =~ s{<[^>]+>$}{<span class="pod_term2">}s;
 		$wds->{no_span} = 1;
 	    }
 	}
 	
 	else
 	{
-	    $parser->add_output_text( qq{<span class="pod_$code">} );
+	    $parser->add_output_text( qq{<$tag class="pod_$code">} );
 	}
     }
     
