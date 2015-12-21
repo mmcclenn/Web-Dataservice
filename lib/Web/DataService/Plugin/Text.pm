@@ -86,7 +86,7 @@ sub emit_header {
 	$output .= $class->emit_line($request, "Elapsed Time", sprintf("%.3g", $request->{elapsed}));
 	$output .= $class->emit_line($request, "Records Found", $counts->{found});
 	$output .= $class->emit_line($request, "Records Returned", $counts->{returned});
-	$output .= $class->generate-line($request, "Record Offset", $counts->{offset})
+	$output .= $class->emit_line($request, "Record Offset", $counts->{offset})
 	    if defined $counts->{offset} && $counts->{offset} > 0;
     }
     

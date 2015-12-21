@@ -1,7 +1,8 @@
 # 
-# DataService::Output
+# Web::DataService::Output
 # 
-# 
+# This module provides a role that is used by 'Web::DataService'.  It implements
+# routines for configuring and generating data service output.
 # 
 # Author: Michael McClennen
 
@@ -42,6 +43,20 @@ sub define_block {
     elsif ( not $ds->valid_name($name) )
     {
 	croak "define_block: invalid block name '$name'";
+    }
+    
+    # Make sure the block name is unique.
+    
+    if ( $ds->{block}{$name} )
+    {
+	my $location = $ds->{block_loc}{$name};
+	croak "define_block: '$name' was already defined at $location\n";
+    }
+    
+    else
+    {
+	my ($package, $filename, $line) = caller;
+	$ds->{block_loc}{$name} = "$filename at line $line";
     }
     
     # Create a new block object.
@@ -2099,7 +2114,21 @@ sub _stream_compound_result {
     
     my $footer = $format_class->emit_footer($request);
     
-    $writer->write( encode_utf8($footer) ) if defined $footer and $footer ne '';
+    unless ( defined $footer and $footer ne '' )
+    {
+	# do nothing
+    }
+    
+    elsif ( $output_charset && $format_is_text )
+    {
+	$writer->write( encode($output_charset, $footer) );
+    }
+    
+    else
+    {
+	$writer->write( $footer );
+    }
+    
     $writer->close();
 }
 

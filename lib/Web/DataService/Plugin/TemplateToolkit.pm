@@ -69,6 +69,7 @@ sub new_engine {
     unshift @include_list, $attrs->{template_dir};
     
     $engine_attrs->{INCLUDE_PATH} = \@include_list;
+    $engine_attrs->{COMPILE_DIR} = $attrs->{compile_dir} if $attrs->{compile_dir};
     
     # Then create a template engine.
     

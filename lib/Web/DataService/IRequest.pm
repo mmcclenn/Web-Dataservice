@@ -204,7 +204,8 @@ sub param_keys {
     
     my ($request) = @_;
     
-    return $request->{valid}->keys();
+    return $request->{valid}->keys() if $request->{valid};
+    return;
 }
 
 
