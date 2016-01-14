@@ -56,15 +56,7 @@ our (%DIAG_PARAM) = ( show => 1, splat => 1 );
 #     
 #     The following additional parameters are available:
 #     
-#     allnodes = 1
-#         
-#         Include all nodes defined for the data service selected by the path
-#         argument.  This can be used to include nodes that are not linked
-#         from the root node, i.e. undocumented functionality.  This can also
-#         be used to detect nodes that are not linked from the root node but
-#         should be.
-#     
-#    node = <pattern>
+#     node = <pattern>
 #    
 #         Only include nodes whose path matches the specified string, which
 #         may contain the standard shell wildcards * and ?.  You can use this
@@ -419,7 +411,7 @@ sub diag_generate_regex {
 }
 
 
-our (%DIGEST_PARAM) = ( node => 1, allnodes => 1 );
+our (%DIGEST_PARAM) = ( node => 1 );
 
 # diagnostic_digest ( request, params )
 # 
@@ -459,32 +451,14 @@ sub diagnostic_digest {
 	$digest->{_node_query} = $params->{node};
     }
     
-    # If the allnodes parameter was specified, then search the entire set of
-    # nodes defined for the selected data service.  In this case, there will
-    # be no need to recursively search added nodes.
+    # Add all of the nodes defined for this data service.
     
-    if ( exists $params->{allnodes} && ( ! defined $params->{allnodes} || $params->{allnodes} ne '0' ) )
+    foreach my $p ( sort keys %{$ds->{node_attrs}} )
     {
-	$digest->{_allnodes} = 1;
-	
-	print STDERR "Scanning all nodes.\n";
-	
-	foreach my $p ( sort keys %{$ds->{node_attrs}} )
-	{
-	    $ds->diag_add_node($digest, $p);
-	}
+	$ds->diag_add_node($digest, $p);
     }
     
-    # Otherwise, we just add the selected node and recursively search for
-    # nodes linked from it.
-    
-    else
-    {
-	$ds->diag_add_node($digest, $path);
-    }
-    
-    # In either case, add a record to record some values from the data service
-    # object. 
+    # Add values from the data service object.
     
     $ds->diag_add_ds_obj($digest);
     
@@ -557,15 +531,6 @@ sub diag_add_node {
     
     if ( ref $digest->{node_query} eq 'Regexp' && $path !~ $digest->{node_query} )
     {
-	# Unless we are scanning all of the nodes, recursively search the
-	# subnodes of a failed match because some of them might match the
-	# query path.
-	
-	$ds->diag_add_subnodes($digest, $path) unless $digest->{_allnodes};
-	
-	# In any case, we are done with this node because it does not match
-	# the query path.
-	
 	return;
     }
     
@@ -662,11 +627,6 @@ sub diag_add_node {
     {
 	$ds->diag_add_error($digest, "node '$path'", "no ruleset defined for this node");
     }
-    
-    # Now recursively add all nodes listed under the 'node_list' for this
-    # path.
-    
-    $ds->diag_add_subnodes($digest, $path) unless $digest->{_allnodes};
 }
 
 
