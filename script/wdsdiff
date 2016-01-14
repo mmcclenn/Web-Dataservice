@@ -1,0 +1,1037 @@
+#!/usr/bin/env perl
+# 
+# wdsdiff - report the differences between two data service versions
+
+use strict;
+
+use Getopt::Long;
+use Pod::Usage;
+use Carp qw(carp croak);
+
+use YAML qw(LoadFile);
+
+use Web::DataService;
+
+our ($VERSION) = '1.0';
+
+my ($show_version, $show_help, $show_man);
+my (%diff_opts);
+
+my $options = GetOptions (
+	# Application-specific options
+	'ds' => \$diff_opts{'diff_ds'},
+	'dirs' => \$diff_opts{'diff_dirs'},
+	'pages' => \$diff_opts{'diff_pages'},
+	'ops' => \$diff_opts{'diff_ops'},
+	'nodes' => \$diff_opts{'diff_nodes'},
+	'params' => \$diff_opts{'diff_params'},
+	'blocks' => \$diff_opts{'diff_blocks'},
+	'fields' => \$diff_opts{'diff_fields'},
+	'all' => \$diff_opts{'diff_all'},
+		
+	'specials' => \$diff_opts{'diff_specials'},
+	'vocabs' => \$diff_opts{'diff_vocabs'},
+	'formats' => \$diff_opts{'diff_formats'},
+	'node' => \$diff_opts{'node_pattern'},
+	
+	'comp' => \$diff_opts{'diff_comp'},
+	
+	# Standard meta-options
+	'version' => \$show_version,
+	'help' => \$show_help,
+	'man' => \$show_man,
+	);
+
+&print_version && exit(0) if $show_version;
+pod2usage(-exitval => 2, -verbose => 0) unless $options;
+pod2usage(-exitval => 1, -verbose => 0) if $show_help;
+pod2usage(-exitval => 0, -verbose => 2) if $show_man;
+
+&check_requirements;
+
+our $LFT = '+++';
+our $RGT = '---';
+our $DIF = '!!!';
+our $IND = '    ';
+
+our @FORMAT_ATTRS = ( 'content_type', 'default_vocab', 'disposition',
+		      'doc_node', 'is_text', 'module', 'package',
+		      'title', 'uses_header', 'undocumented', 'disabled' );
+
+our @VOCAB_ATTRS = ( 'title', 'use_field_names', 'undocumented', 'disabled' );
+
+our @NODE_ATTRS = ( 'title', 'method', 'arg', 'undocumented', 'disabled' );
+
+
+if ( $diff_opts{'diff_comp'} )
+{
+    $LFT = '<<<';
+    $RGT = '>>>';
+}
+
+my $engine = Web::DataService::DiffEngine->new( %diff_opts );
+
+unless ( @ARGV )
+{
+    die "You must specify at least one file containing a data service digest.\n";
+}
+
+if ( @ARGV > 2 )
+{
+    die "Too many arguments.  You may specify at most two filenames.\n";
+}
+
+$engine->{left_name} = shift @ARGV;
+$engine->{right_name} = shift @ARGV;
+
+
+$engine->{left} = $engine->read_digest($engine->{left_name});
+$engine->{right} = $engine->read_digest($engine->{right_name});
+
+unless ( ref $engine->{right} eq 'HASH' )
+{
+    $LFT = '';
+    $IND = '   ';
+}
+
+$engine->generate_diff();
+
+exit(0);
+
+
+sub print_version {
+    
+    print "$VERSION\n";
+}
+
+
+sub check_requirements {
+
+    my $diff_available;
+    
+    eval { require "Algorithm/Diff.pm"; $diff_available = 1; };
+    
+    unless ( $diff_available )
+    {
+	die "You must install the module Algorithm::Diff in order to use this command.\n";
+    }
+}
+
+
+package Web::DataService::DiffEngine;
+
+
+# new ( attrs )
+# 
+# Create a new instance and initialize its attributes.  This is sloppy code.
+
+sub new {
+    
+    my $class = shift;
+    
+    my (%attrs) = @_;
+    
+    my $diff = { options => \%attrs };
+    
+    $attrs{diff_ops} = 1 if $attrs{diff_params} || $attrs{diff_blocks} || $attrs{diff_fields};
+    
+    return bless $diff, $class;
+}
+
+
+# read_digest ( filename )
+# 
+# Attempt to read a digest from the specified file, and add it to the
+# set of files to be processed. 
+
+sub read_digest {
+
+    my ($diff, $filename) = @_;
+    
+    return undef unless $filename;
+    
+    # Read the contents of the specified file.  They might consist of multiple
+    # digests appended to each other.
+    
+    my (@decoded_streams) = YAML::LoadFile($filename);
+    
+    # Condense these into a single digest, or throw an error if they are
+    # incompatible (i.e. if they came from different data services).
+    
+    my $digest = $engine->check_and_condense($filename, @decoded_streams);
+    
+    # Do some processing
+    
+    $engine->process_digest($digest);
+    
+    # Return the data structure.
+    
+    return $digest;
+}
+
+
+# check_and_condense ( filename, @elements )
+# 
+# Check the list of digest elements (each decoded from a YAML stream, there
+# may be multiple streams in the input file) and make sure that it actually
+# describes parts of a Web::DataService instance.  Condense all of these parts
+# together into a single digest that can be analyzed and diffed.
+# 
+# For example, somebody may dump two or more sets of nodes from a single data
+# service instance, appended to the same file.  This function needs to be able
+# to read and make sense of that.
+
+sub check_and_condense {
+    
+    my ($engine, $filename, @elements) = @_;
+    
+    # If we only got a single hash, just return that if it has the relevant
+    # keys in it and throw an error otherwise.
+    
+    if ( @elements == 1 )
+    {
+	die "$filename: not a digest of a Web::DataService instance\n"
+	    unless $elements[0]{ds}{name};
+	
+	return $elements[0];
+    }
+    
+    # Otherwise, we have to condense multiple digests into one.  In general,
+    # our rule will be that subsequent data replaces earlier data.  This is
+    # because coming later in the file means it was generated more recently
+    # and is thus more up-to-date.  However, if users are going to make
+    # multiple diagnostic dumps of a single instance, they really ought to do
+    # this on a single occasion in which case the order shouldn't matter.
+    
+    # At any rate, start with the first digest in the list.
+    
+    my $condensed = shift @elements;
+    my $name = $condensed->{ds}{name};
+    my $version = $condensed->{ds}{version};
+    
+    # It had better have a data service name defiend, at least.
+    
+    die "$filename: not a digest of a Web::DataService instance\n"
+	unless defined $name && $name ne '';
+    
+    # Go through the second and subsequent digests, condensing them into the
+    # first one.
+    
+    while ( my $new = shift @elements )
+    {
+	my $new_name = $new->{ds}{name};
+	my $new_version = $new->{ds}{version};
+	
+	# If the new element does not have the same name or version as the
+	# previous one, reject the whole thing for inconsistency.  Note that
+	# we know that $name is defined because we already checked it above.
+	
+	unless ( defined $new_name && $new_name eq $name )
+	{
+	    die "$filename: inconsistent data service names: '$name', '$new_name'\n";
+	}
+	
+	# It's okay if the versions are both undefined, but not if they are
+	# different. 
+	
+	unless ( defined $version && defined $new_version && $version eq $new_version )
+	{
+	    if ( not defined $version && not defined $new_version )
+	    {
+		print STDERR "$filename: no version strings were found\n";
+	    }
+	    
+	    else
+	    {
+		die "$filename: inconsistent data service versions: '$version', '$new_version'\n";
+	    }
+	}
+	
+	# If we get here, we assume that everything is okay and consistent.
+	# Now, for each of the major sections, copy all subkeys from the new
+	# one into the first, replacing any existing data.
+	
+	foreach my $section ( qw(ds node block ruleset set) )
+	{
+	    if ( ref $new->{$section} eq 'HASH' )
+	    {
+		foreach my $k ( keys %{$new->{ds}} )
+		{
+		    $condensed->{$section}{$k} = $new->{$section}{$k};
+		}
+	    }
+	}
+	
+	# Errors should be appended, not replaced.
+	
+	if ( ref $new->{errors} eq 'HASH' && keys %{$new->{errors}} > 0 )
+	{
+	    $condensed->{errors} ||= { };
+	    
+	    unless ( ref $condensed->{errors} eq 'HASH' )
+	    {
+		my $old = $condensed->{errors};
+		$condensed->{errors} = { unclassified => $condensed->{errors} };
+	    }
+	    
+	    foreach my $key ( keys %{$new->{errors}} )
+	    {
+		my @messages = ref $new->{errors}{$key} eq 'ARRAY' ?
+		    @{$new->{errors}{$key}} : $new->{errors}{$key};
+		push @{$condensed->{errors}{$key}}, @messages;
+	    }
+	}
+    }
+    
+    # Now return the condensed digest.
+    
+    return $condensed;
+}
+
+
+sub process_digest {
+    
+    my ($diff, $digest) = @_;
+    
+    my $specials = $digest->{ds}{special};
+    
+    if ( ref $specials eq 'HASH' )
+    {
+	foreach my $k ( %$specials )
+	{
+	    my $local_name = $specials->{$k} || $k;
+	    $digest->{_spec_param}{$local_name} = 1;
+	}
+    }
+}
+
+
+sub generate_diff {
+
+    my ($diff) = @_;
+    
+    # debug here
+    
+    # $DB::single = 1;
+    
+    die "Nothing to diff.\n" unless ref $diff->{left} eq 'HASH';
+    
+    my $options = $diff->{options};
+    my $output = '';
+    
+    $diff->{right} ||= {};
+    
+    $output .= $diff->diff_header($diff->{left}, $diff->{left_name}, $diff->{right}, $diff->{right_name});
+    $output .= $diff->diff_specials($diff->{left}, $diff->{right})
+	if $options->{diff_specials} || $options->{diff_ds} || $options->{diff_all};
+    $output .= $diff->diff_vocabs($diff->{left}, $diff->{right})
+	if $options->{diff_vocabs} || $options->{diff_ds} || $options->{diff_all};
+    $output .= $diff->diff_formats($diff->{left}, $diff->{right})
+	if $options->{diff_formats} || $options->{diff_ds} || $options->{diff_all};
+    
+    if ( $options->{diff_nodes} || $options->{diff_ops} || $options->{diff_dirs} || 
+	 $options->{diff_pages} || $options->{diff_params} || $options->{diff_fields} ||
+	 $options->{diff_all} )
+    {
+	$output .= $diff->diff_nodes($diff->{left}, $diff->{right}, $options);
+	# $diff->scan_node_tree($diff->{left}, '/');
+	# $diff->scan_node_tree($diff->{right}, '/');
+	# $diff->diff_extra_nodes(); # $$$
+    }
+    
+    $DB::single = 1;
+    
+    my $a = 1;
+    my $b = 2;
+    my $c = 3;
+    
+    print $output;
+}
+
+
+sub diff_header {
+
+    my ($diff, $left, $left_name, $right, $right_name) = @_;
+    
+    my $output = "\nwdsdiff: ";
+    
+    $output .= $diff->{left_name};
+    $output .= " $diff->{right_name}" if defined $diff->{right_name} && $diff->{right_name} ne '';
+    $output .= "\n==========================================================================\n\n";
+    
+    my $output .= "sections: ";
+    $output .= "\n\n";
+    
+    return $output;
+}
+
+
+sub diff_specials {
+    
+    my ($diff, $left, $right) = @_;
+    
+    my (%left_only, %right_only);
+    
+    my $output = "Specials:\n--------------------------\n";
+    my $body = '';
+    
+    my $left_specials = $left->{ds}{special};
+    my $right_specials = $right->{ds}{special};
+    
+    foreach my $lk ( keys %$left_specials )
+    {
+	$left_only{$lk} = $left_specials->{$lk}
+	    unless defined $right_specials->{$lk} && $right_specials->{$lk} eq $left_specials->{$lk};
+    }
+    
+    foreach my $rk ( keys %$right_specials )
+    {
+	$right_only{$rk} = $right_specials->{$rk}
+	    unless defined $left_specials->{$rk} && $right_specials->{$rk} eq $left_specials->{$rk};
+    }
+    
+    foreach my $k ( @Web::DataService::SPECIAL_ALL )
+    {
+	if ( defined $left_only{$k} )
+	{
+	    my $name = $left_only{$k};
+	    $name .= " ($k)" if $k ne $left_only{$k};
+	    $body .= $diff->lft_line($name);
+	}
+	
+	if ( defined $right_only{$k} )
+	{
+	    my $name = $right_only{$k};
+	    $name .= " ($k)" if $k ne $right_only{$k};
+	    $body .= $diff->rgt_line($name);	    
+	}
+    }
+    
+    $body ||= "        No difference.\n";
+    
+    return $output . $body . "\n";
+}
+
+
+sub diff_formats {
+    
+    my ($diff, $left, $right) = @_;
+    
+    my (%left_only, %right_only, %common);
+    
+    my $output = "Formats:\n--------------------------\n";
+    my $body = '';
+    
+    my $left_formats = $left->{ds}{format};
+    my $right_formats = $right->{ds}{format};
+    
+    foreach my $lk ( keys %$left_formats )
+    {
+	$common{$lk} = 1 if defined $right_formats->{$lk};
+	$left_only{$lk} = 1 if not defined $right_formats->{$lk};
+    }
+    
+    foreach my $rk ( keys %$right_formats )
+    {
+	$right_only{$rk} = 1 if not defined $left_formats->{$rk};
+    }
+    
+    foreach my $k ( keys %left_only )
+    {
+	my $ct = $left_formats->{$k}{content_type};
+	$body .= $diff->lft_line("$k ($ct)");
+    }
+    
+    foreach my $k ( keys %right_only )
+    {
+	my $ct = $right_formats->{$k}{content_type};
+	$body .= $diff->rgt_line("$k ($ct)");
+    }
+    
+    foreach my $k ( keys %common )
+    {
+	my @diff = $diff->diff_records('format', \@FORMAT_ATTRS, $k, $left_formats->{$k}, $right_formats->{$k});
+	
+	next unless @diff;
+	
+	$body .= $diff->dif_line($k);
+	
+	foreach my $dk ( @diff )
+	{
+	    $body .= $diff->attr_line($dk, $left_formats->{$k}{$dk}, $right_formats->{$k}{$dk});
+	    # $body .= "$IND$IND $dk : $left_formats->{$k}{$dk} | $right_formats->{$k}{$dk}\n";
+	}
+    }
+    
+    $body ||= "        No difference.\n";
+    
+    return $output . $body . "\n";
+}
+
+
+sub diff_records {
+    
+    my ($diff, $type, $attrs, $key, $left, $right) = @_;
+    
+    my @result;
+    
+    foreach my $a (@$attrs)
+    {
+	if ( ! ref $left->{$a} && ! ref $right->{$a} && $left->{$a} ne $right->{$a} )
+	{
+	    push @result, $a;
+	}
+    }
+    
+    return @result;
+}
+
+
+sub diff_vocabs {
+    
+    my ($diff, $left, $right) = @_;
+    
+    my (%left_only, %right_only, %common);
+    
+    my $output = "Vocabularies:\n--------------------------\n";
+    my $body = '';
+    
+    my $left_vocabs = $left->{ds}{vocab};
+    my $right_vocabs = $right->{ds}{vocab};
+    
+    foreach my $lk ( keys %$left_vocabs )
+    {
+	$common{$lk} = 1 if defined $right_vocabs->{$lk};
+	$left_only{$lk} = 1 if not defined $right_vocabs->{$lk};
+    }
+    
+    foreach my $rk ( keys %$right_vocabs )
+    {
+	$right_only{$rk} = 1 if not defined $left_vocabs->{$rk};
+    }
+    
+    foreach my $k ( keys %left_only )
+    {
+	my $title = $left_vocabs->{$k}{title};
+	$body .= $diff->lft_line("$k ($title)");
+    }
+    
+    foreach my $k ( keys %right_only )
+    {
+	my $title = $right_vocabs->{$k}{title};
+	$body .= $diff->rgt_line("$k ($title)");
+    }
+    
+    foreach my $k ( keys %common )
+    {
+	my @diff = $diff->diff_records('vocab', \@VOCAB_ATTRS, $k, 
+				       $left_vocabs->{$k}, $right_vocabs->{$k});
+	
+	next unless @diff;
+	
+	$body .= $diff->dif_line($k);
+	
+	foreach my $dk ( @diff )
+	{
+	    $body .= $diff->attr_line($dk, $left_vocabs->{$k}{$dk}, $right_vocabs->{$k}{$dk});
+	}
+    }
+    
+    $body ||= "        No difference.\n";
+    
+    return $output . $body . "\n";
+}
+
+
+sub diff_nodes {
+    
+    my ($diff, $left, $right, $options) = @_;
+    
+    my (%left_only, %right_only, %common, %all);
+    
+    my $h1 = "Nodes";
+    
+    unless ( $options->{diff_nodes} || $options->{diff_all} )
+    {
+	if ( $options->{diff_ops} && ! $options->{diff_pages} && ! $options->{diff_dirs} )
+	{
+	    $h1 = "Operations";
+	}
+    }
+    
+    my $output = "$h1:\n--------------------------\n";
+    my $body = '';
+    
+    my $left_nodes = $left->{node};
+    my $right_nodes = $right->{node};
+    
+    # First figure out which nodes are different between the two sides.
+    
+    foreach my $path ( keys %$left_nodes )
+    {
+	if ( $options->{diff_nodes} || $options->{diff_all} )
+	{
+	    $common{$path} = 1 if $right_nodes->{$path};
+	    $left_only{$path} = 1 unless $right_nodes->{$path};
+	    $all{$path} = 1;
+	}
+	
+	elsif ( $left_nodes->{$path}{method} )
+	{
+	    if ( $options->{diff_ops} || $options->{diff_params} ||
+		    $options->{diff_fields} )
+	    {
+		$common{$path} = 1 if $right_nodes->{$path}{method};
+		$left_only{$path} = 1 unless $right_nodes->{$path}{method};
+		$all{$path} = 1;
+	    }
+	}
+	
+	elsif ( $options->{diff_pages} )
+	{
+	    $common{$path} = 1 if $right_nodes->{$path};
+	    $left_only{$path} = 1 unless $right_nodes->{$path};
+	    $all{$path} = 1;
+	}
+	
+	elsif ( $left_nodes->{$path}{node_list} )
+	{
+	    if ( $options->{diff_dirs} )
+	    {
+		$common{$path} = 1 if $right_nodes->{$path}{node_list};
+		$left_only{$path} = 1 unless $right_nodes->{$path}{nod_list};
+		$all{$path} = 1;
+	    }
+	}
+    }
+    
+    foreach my $path ( keys %$right_nodes )
+    {
+	if ( $options->{diff_nodes} || $options->{diff_all} )
+	{
+	    $right_only{$path} = 1 unless $left_nodes->{$path};
+	    $all{$path} = 1;
+	}
+	
+	elsif ( $right_nodes->{$path}{method} )
+	{
+	    if ( $options->{diff_ops} || $options->{diff_params} ||
+		    $options->{diff_fields} )
+	    {
+		$right_only{$path} = 1 unless $left_nodes->{$path}{method};
+		$all{$path} = 1;
+	    }
+	}
+	
+	elsif ( $options->{diff_pages} )
+	{
+	    $right_only{$path} = 1 unless $left_nodes->{$path};
+	    $all{$path} = 1;
+	}
+	
+	elsif ( $right_nodes->{$path}{node_list} )
+	{
+	    if ( $options->{diff_dirs} )
+	    {
+		$right_only{$path} = 1 unless $left_nodes->{$path}{nod_list};
+		$all{$path} = 1;
+	    }
+	}
+    }
+    
+    my @path_list = sort keys %all;
+    
+    foreach my $path ( @path_list )
+    {
+	if ( $left_only{$path} )
+	{
+	    my $title = $left_nodes->{$path}{title} || '';
+	    $body .= $diff->lft_line("$path ($title)");
+	    
+	    if ( $options->{diff_params} )
+	    {
+		$body .= $diff->diff_op_params($path, $left, undef, $options);
+	    }
+	    
+	    if ( $options->{diff_blocks} )
+	    {
+		$body .= $diff->diff_op_blocks($path, $left, undef, $options);
+	    }
+	    
+	    elsif ( $options->{diff_fields} )
+	    {
+		$body .= $diff->diff_op_fields($path, $left, undef, $options);
+	    }
+	}
+	
+	elsif ( $right_only{$path} )
+	{
+	    my $title = $right_nodes->{$path}{title} || '';
+	    $body .= $diff->rgt_line("$path ($title)");
+	    
+	    if ( $options->{diff_params} )
+	    {
+		$body .= $diff->diff_op_params($path, undef, $right, $options);
+	    }
+	    
+	    if ( $options->{diff_blocks} )
+	    {
+		$body .= $diff->diff_op_blocks($path, undef, $right, $options);
+	    }
+	    
+	    if ( $options->{diff_fields} )
+	    {
+		$body .= $diff->diff_op_fields($path, undef, $right, $options);
+	    }
+	}
+	
+	else
+	{
+	    my @diff = $diff->diff_records('node', \@NODE_ATTRS, $path,
+					   $left_nodes->{$path}, $right_nodes->{$path});	    
+	    
+	    next unless @diff;
+	    
+	    $body .= $diff->dif_line($path);
+	    
+	    foreach my $dk ( @diff )
+	    {
+		$body .= $diff->attr_line($dk, $left_nodes->{$path}{$dk}, $right_nodes->{$path}{$dk});
+	    }
+	    
+	    if ( $options->{diff_params} )
+	    {
+		$body .= $diff->diff_op_params($path, $left, $right, $options);
+	    }
+	    
+	    if ( $options->{diff_blocks} )
+	    {
+		$body .= $diff->diff_op_blocks($path, $left, $right, $options);
+	    }
+	    
+	    if ( $options->{diff_fields} )
+	    {
+		$body .= $diff->diff_op_fields($path, $left, $right, $options);
+	    }
+	}
+    }
+    
+    $body ||= "        No difference.\n";
+    
+    return $output . $body . "\n";
+}
+
+
+sub diff_op_params {
+    
+    my ($diff, $path, $left, $right, $options) = @_;
+    
+    $left ||= {};
+    $right ||= {};
+    
+    my (@left_records, @right_records, %left_params, %right_params);
+    my (@left_params, @right_params, @sdiff_list);
+    
+    if ( $left->{node}{$path}{ruleset} )
+    {
+	@left_records = $diff->extract_param_records($left, $left->{node}{$path}{ruleset});
+	@left_params = map { $_->{name} } @left_records;
+	%left_params = map { $_->{name}, $_ } @left_records;
+    }
+    
+    if ( $right->{node}{$path}{ruleset} )
+    {
+	@right_records = $diff->extract_param_records($right, $right->{node}{$path}{ruleset});
+	@right_params = map { $_->{name} } @right_records;
+	%right_params = map { $_->{name}, $_ } @right_records;
+    }
+    
+    @sdiff_list = Algorithm::Diff::sdiff( \@left_params, \@right_params );
+    
+    my $body = '';
+    
+    foreach my $d ( @sdiff_list )
+    {
+	my ($op, $l, $r) = @$d;
+	
+	if ( $op eq '-' )
+	{
+	    $body .= $diff->subleft_line($l);
+	}
+	
+	elsif ( $op eq '+' )
+	{
+	    $body .= $diff->subright_line($r);
+	}
+	
+	elsif ( $op eq 'c' )
+	{
+	    $body .= $diff->subleft_line($l);
+	    $body .= $diff->subright_line($r);
+	}
+    }
+    
+    return $body;
+}
+
+
+sub extract_param_records {
+    
+    my ($diff, $lr, $ruleset_name) = @_;
+    
+    my @records;
+    
+    return unless ref $lr->{ruleset}{$ruleset_name} eq 'ARRAY';
+    
+    foreach my $r ( @{$lr->{ruleset}{$ruleset_name}} )
+    {
+	next unless ref $r eq 'HASH';
+	
+	if ( $r->{allow} || $r->{require} )
+	{
+	    my $included_name = $r->{allow} || $r->{require};
+	    
+	    push @records, $diff->extract_param_records($lr, $included_name);
+	}
+	
+	elsif ( $r->{param} || $r->{optional} || $r->{mandatory} )
+	{
+	    my $param_name = $r->{param} || $r->{optional} || $r->{mandatory};
+	    my $type = $r->{param} ? 'param' : $r->{optional} ? 'optional' : 'mandatory';
+	    my $new_r = { name => $param_name, type => $type };
+	    
+	    next if $lr->{_spec_param}{$param_name};
+	    
+	    foreach my $key ( qw(alias key valid multiple split list bad_value clean default) )
+	    {
+		if ( defined $r->{$key} )
+		{
+		    $new_r->{$key} = ref $r->{key} eq 'ARRAY' ? join(', ', @{$r->{$key}}) : $r->{$key};
+		}
+	    }
+	    
+	    push @records, $new_r;
+	}
+    }
+    
+    return @records;
+}
+
+
+sub diff_op_blocks {
+    
+    my ($diff, $path, $left, $right, $options) = @_;
+    
+    $left ||= {};
+    $right ||= {};
+    
+    my (@left_records, @right_records, %left_params, %right_params);
+    my (@left_blocks, @right_blocks, @sdiff_list);
+    
+    if ( ref $left->{node}{$path}{block_list} eq 'ARRAY' )
+    {
+	@left_blocks = @{$left->{node}{$path}{block_list}};
+    }
+    
+    if ( ref $right->{node}{$path}{block_list} eq 'ARRAY' )
+    {
+	@right_blocks = @{$right->{node}{$path}{block_list}};
+    }
+    
+    @sdiff_list = Algorithm::Diff::sdiff( \@left_blocks, \@right_blocks );
+    
+    my $body = '';
+    
+    foreach my $d ( @sdiff_list )
+    {
+	my ($op, $l, $r) = @$d;
+	
+	if ( $op eq '-' )
+	{
+	    $body .= $diff->subleft_line($l);
+	}
+	
+	elsif ( $op eq '+' )
+	{
+	    $body .= $diff->subright_line($r);
+	}
+	
+	elsif ( $op eq 'c' )
+	{
+	    $body .= $diff->subleft_line($l);
+	    $body .= $diff->subright_line($r);
+	}
+    }
+    
+    return $body;
+}
+
+
+sub extract_node_list_paths {
+
+    my ($diff, $digest, $path) = @_;
+    
+    return unless ref $digest->{node}{$path}{node_list} eq 'ARRAY';
+    
+    my @list = @{$digest->{node}{$path}{node_list}};
+    
+    return map { $_->{path} } @list if ref $list[0] eq 'HASH';
+    return @list; # otherwise
+}
+
+
+sub diff_node_list {
+    
+    my ($diff, $path) = @_;
+    
+    my @left_list = $diff->extract_node_list_paths($diff->{left}, $path);
+    my @right_list = $diff->extract_node_list_paths($diff->{right}, $path);
+    
+    my @sdiff_list = Algorithm::Diff::sdiff( \@right_list, \@left_list );
+    
+    return \@sdiff_list;
+}
+
+
+sub lft_line {
+
+    my ($diff, $string) = @_;
+    
+    return "$IND$LFT $string\n";
+}
+
+
+sub subleft_line {
+    
+    my ($diff, $string) = @_;
+    
+    return "$IND$IND$LFT $string\n";
+}
+
+
+sub rgt_line {
+    
+    my ($diff, $string) = @_;
+    
+    return "$IND$RGT $string\n";
+}
+
+
+sub subright_line {
+    
+    my ($diff, $string) = @_;
+    
+    return "$IND$IND$RGT $string\n";
+}
+
+
+sub dif_line {
+    
+    my ($diff, $string) = @_;
+
+    return "$IND$DIF $string\n";
+}
+
+
+sub attr_line {
+    
+    my ($diff, $attr, $left, $right) = @_;
+    
+    return "$IND$IND $attr : $left | $right\n";
+}
+
+
+__END__
+
+=head1 NAME
+
+wdsdiff - report the differences between two data service versions
+
+=head1 VERSION
+
+1.0
+
+=head1 SYNOPSIS
+
+  wdsdiff [options] [file1] [file2]
+
+    --help           -h   brief help message
+    --man            -m   full documentation
+    --version		  show version 
+    
+    --ds	          report differences in the formats, vocabularies, etc.
+    --dirs                report differences in nodes that have sub-nodes
+    --pages               report differences in the non-operation nodes
+    --ops                 report differences in the operation nodes
+    --nodes               report differences in all nodes
+    --params              report differences in the parameters of each node
+    --blocks              report differences in the output blocks of each node
+    --fields              report differences in the output fields of each node
+    --all	          report all differences
+    
+    --vocab=<vocab>       restrict the report to the specified vocabulary
+    -v <vocab>
+    
+    --node=<pattern>      restrict the report to nodes matching the specified pattern
+    -n <pattern>
+    
+    --specials            include special parameters, which are excluded by default
+
+=head1 DESCRIPTION
+
+This command analyzes the specified input files, which should contain digests in
+YAML format generated by running a Web::DataService web application with the
+'diag' parameter.  You must specify exactly two input filenames.
+
+The primary purpose of this command is to compare two different data service
+versions for the purpose of writing change logs and other documentation.  By
+default, its report will list additions and subtractions among the nodes, both
+operation and non-operation.  You can also specify that the report include
+differences in parameters and output fields.
+
+=head1 OPTIONS
+
+=over 4
+
+=item --help
+
+Print a brief help message and exit.
+
+=item --man
+
+Print this manual page and exit.
+
+=item --params
+
+For each data service operation, report differences in the parameters between
+the versions.
+
+=item --blocks
+
+For each data service operation, report differences in the list of output
+blocks between the versions.
+
+=item --fields
+
+For each data service operation, report differences in the output between the
+versions.
+
+=item --all
+
+Generate a full report, with all available reporting options.
+
+=back
+
+=head1 OUTPUT
+
+A description of the command output should go here.
+
+=head1 AUTHOR
+
+This command is installed as part of the Web::Dataservice module.
+
+Please report bugs using http://rt.cpan.org/.
+
+Michael McClennen <mmcclenn@cpan.org>
+
+=cut

@@ -16,7 +16,7 @@ Web::DataService - a framework for building data service applications for the We
 
 =head1 VERSION
 
-Version 0.261
+Version 0.3
 
 =head1 SYNOPSIS
 
@@ -55,7 +55,9 @@ as Mojolicious and Catalyst soon.
 
 package Web::DataService;
 
-our $VERSION = '0.261';
+our $VERSION = '0.3';
+
+use feature qw(say);
 
 use Carp qw( carp croak confess );
 use Scalar::Util qw( reftype blessed weaken );
@@ -71,6 +73,7 @@ use Web::DataService::Render;
 use Web::DataService::Output;
 use Web::DataService::Execute;
 use Web::DataService::Document;
+use Web::DataService::Diagnostic;
 
 use Web::DataService::Request;
 use Web::DataService::IRequest;
@@ -84,7 +87,7 @@ with 'Web::DataService::Node', 'Web::DataService::Set',
      'Web::DataService::Format', 'Web::DataService::Vocabulary',
      'Web::DataService::Ruleset', 'Web::DataService::Render',
      'Web::DataService::Output', 'Web::DataService::Execute',
-     'Web::DataService::Document';
+     'Web::DataService::Document', 'Web::DataService::Diagnostic';
 
 
 our (@CARP_NOT) = qw(Web::DataService::Request Moo);
@@ -129,7 +132,7 @@ my (@DI_KEYS) = qw(data_provider data_source data_license license_url
 
 # Execution modes
 
-our ($DEBUG, $ONE_REQUEST, $CHECK_LATER, $QUIET);
+our ($DEBUG, $ONE_REQUEST, $ONE_PROCESS, $CHECK_LATER, $QUIET, $DIAGNOSTIC);
 
 
 # Variables for keeping track of data service instances
@@ -178,7 +181,11 @@ has doc_index => ( is => 'lazy', builder => sub { $_[0]->_init_value('doc_index'
 
 has doc_template_dir => ( is => 'lazy', builder => sub { $_[0]->_init_value('doc_template_dir') } );
 
+has doc_compile_dir => ( is => 'lazy', builder => sub { $_[0]->_init_value('doc_compiled_dir') } );
+
 has output_template_dir => ( is => 'lazy', builder => sub { $_[0]->_init_value('output_template_dir') } );
+
+has output_compile_dir => ( is => 'lazy', builder => sub { $_[0]->_init_value('output_compiled_dir') } );
 
 has data_source => ( is => 'lazy', builder => sub { $_[0]->_init_value('data_source') } );
 
@@ -422,7 +429,9 @@ sub BUILD {
 	# exists and is readable.
 	
 	my $doc_dir = $self->doc_template_dir;
+	my $doc_comp = $self->doc_compile_dir;
 	my $output_dir = $self->output_template_dir;
+	my $output_comp = $self->output_compile_dir;
 	
 	unless ( defined $doc_dir )
 	{
@@ -460,7 +469,8 @@ sub BUILD {
 	    $self->{doc_template_dir} = $doc_dir;
 	    
 	    $self->{doc_engine} = 
-		$self->{templating_plugin}->new_engine($self, { template_dir => $doc_dir });
+		$self->{templating_plugin}->new_engine($self, { template_dir => $doc_dir,
+							        compile_dir => $doc_comp });
 	    
 	    # If the attributes doc_header, doc_footer, etc. were not set,
 	    # check for the existence of defaults.
@@ -488,7 +498,8 @@ sub BUILD {
 	    $self->{output_template_dir} = $output_dir;
 	    
 	    $self->{output_engine} =
-		$self->{templating_plugin}->new_engine($self, { template_dir => $output_dir });
+		$self->{templating_plugin}->new_engine($self, { template_dir => $output_dir,
+							        compile_dir => $output_comp });
 	}
     }
     
@@ -965,6 +976,11 @@ sub set_mode {
 	    $DEBUG = 1 unless $QUIET || $ENV{WDS_QUIET};
 	}
 	
+	elsif ( $mode eq 'one_process' )
+	{
+	    $ONE_PROCESS = 1;
+	}
+	
 	elsif ( $mode eq 'one_request' )
 	{
 	    $ONE_REQUEST = 1;
@@ -980,6 +996,11 @@ sub set_mode {
 	    $QUIET = 1;
 	    $DEBUG = 0;
 	}
+	
+	elsif ( $mode eq 'diagnostic' )
+	{
+	    $DIAGNOSTIC = 1;
+	}
     }
 }
 
@@ -992,7 +1013,44 @@ sub is_mode {
     return 1 if $mode eq 'one_request' && $ONE_REQUEST;
     return 1 if $mode eq 'late_path_check' && $CHECK_LATER;
     return 1 if $mode eq 'quiet' && $QUIET;
+    return 1 if $mode eq 'diagnostic' && $DIAGNOSTIC;
     return;
+}
+
+
+sub debug_mode {
+
+    my ($self) = @_;
+    
+    return $DEBUG;
+}
+
+
+sub debug {
+
+    my ($self) = @_;
+    
+    return $DEBUG;
+}
+
+
+sub debug_line {
+    
+    return unless $DEBUG;
+    
+    my ($self, $msg) = @_;
+    
+    say STDERR $msg;
+}
+
+
+sub debug_list {
+    
+    return unless $DEBUG;
+    
+    my ($self, @msgs) = @_;
+    
+    print STDERR "$_\n\n" foreach @msgs;
 }
 
 
@@ -1639,13 +1697,6 @@ sub contact_info {
 #     return $base;
 # }
 
-
-sub debug {
-
-    my ($self) = @_;
-    
-    return $DEBUG || $self->{DEBUG};
-}
 
 =head1 MORE DOCUMENTATION
 

@@ -43,6 +43,11 @@ sub define_ruleset {
     croak "define_ruleset: invalid ruleset name '$ruleset_name'\n"
 	unless $ruleset_name =~ qr{ ^ [\w.:][\w.:-]* $ }xs;
     
+    # If we are in 'diagnostic' mode, then we are generating diagnostics rather than
+    # output.  So keep extra attributes and don't send them to HTTP::Validate.
+    
+    my $diag_mode = $ds->is_mode('diagnostic');
+    
     # Go through the arguments one by one, to see which ones (if any) need to
     # be edited before passing them on to HTTP::Validate.
     
@@ -93,12 +98,30 @@ sub define_ruleset {
 	    @final_doc = ();
 	}
 	
-	# Now we consider the new rule.
+	# Now we consider the new rule.  If it is a substitution rule, then
+	# move its value to the RS_SUBST hash and otherwise ignore it.  This
+	# is a feature implemented by Web::DataService and not by
+	# HTTP::Validate, so we cannot pass this rule to the latter module.
+	
+	if ( $arg->{substitute} )
+	{
+	    croak "define_ruleset: the value of 'substitute' must be a hashref\n"
+		unless ref $arg->{substitute} eq 'HASH';
+	    
+	    croak "define_ruleset: unknown key in 'subtitute' rule\n"
+		if keys %$arg > 1;
+	    
+	    $ds->{RS_SUBST}{$ruleset_name} = $arg->{substitute};
+	    
+	    next ARG;
+	}
+	
+	# Otherwise, we make this the "pending rule" for subsequent documentation.
 	
 	$pending_rule = $arg;
 	
-	# Look at the rule type attribute and its value.  Rules that are not
-	# parameter rules are simply passed through.
+	# We then check for an attribute that specifies the rule type.  Rules that
+	# are not parameter rules are simply passed through to HTTP::Validate as-is.
 	
 	my $ruletype = $arg->{optional}  ? 'optional' 
 		     : $arg->{param}     ? 'param'
@@ -106,6 +129,8 @@ sub define_ruleset {
 					 : '';
 	
 	next ARG unless $ruletype;
+	
+	# The value of the rule-type attribute is the parameter name.
 	
 	my $param = $arg->{$ruletype};
 	
@@ -135,8 +160,12 @@ sub define_ruleset {
 	    # documentation string to the end of the documentation for this
 	    # rule, unless the attribute 'no_set_doc' was also specified.
 	    
+	    # If we are in diagnostic mode, save the actual set name so it can
+	    # be printed out later.
+	    
 	    elsif ( $ds->set_defined($v) )
 	    {
+		$arg->{valid_save} = $arg->{valid} if $diag_mode;
 		$arg->{valid} = $ds->valid_set($v);
 		
 		unless ( $arg->{no_set_doc} )
@@ -281,7 +310,46 @@ sub define_ruleset {
 	push @rules_and_doc, $pending_rule, @pending_doc, @final_doc;
     }
     
-    # Now call HTTP::Validate::define_ruleset.  Wrap it in a 'eval' block so
+    # If we are in 'diagnostic' mode, then stash a copy of the ruleset
+    # definition where it can be printed out later.
+    
+    if ( $diag_mode )
+    {
+	my @diag_copy;
+	
+	# Go through each of the entries in the ruleset definition
+	
+	foreach my $r ( @rules_and_doc )
+	{
+	    # If this is a rule definition, then save a copy.  Rename the key
+	    # 'valid_save' to 'valid' in the copy, and delete 'valid_save'
+	    # from the real definition if it exists so that it won't cause
+	    # HTTP::Validate to throw an error.  This is necessary because a
+	    # code reference is not useful in the diagnostic data structure
+	    # but the name of the set is.
+	    
+	    if ( ref $r eq 'HASH' )
+	    {
+		my $copy = { %$r };
+		$copy->{valid} = $copy->{valid_save} if $copy->{valid_save};
+		delete $copy->{valid_save};
+		delete $r->{valid_save};
+		
+		push @diag_copy, $copy;
+	    }
+	    
+	    # Documentation strings are just passed right through.
+	    
+	    else
+	    {
+		push @diag_copy, $r;
+	    }
+	}
+	
+	$ds->{ruleset_diag}{$ruleset_name} = \@diag_copy;
+    }
+    
+    # Then call HTTP::Validate::define_ruleset.  Wrap it in a 'eval' block so
     # that we can catch any errors and pass them to 'croak'.
     
     my $error_msg;
@@ -514,6 +582,33 @@ sub list_ruleset_params {
     my ($ds, $rs_name) = @_;
     
     return $ds->{validator}->list_params($rs_name);
+}
+
+
+sub document_ruleset {
+    
+    my ($ds, $rs_name) = @_;
+    
+    my $doc = $ds->validator->document_params($rs_name);
+    
+    if ( ref $ds->{RS_SUBST}{$rs_name} eq 'HASH' )
+    {
+	$ds->do_doc_substitution(\$doc, $rs_name);
+    }
+    
+    return $doc;
+}
+
+
+sub do_doc_substitution {
+    
+    my ($ds, $doc_ref, $rs_name) = @_;
+    
+    my $subst = $ds->{RS_SUBST}{$rs_name};
+    
+    my $pattern = join('|', keys %$subst);
+    
+    $$doc_ref =~ s{($pattern)}{$subst->{$1}}egm;
 }
 
 

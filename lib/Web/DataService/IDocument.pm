@@ -184,15 +184,22 @@ sub document_params {
     my ($request, $ruleset_name) = @_;
     
     my $ds = $request->{ds};
-    my $validator = $ds->validator;
     
     $ruleset_name ||= $ds->determine_ruleset($request->node_path);
     
     # Generate documentation about the parameters, using the appropriate
-    # method from the validator class (HTTP::Validate).  If no ruleset
-    # is selected for this request, then state that no parameters are accepted.
+    # method from the validator class (HTTP::Validate).  If no ruleset is
+    # selected for this request, then state that no parameters are accepted. 
     
-    return $ruleset_name ? $validator->document_params($ruleset_name) : '';
+    if ( $ruleset_name )
+    {
+	return $ds->document_ruleset($ruleset_name);
+    }
+    
+    else
+    {
+	return '';
+    }
 }
 
 

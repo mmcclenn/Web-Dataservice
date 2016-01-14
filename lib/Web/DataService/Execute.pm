@@ -122,97 +122,6 @@ sub _determine_path {
 }
 
 
-# _select_service ( path )
-# 
-# Given a request path and parameters, determines which data service or
-# subservice should handle it.  The return value is a list consisting of the
-# selected data service, followed by the path with the prefix, if any,
-# removed.
-
-# sub _select_service {
-    
-#     my ($ds, $attrs, $request_params) = @_;
-    
-#     # If the attribute 'selector' was specified, then use it to select the
-#     # appropriate service.
-    
-#     if ( $attrs->{selector} )
-#     {
-# 	# Check all of the subservices.  If any of them matches the key
-# 	# specified by the 'selector' parameter, then select that one.
-	
-# 	foreach my $ss ( @{$ds->{subservice_list}} )
-# 	{
-# 	    return $ss if defined $ss->{service_key} && 
-# 		$ss->{service_key} eq $attrs->{selector}
-# 	}
-	
-# 	# Otherwise, check to see if it matches the main service.
-	
-# 	return $ds if defined $ds->{service_key} && $ds->{service_key} eq $attrs->{selector};
-	
-# 	# Otherwise, return a 500 error.
-	
-# 	die "500 Internal error";
-#     }
-    
-#     # Otherwise, if the special parameter 'selector' is active, use it to select
-#     # the service.
-    
-#     if ( my $selector_param = $ds->{special}{selector} )
-#     {
-# 	my $selector_value = $request_params->{$selector_param};
-	
-# 	# If no value was specified, return a 400 error right away.
-	
-# 	return "400 You must specify a value for the parameter '$selector_param'"
-# 	    unless defined $selector_value;
-	
-# 	# Check all of the subservices.  If any of them matches the key
-# 	# specified by the 'selector' parameter, then select that one.
-	
-# 	foreach my $ss ( @{$ds->{subservice_list}} )
-# 	{
-# 	    return $ss if defined $ss->{service_key} && 
-# 		$ss->{service_key} eq $selector_value
-# 	}
-	
-# 	# Otherwise, check the selector of the main data service.
-	
-# 	return $ds if defined $ds->{service_key} && $ds->{service_key} eq $selector_value;
-	
-# 	# Otherwise, we have an invalid request.
-	
-# 	die "400 Bad value '$selector_value' for parameter '$selector_param'";
-#     }
-    
-#     # If we have a request path, then see if we can use it to select the service.
-    
-#     if ( defined $attrs->{path} )
-#     {
-# 	# If the request path matches the regular expression for any
-# 	# subservice, chooose that.
-	
-# 	foreach my $ss ( @{$ds->{subservice_list}} )
-# 	{
-# 	    return $ss if defined $ss->{path_re} && $attrs->{path} =~ $ss->{path_re};
-# 	}
-	
-# 	# Otherwise, try the main service.
-	
-# 	return $ds if defined $ds->{path_re} && $attrs->{path} =~ $ds->{path_re};
-	
-# 	# Otherwise, return a 404 error.
-	
-# 	die "404 Not found";
-#     }
-    
-#     # Otherwise, just return the main data service.
-    
-#     return $ds;
-# }
-
-
 # handle_request ( request )
 # 
 # Generate a new request object, match it to a data service node, and then execute
@@ -258,7 +167,19 @@ sub execute_request {
 	$ds = Web::DataService->select($request->outer);
     }
     
-    # If a 'before_execute_hook' was defined for this request, call it now.
+    # Now that we have selected a data service instance, check to see if this
+    # program is in diagnostic mode.  If so, then divert this request to the
+    # module Web::DataService::Diagnostic, and then exit the program when it
+    # is done.
+    
+    if ( Web::DataService->is_mode('diagnostic') )
+    {
+	$ds->diagnostic_request($request);
+	exit;
+    }
+    
+    # Otherwise, this is a standard request.  If a 'before_execute_hook' was
+    # defined for this request, call it now.
     
     $ds->_call_hooks($path, 'before_execute_hook', $request);
     
@@ -433,7 +354,7 @@ sub configure_request {
 	
 	if ( $ds->debug )
 	{
-	    print STDERR "Params:\n";
+	    print STDERR "Operation '$path':\n";
 	    foreach my $p ( $result->keys )
 	    {
 		my $value = $result->value($p);
