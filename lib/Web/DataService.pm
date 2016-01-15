@@ -1729,6 +1729,10 @@ service element.
 
 An overview of the elements available for use in documentation templates.
 
+=item L<Web::DataService::Debugging>
+
+Features that are available for debugging your application.
+
 =back
 
 =head1 METHODS

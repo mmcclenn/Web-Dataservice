@@ -139,6 +139,11 @@ sub generate_doc {
 	}
     } 
     
+    if ( $ds->debug )
+    {
+	print STDERR "---------------\nDocumentation '$path'\n";
+    }
+    
     # Record this request's URL base so that we have it in order to generate
     # documentation if necessary.
     
@@ -191,8 +196,9 @@ sub generate_doc {
 	    my $stylesheet = $ds->node_attr($path, 'doc_stylesheet') || 
 		$ds->generate_site_url({ path => 'css/dsdoc.css' });
 	    
-	    my $parser = Web::DataService::PodParser->new({ css => $stylesheet, debug => 1,
-							    url_generator => $url_generator });
+	    my $parser = Web::DataService::PodParser->new({ target => 'html', css => $stylesheet,
+							    url_generator => $url_generator,
+							    page_title => $doc_title });
 	    
 	    $parser->parse_string_document($doc_string);
 	    

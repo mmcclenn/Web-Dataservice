@@ -27,8 +27,8 @@ sub new {
     
     my $new = $class->SUPER::new;
     
+    $new->accept_target_as_text('wds_nav');
     $new->accept_targets('*');
-    $new->accept_targets_as_text('wds_nav');
     $new->no_errata_section(1);
     $new->strip_verbatim_indent(sub {
 	my $lines = shift;
@@ -51,10 +51,10 @@ sub new {
     
     # Create a secondary parser to handle lines of the form "=for target =head3 title"
     
-    $new->{wds_fields}{secondary} = Pod::Simple->new;
+    # $new->{wds_fields}{secondary} = Pod::Simple->new;
     
-    $new->{wds_fields}{secondary}{wds_fields} = { body => [ '' ], target => [ 'body' ],
-						  listlevel => 0, listcol => 0 };
+    # $new->{wds_fields}{secondary}{wds_fields} = { body => [ '' ], target => [ 'body' ],
+    # 						  listlevel => 0, listcol => 0 };
     
     return bless $new;
 }
@@ -68,14 +68,14 @@ sub _handle_element_start {
     
     if ( $wds->{options}{debug} )
     {
-	print STDERR "START $element_name";
+    	print STDERR "START $element_name";
 	
-	foreach my $k (keys %$attr_hash)
-	{
-	    print STDERR " $k=" . $attr_hash->{$k};
-	}
+    	foreach my $k (keys %$attr_hash)
+    	{
+    	    print STDERR " $k=" . $attr_hash->{$k};
+    	}
 	
-	print STDERR "\n";
+    	print STDERR "\n";
     }
     
     if ( $wds->{pending_columns} )
@@ -116,6 +116,7 @@ sub _handle_element_start {
     
     elsif ( $element_name =~ qr{ ^ head ( \d ) }xs )
     {
+	my $level = $1;
 	my $attrs = qq{ class="pod_heading"};
 	
 	if ( $wds->{pending_anchor} )
@@ -124,7 +125,7 @@ sub _handle_element_start {
 	    $wds->{pending_anchor} = undef;
 	}
 	
-	$parser->add_output_text( qq{\n\n<h$1$attrs>} );
+	$parser->add_output_text( qq{\n\n<h$level$attrs>} );
     }
     
     elsif ( $element_name =~ qr{ ^ over-(bullet|number) $ }xs )
@@ -387,14 +388,14 @@ sub _handle_element_end {
     
     if ( $wds->{options}{debug} )
     {
-	print STDERR "END $element_name";
+    	print STDERR "END $element_name";
 	
-	foreach my $k (keys %$attr_hash)
-	{
-	    print STDERR " $k=" . $attr_hash->{$k};
-	}
+    	foreach my $k (keys %$attr_hash)
+    	{
+    	    print STDERR " $k=" . $attr_hash->{$k};
+    	}
 	
-	print STDERR "\n";
+    	print STDERR "\n";
     }
     
     if ( $element_name eq 'Para' )
@@ -650,7 +651,7 @@ sub _handle_element_end {
 	    $parser->add_output_text( $body );
 	}
 	
-	elsif ( $target eq 'comment' || $target eq 'wds_comment' )
+	elsif ( $target eq 'comment' || $target eq 'wds_comment' || $target eq 'wds_node' )
 	{
 	    # ignore content
 	}
@@ -675,7 +676,7 @@ sub _handle_text {
     
     if ( $wds->{options}{debug} )
     {
-	print STDERR "TEXT $text\n";
+    	print STDERR "TEXT $text\n";
     }
     
     if ( defined $wds->{override_text} )
@@ -761,8 +762,10 @@ sub output {
     
     unless ( $header )
     {
+	my $title = $wds->{title} || $wds->{options}{page_title};
+	
 	$header  = "<html><head>";
-	$header .= "<title>$wds->{title}</title>" if defined $wds->{title} && $wds->{title} ne '';
+	$header .= "<title>$title</title>" if defined $title && $title ne '';
 	$header .= "\n";
 	$header .= "<meta http-equiv=\"Content-Type\" content=\"text/html; charset=$encoding\" >\n";
 	$header .= "<link rel=\"stylesheet\" type=\"text/css\" title=\"pod_stylesheet\" href=\"$css\">\n" if $css;

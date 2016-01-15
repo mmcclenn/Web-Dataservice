@@ -544,14 +544,12 @@ up relative to this directory.
 If not specified, the default value is F<doc> (relative to the application root
 directory).
 
-=head3 doc_output_dir
+=head3 doc_compile_dir
 
 If specified, the value of this attribute must be a directory path relative to
-the application root directory.  Output template paths will be looked
-up relative to this directory.
-
-If not specified, then templated output will not be available.  [Note:
-templated output is not yet implemented].
+the application root directory.  Compiled documentation page templates will be
+stored in this directory.  If not specified, then compiled documentation page
+templates will be stored in the same location as the source templates.
 
 =head3 data_source
 

@@ -34,19 +34,75 @@ use PopulationData;		# Load the code which will implement the
                                 # this line with your own module or modules.
 
 
-# If we were called from the command line with 'GET' as the first argument,
+# If we were called from the command line with at least one argument,
 # then assume that we have been called for debugging purposes.  The second
-# argument should be the URL path, and the third should contain any query
-# parameters.
+# argument should be a URL path.
 
-if ( defined $ARGV[0] and lc $ARGV[0] eq 'get' )
-{
-    set apphandler => 'Debug';
-    set logger => 'console';
-    set traces => 1;
-    set show_errors => 0;
+if ( defined $ARGV[0] )
+{    
+    my $cmd = lc $ARGV[0];
     
-    Web::DataService->set_mode('debug', 'one_request');
+    # If the first command-line argument specifies an HTTP method
+    # (i.e. 'get') then set Dancer's apphandler to 'Debug'.  This will
+    # cause Dancer to process a single request using the command-line
+    # arguments and then exit.
+    
+    # In this case, the second argument must be the route path.  The third
+    # argument if given should be a query string of the form
+    # 'param=value&param=value...'.  This should be quoted, to prevent
+    # interpretation by the command shell.  Any subsequent arguments should be
+    # of the form 'var=value' and are used to set environment variables that
+    # would otherwise be set by Plack from HTTP request headers.
+    
+    if ( $cmd eq 'get' || $cmd eq 'head' || $cmd eq 'put' || $cmd eq 'post' || $cmd eq 'delete' )
+    {
+	set apphandler => 'Debug';
+	set logger => 'console';
+	set show_errors => 0;
+	
+	Web::DataService->set_mode('debug', 'one_request');
+    }
+    
+    # If the first command-line argument is 'diag' then set a flag to indicate
+    # that Web::DataService should print out information about the
+    # configuration of this data service application and then exit.  This
+    # function can be used to debug the configuration.  The second argument
+    # should specify which operation path to request information about;
+    # specify the root path for the data service if you want information about
+    # the entire configuration.
+    
+    # This option is deliberately made available only via the command-line
+    # for security reasons.
+    
+    elsif ( $cmd eq 'diag' )
+    {
+	set apphandler => 'Debug';
+	set logger => 'console';
+	set show_errors => 0;
+	set startup_info => 0;
+	
+	Web::DataService->set_mode('diagnostic');
+	
+	# We need to alter the first argument to 'get' so that the Dancer
+	# routing algorithm will recognize it.
+	
+	$ARGV[0] = 'GET';
+    }
+    
+    # Otherwise, if the command-line argument is 'debug' then we run in
+    # the regular mode (accepting requests from a network port) but put
+    # Web::DataService into debug mode.  This will cause debugging output
+    # to be printed to STDERR for eqch requests.
+    
+    elsif ( $cmd eq 'debug' )
+    {
+	Web::DataService->set_mode('debug');
+    }
+    
+    else
+    {
+	die "Unknown option '$cmd'\n";
+    }
 }
 
 

@@ -354,7 +354,7 @@ sub configure_request {
 	
 	if ( $ds->debug )
 	{
-	    print STDERR "Operation '$path':\n";
+	    print STDERR "---------------\nOperation '$path'\n";
 	    foreach my $p ( $result->keys )
 	    {
 		my $value = $result->value($p);
@@ -369,7 +369,7 @@ sub configure_request {
     
     else
     {
-	print STDERR "No ruleset could be determined for path '$path'" if $ds->debug;
+	print STDERR "No ruleset could be determined for path '$path'\n" if $ds->debug;
 	$request->{valid} = undef;
 	$request->{clean_params} = $request->{raw_params};
     }

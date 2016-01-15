@@ -131,6 +131,15 @@ You can now use this example project as a base for creating your own data
 service.  The various pieces of the code are described below, along with the
 function of each and some ideas for how you might want to modify them.
 
+=item 7.
+
+For a production data service, you can run your Web::DataService application
+under any PSGI web server such as L<Starman> or L<Starlet>.  A good way to set
+this up is to run it on (e.g.) port 3000, and then set up nginx or apache as a
+frontend server.  The frontend should have a proxy pass directive to route
+data service requests to the backend server on port 3000.  There are also lots
+of other ways to do it.
+
 =back
 
 =head1 OVERVIEW

@@ -35,7 +35,7 @@ our (%DIAG_PARAM) = ( show => 1, splat => 1 );
 # 
 #     app_name diag /data/records/list 'show=digest'
 # 
-#     app_name diag /data/ 'show=fieldnames&doc=short'
+#     app_name diag /data/ 'show=fields&doc=short'
 # 
 # The path argument is required, and so is the parameter "show".  The
 # parameter string must follow URL parameter syntax, so don't include any
@@ -62,7 +62,7 @@ our (%DIAG_PARAM) = ( show => 1, splat => 1 );
 #         may contain the standard shell wildcards * and ?.  You can use this
 #         to select a subset of the nodes that would otherwise be included.
 # 
-# show=fieldnames
+# show=fields
 # 
 #     Generate a report (as unformatted text) that tabulates all of the output
 #     field names matching the other parameters.  This functionality can be
@@ -101,7 +101,7 @@ sub diagnostic_request {
     
     my $diag = lc $params->{show};
     
-    if ( $diag eq 'fieldnames' )
+    if ( $diag eq 'fields' )
     {
 	return $ds->diagnostic_fields($request, $params);
     }
@@ -276,7 +276,14 @@ sub diagnostic_fields {
     
     print STDOUT " field name\n\n";
     
-    print STDOUT sprintf($options->{template}, 'data field', 'output block', 'conditionals', 'where defined');
+    my @headings = qw(field block conditionals definition);
+    
+    foreach my $i (0..3)
+    {
+	$headings[$i] = '' unless $column_widths[$i];
+    }
+    
+    print STDOUT sprintf($options->{template}, @headings);
     print STDOUT "\n";
     
     foreach my $key ( sort { lc $a cmp lc $b } keys %by_name )
@@ -334,6 +341,11 @@ sub diag_field_widths {
     }
     
     $widths->[3] = length($loc) if !defined $widths->[3] || length($loc) > $widths->[3];
+    
+    foreach my $i ( 0..4 )
+    {
+	$widths->[$i] //= '0';
+    }
 }
 
 

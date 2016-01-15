@@ -2,5 +2,7 @@
 
 =head1 <% ds.title %>: <% doc_title %>
 
+=for wds_title <% ds.title %>: <% doc_title %>
+
 <% NAVTRAIL %>
 
