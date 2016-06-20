@@ -473,10 +473,6 @@ sub configure_request {
     
     $request->output_vocab($vocab_value) if defined $vocab_value;
     
-    # If an after_config_hook is defined for this path, call it.
-    
-    $ds->_call_hooks($path, 'after_config_hook', $request);
-    
     my $a = 1;	# we can stop here when debugging
 }
 
@@ -499,6 +495,16 @@ sub generate_result {
     
     my $method = $ds->node_attr($path, 'method');
     my $arg = $ds->node_attr($path, 'arg');
+    
+    # First determine the class that corresponds to this request's primary role
+    # and bless the request into that class.
+    
+    my $role = $ds->node_attr($request, 'role');
+    bless $request, $ds->execution_class($role);
+    
+    # If a before_setup_hook is defined for this path, call it.
+    
+    $ds->_call_hooks($path, 'before_setup_hook', $request);
     
     # First check to make sure that the specified format is valid for the
     # specified path.
@@ -571,15 +577,11 @@ sub generate_result {
 	}
     }
     
-    # Now determine the class that corresponds to this request's primary role
-    # and bless the request into that class.
+    # If a before_operation_hook is defined for this path, call it.
+    # Also check for post_configure_hook, for backward compatibility.
     
-    my $role = $ds->node_attr($request, 'role');
-    bless $request, $ds->execution_class($role);
-    
-    # If an after_setup_hook is defined for this path, call it.
-    
-    $ds->_call_hooks($path, 'after_setup_hook', $request);
+    $ds->_call_hooks($path, 'post_configure_hook', $request);
+    $ds->_call_hooks($path, 'before_operation_hook', $request);
     
     # Prepare to time the query operation.
     
@@ -595,9 +597,9 @@ sub generate_result {
     my (@endtime) = Time::HiRes::gettimeofday();
     $request->{elapsed} = Time::HiRes::tv_interval(\@starttime, \@endtime);
     
-    # If an after_operation_hook is defined for this path, call it.
+    # If a before_output_hook is defined for this path, call it.
     
-    $ds->_call_hooks($path, 'after_operation_hook', $request);
+    $ds->_call_hooks($path, 'before_output_hook', $request);
     
     # Then we use the output configuration and the result of the query
     # operation to generate the actual output.  How we do this depends
@@ -632,7 +634,23 @@ sub generate_result {
 	my $threshold = $ds->node_attr($path, 'streaming_threshold')
 	    unless $request->{do_not_stream};
 	
-	return $ds->_generate_compound_result($request, $threshold);
+	# If the result set requires processing before output, then call
+	# _generate_processed_result.  Otherwise, call
+	# _generate_compound_result.  One of the conditions that can cause
+	# this to happen is if record counts are requested and generating them
+	# requires processing (i.e. because a 'check' rule was encountered).
+	
+	$request->{preprocess} = 1 if $request->display_counts && $request->{process_before_count};
+	
+	if ( $request->{preprocess} )
+	{
+	    return $ds->_generate_processed_result($request, $threshold);
+	}
+	
+	else
+	{
+	    return $ds->_generate_compound_result($request, $threshold);
+	}
     }
     
     elsif ( defined $request->{main_data} )
@@ -674,13 +692,39 @@ sub _call_hooks {
     {
 	if ( ref $code eq 'CODE' )
 	{
-	    return &$code($request);
+	    return &$code($request, @args);
 	}
 	
 	elsif ( defined $code )
 	{
-	    return $request->$code();
+	    return $request->$code(@args);
 	}
+    }
+}
+
+
+sub _boolean_hook {
+    
+    my ($ds, $hook, $request, @args) = @_;
+    
+    if ( ref $hook eq 'ARRAY' )
+    {
+	$hook = $hook->[0];
+    }
+    
+    if ( ref $hook eq 'CODE' )
+    {
+	return &$hook($request, @args);
+    }
+    
+    elsif ( defined $hook )
+    {
+	return $request->$hook(@args);
+    }
+    
+    else
+    {
+	return 1;
     }
 }
 
@@ -911,6 +955,7 @@ sub determine_output_format {
 
 
 my %CODE_STRING = ( 400 => "Bad Request", 
+		    401 => "Authentication Required",
 		    404 => "Not Found",
 		    415 => "Invalid Media Type",
 		    500 => "Server Error" );
@@ -1072,7 +1117,7 @@ sub error_result {
     else
     {
 	$code = 500;
-	warn $error;
+	print STDERR warn $error;
 	@errors = "A server error occurred.  Please contact the server administrator.";
     }
     

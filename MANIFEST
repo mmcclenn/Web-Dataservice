@@ -26,6 +26,8 @@ lib/Web/DataService/Configuration/Output.pod
 lib/Web/DataService/Configuration/Ruleset.pod
 lib/Web/DataService/Configuration/Set.pod
 lib/Web/DataService/Configuration/Vocabulary.pod
+lib/Web/DataService/Debugging.pod
+lib/Web/DataService/Diagnostic.pm
 lib/Web/DataService/Document.pm
 lib/Web/DataService/Documentation.pod
 lib/Web/DataService/Execute.pm
@@ -51,9 +53,12 @@ META.json
 META.yml
 README
 script/wdsinstallfiles
+script/wdsdiff
 t/00-load.t
 t/01-basic.t
 t/02-request.t
 t/03-doc.t
+t/04-diag.t
+t/pod.t
 t/boilerplate.t
 Makefile.PL

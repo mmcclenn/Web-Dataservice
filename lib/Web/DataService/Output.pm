@@ -116,6 +116,7 @@ our %OUTPUT_DEF = (output => 'type',
 		   select => 'type',
 		   filter => 'type',
 		   include => 'type',
+		   check => 'type',
 		   if_block => 'set',
 		   not_block => 'set',
 		   if_vocab => 'set',
@@ -153,7 +154,7 @@ our %FIELD_KEY = (dedup => 1, name => 1, value => 1, always => 1, sub_record => 
 		  if_vocab => 1, not_vocab => 1,
 		  text_join => 1, xml_join => 1, doc_string => 1, show_as_list => 1, disabled => 1, undocumented => 1);
 
-our %PROC_KEY = (set => 1, append => 1, from => 1, from_each => 1, 
+our %PROC_KEY = (set => 1, check => 1, append => 1, from => 1, from_each => 1, 
 		 if_vocab => 1, not_vocab => 1, if_block => 1, not_block => 1,
 	         if_format => 1, not_format => 1, if_field => 1, not_field => 1,
 		 code => 1, lookup => 1, split => 1, join => 1, default => 1, disabled => 1);
@@ -546,9 +547,9 @@ sub add_output_block {
 	    $request->{filter_hash}{$r->{filter}} = $r->{value};
 	}
 	
-	# If the record type is 'set', add a record to the process list.
+	# If the record type is 'set' or 'check', add a record to the process list.
 	
-	elsif ( defined $r->{set} )
+	elsif ( defined $r->{set} || defined $r->{check} )
 	{
 	    my $proc = { set => $r->{set} };
 	    
@@ -566,6 +567,29 @@ sub add_output_block {
 	    }
 	    
 	    push @{$request->{proc_list}}, $proc;
+	    
+	    # If this is a 'check' rule, then complain if the values don't
+	    # make sense.  Also note that we will have to process the result
+	    # set in its entirety if we need to compute the size.
+	    
+	    if ( defined $r->{check} )
+	    {
+		$request->{process_before_count} = 1;
+		
+		my $check_value = $r->{check};
+		
+		if ( $check_value eq '*' || $check_value eq '' )
+		{
+		    croak "the value of 'code' must be a code ref"
+			unless ref $r->{code} eq 'CODE';
+		}
+		
+		elsif ( defined $r->{lookup} )
+		{
+		    croak "the value of 'lookup' must be a hash ref"
+			unless ref $r->{lookup} eq 'HASH';
+		}
+	    }
 	}
 	
 	# If the record type is 'output', add a record to the field list.
@@ -574,6 +598,8 @@ sub add_output_block {
 	
 	elsif ( defined $r->{output} )
 	{
+	    croak "the value of 'output' must be non-empty" unless $r->{output} ne '';
+	    
 	    next RECORD if $require_vocab and not exists $r->{"${vocab}_name"};
 	    
 	    my $field = { field => $r->{output}, name => $r->{output} };
@@ -605,7 +631,7 @@ sub add_output_block {
 			    lc $type_value eq 'dec' || lc $type_value eq 'str';
 		    
 		    $field->{data_type} = $r->{data_type};
-		    push @{$request->{proc_list}}, { check => $r->{output}, data_type => $r->{data_type} }
+		    push @{$request->{proc_list}}, { check_field => $r->{output}, data_type => $r->{data_type} }
 			unless $r->{data_type} eq 'str';
 		}
 		
@@ -1469,6 +1495,8 @@ sub document_field {
 	      : $ds->{vocab}{$v}{use_field_names} ? $r->{output}
 	      :					      '';
 	
+	$n ||= 'I<n/a>';
+	
 	push @names, $n
     }
     
@@ -1497,7 +1525,8 @@ sub document_field {
 # process_record ( request, record, steps )
 # 
 # Execute any per-record processing steps that have been defined for this
-# record. 
+# record. Return true if the record is to be included in the result, false
+# otherwise.
 
 sub process_record {
     
@@ -1505,22 +1534,90 @@ sub process_record {
     
     # If there are no processing steps to do, return immediately.
     
-    return unless ref $steps eq 'ARRAY' and @$steps;
+    return 1 unless ref $steps eq 'ARRAY' and @$steps;
     
     # Otherwise go through the steps one by one.
     
     foreach my $p ( @$steps )
     {
-	# If this step is a 'check' step, then do the check.
+	# Skip this processing step based on a conditional field value, if one
+	# is defined.
 	
-	if ( exists $p->{check} )
+	if ( my $cond_field = $p->{if_field} )
 	{
-	    $ds->check_field_type($record, $p->{check}, $p->{data_type}, $p->{subst});
+	    next unless defined $record->{$cond_field};
+	    next if ref $record->{$cond_field} eq 'ARRAY' && @{$record->{$cond_field}} == 0;
+	}
+	
+	elsif ( $cond_field = $p->{not_field} )
+	{
+	    next if defined $record->{$cond_field} && ref $record->{$cond_field} ne 'ARRAY';
+	    next if ref $record->{$cond_field} eq 'ARRAY' && @{$record->{$cond_field}} > 0;
+	}
+	
+	# If this step is a 'check_field' step, then do the check.
+	
+	if ( defined $p->{check_field} )
+	{
+	    $ds->check_field_type($record, $p->{check_field}, $p->{data_type}, $p->{subst});
 	    next;
 	}
 	
-	# Figure out which field (if any) we are affecting.  A value of '*'
-	# means to use the entire record (only relevant with 'code').
+	# If this step is a 'check' step (i.e. check the entire record) then
+	# do the check. If it fails, we return false.
+	
+	elsif ( defined $p->{check} )
+	{
+	    my $check_value = $p->{check};
+	    
+	    # If the value is '*' or the empty string, then we must have a
+	    # code reference to call.
+	    
+	    if ( $check_value eq '' || $check_value eq '*' )
+	    {
+		return $p->{code}($request, $record);
+	    }
+	    
+	    # Otherwise, if the value is '1' or '0' then return that.  The
+	    # former will cause the record to be included in the result, the
+	    # latter will cause it to be skipped.  This is mainly useful in
+	    # conjunction with 'if_field' or 'not_field'.
+	    
+	    elsif ( $check_value eq '1' || $check_value eq '0' )
+	    {
+		return $check_value;
+	    }
+	    
+	    # Otherwise, we assume that we have been given a field name and
+	    # either call a code reference or do a hash-table lookup.
+	    
+	    elsif ( defined $p->{code} )
+	    {
+		my $value = $record->{$check_value};
+		return $p->{code}($request, $value);
+	    }
+	    
+	    elsif ( defined $p->{lookup} )
+	    {
+		my $value = $record->{$check_value};
+		return $p->{lookup}{$value} // $p->{default};
+	    }
+	    
+	    # Otherwise, we just return the value of the specified field. The
+	    # record will be included if this value is true, and skipped if
+	    # false.
+	    
+	    else
+	    {
+		return $record->{$check_value};
+	    }
+	    
+	    next;
+	}
+	
+	# If we get here, the current rule must be a 'set'.  Figure out which
+	# field (if any) we are affecting.  A value of '*' means to use the
+	# entire record (only relevant with 'code').
 	
 	my $set_field = $p->{set};
 	
@@ -1538,21 +1635,6 @@ sub process_record {
 	{
 	    next unless defined $record->{$source_field};
 	    next if ref $record->{$source_field} eq 'ARRAY' && @{$record->{$source_field}} == 0;
-	}
-	
-	# Skip this processing step based on a conditional field value, if one
-	# is defined.
-	
-	if ( my $cond_field = $p->{if_field} )
-	{
-	    next unless defined $record->{$cond_field};
-	    next if ref $record->{$cond_field} eq 'ARRAY' && @{$record->{$cond_field}} == 0;
-	}
-	
-	elsif ( $cond_field = $p->{not_field} )
-	{
-	    next if defined $record->{$cond_field} && ref $record->{$cond_field} ne 'ARRAY';
-	    next if ref $record->{$cond_field} eq 'ARRAY' && @{$record->{$cond_field}} > 0;
 	}
 	
 	# Now generate a list of result values, according to the attributes of this
@@ -1709,7 +1791,9 @@ sub process_record {
 		$record->{$set_field} = '';
 	    }
 	}
-    }    
+    }
+    
+    return 1;
 }
 
 
@@ -1780,6 +1864,8 @@ sub _generate_single_result {
     
     my $format = $request->output_format;
     my $format_class = $ds->{format}{$format}{package};
+    my $output_hook = $ds->{hook_enabled}{output_record_hook} &&
+	$ds->node_attr($request, 'output_record_hook');
     
     die "could not generate a result in format '$format': no implementing module was found"
 	unless $format_class;
@@ -1812,9 +1898,9 @@ sub _generate_single_result {
     # If there is an output_record_hook defined for this path, call it now.
     # If it returns false, do not output the record.
     
-    if ( $request->{output_record_hook} )
+    if ( $output_hook )
     {
-	unless ( $ds->call_hook($request->{output_record_hook}, $request, $request->{main_record}) )
+	unless ( $ds->_boolean_hook($output_hook, $request, $request->{main_record}) )
 	{
 	    $output .= $format_class->emit_empty($request);
 	    $output .= $format_class->emit_footer($request);
@@ -1836,11 +1922,12 @@ sub _generate_single_result {
 
 # _generate_compound_result ( request )
 # 
-# This function is called after an operation is executed.  It serializes each
-# result record according to the specified output format and returns the
-# resulting string.  If $streaming_threshold is specified, and if the size of
-# the output exceeds this threshold, this routine then sets up to stream the
-# rest of the output.
+# This function is called after an operation is executed and returns a result
+# set, provided that the entire result set does not need to be processed
+# before output.  It serializes each result record according to the specified output
+# format and returns the resulting string.  If $streaming_threshold is
+# specified, and if the size of the output exceeds this threshold, this
+# routine then sets up to stream the rest of the output.
 
 sub _generate_compound_result {
 
@@ -1850,6 +1937,8 @@ sub _generate_compound_result {
     
     my $format = $request->output_format;
     my $format_class = $ds->{format}{$format}{package};
+    my $output_hook = $ds->{hook_enabled}{output_record_hook} &&
+	$ds->node_attr($request, 'output_record_hook');
     
     die "could not generate a result in format '$format': no implementing module was found"
 	unless $format_class;
@@ -1880,13 +1969,24 @@ sub _generate_compound_result {
     
     $request->{actual_count} = 0;
     
-    # If an offset was specified and the result method didn't handle this
-    # itself, then skip the specified number of records.
+    # If we have a result limit of 0, just output the header and footer and
+    # don't bother about the records.
     
-    if ( defined $request->{result_offset} && $request->{result_offset} > 0
+    if ( defined $request->{result_limit} && $request->{result_limit} eq '0' )
+    {
+	$request->{limit_zero} = 1;
+    }
+    
+    # Otherwise, if an offset was specified and the result method didn't
+    # handle this itself, then skip the specified number of records.
+    
+    elsif ( defined $request->{result_offset} && $request->{result_offset} > 0
 	 && ! $request->{offset_handled} )
     {
-	$ds->_next_record($request) foreach 1..$request->{result_offset};
+	foreach (1..$request->{result_offset})
+	{
+	    $ds->_next_record($request) or last;
+	}
     }
     
     # Now fetch and process each output record in turn.  If output streaming is
@@ -1903,10 +2003,9 @@ sub _generate_compound_result {
 	# If there is an output_record_hook defined for this path, call it now.
 	# If it returns false, do not output the record.
 	
-	if ( $request->{output_record_hook} )
+	if ( $output_hook )
 	{
-	    $ds->call_hook($request->{output_record_hook}, $request, $request->{main_record})
-		or next RECORD;
+	    $ds->_boolean_hook($output_hook, $request, $record)	or next RECORD;
 	}
 	
 	# Generate the output for this record, preceded by a record separator if
@@ -1972,42 +2071,170 @@ sub _generate_compound_result {
     return $must_encode ? encode($output_charset, $output) : $output;
 }
 
-    # If the flag 'process_resultset' is set, then we need to fetch and
-    # process the entire result set before generating output.  Obviously,
-    # streaming is not a possibility in this case.
+
+# _generate_processed_result ( request )
+# 
+# This function is called if the result set needs to be processed in its
+# entirety before being output.  It processes the entire result set and
+# collects a list of processed records, and then serializes each result record
+# according to the specified output format.  If $streaming_threshold is
+# specified, and if the size of the output exceeds this threshold, this
+# routine then sets up to stream the rest of the output.
+
+sub _generate_processed_result {
+
+    my ($ds, $request, $streaming_threshold) = @_;
     
-    # if ( $ds->{process_resultset} )
-    # {
-    # 	my @rows;
+    # Determine the output format and figure out which class implements it.
+    
+    my $format = $request->output_format;
+    my $format_class = $ds->{format}{$format}{package};
+    my $output_hook = $ds->{hook_enabled}{output_record_hook} &&
+	$ds->node_attr($request, 'output_record_hook');
+    
+    die "could not generate a result in format '$format': no implementing module was found"
+	unless $format_class;
+    
+    $ds->debug_line("Processing result set before output.");
+    
+    # Get the lists that specify how to process each record and which fields
+    # to output.
+    
+    my $proc_list = $request->{proc_list};
+    my $field_list = $request->{field_list};
+    
+    # Now fetch and process each output record in turn.  Collect up all of the
+    # records that pass the processing phase in a list.
+    
+    my @results;
+    
+ RECORD:
+    while ( my $record = $ds->_next_record($request) )
+    {
+	# If there are any processing steps to do, then process this record.
+	# If the return value is not true, skip the record.
 	
-    # 	if ( $ds->{main_sth} )
-    # 	{
-    # 	    while ( $record = $ds->{main_sth}->fetchrow_hashref )
-    # 	    {
-    # 		push @rows, $record;
-    # 	    }
-    # 	}
+	$ds->process_record($request, $record, $proc_list) or next RECORD;
 	
-    # 	else
-    # 	{
-    # 	    @rows = @{$ds->{main_result}}
-    # 	}
+	# If there is an output_record_hook defined for this path, call it now.
+	# If it returns false, skip the record.
 	
-    # 	my $newrows = $ds->{process_resultset}(\@rows);
+	if ( $output_hook )
+	{
+	    $ds->_boolean_hook($output_hook, $request, $record)
+		or next RECORD;
+	}
 	
-    # 	if ( ref $newrows eq 'ARRAY' )
-    # 	{
-    # 	    foreach my $record (@$newrows)
-    # 	    {
-    # 		$ds->processRecord($record, $ds->{proc_list});
-    # 		my $record_output = $ds->emitRecord($record, is_first => $first_row);
-    # 		$output .= $record_output;
-		
-    # 		$first_row = 0;
-    # 		$ds->{row_count}++;
-    # 	    }
-    # 	}
-    # }
+	# Add the record to the list.
+	
+	push @results, $record;
+    }
+    
+    # We now know the result count.
+    
+    $request->{result_count} = scalar(@results);
+    
+    # At this point, we can generate the output.  We start with the header.
+    
+    my $output = $format_class->emit_header($request, $field_list);
+    
+    # A record separator is emitted before every record except the first.  If
+    # this format class does not define a record separator, use the empty
+    # string.
+    
+    $request->{rs} = $format_class->can('emit_separator') ?
+	$format_class->emit_separator($request) : '';
+    
+    my $emit_rs = 0;
+    
+    $request->{actual_count} = 0;
+    
+    # If an offset was specified and the result method didn't handle this
+    # itself, then skip the specified number of records.
+    
+    if ( defined $request->{result_offset} && $request->{result_offset} > 0
+	 && ! $request->{offset_handled} )
+    {
+	splice(@results, 0, $request->{result_offset});
+    }
+    
+    # If the result limit is zero, we can ignore all records.
+    
+    if ( defined $request->{result_limit} && $request->{result_limit} eq '0' )
+    {
+	@results = ();	
+    }
+    
+    # Otherwise iterate over all of the remaining records.
+    
+ OUTPUT:
+    while ( @results )
+    {
+	my $record = shift @results;
+	
+	# Generate the output for this record, preceded by a record separator if
+	# it is not the first record.
+	
+	$output .= $request->{rs} if $emit_rs; $emit_rs = 1;
+	
+	$output .= $format_class->emit_record($request, $record, $field_list);
+	
+	# Keep count of the output records, and stop if we have exceeded the
+	# limit.
+	
+	$request->{actual_count}++;
+	
+	if ( defined $request->{result_limit} && $request->{result_limit} ne 'all' )
+	{
+	    last if $request->{actual_count} >= $request->{result_limit};
+	}
+	
+	# If streaming is a possibility, check whether we have passed the
+	# threshold for result size.  If so, then we need to immediately
+	# stash the output generated so far and call stream_data.  Doing that
+	# will cause the current function to be aborted, followed by an
+	# automatic call to &stream_result (defined below).
+	
+	if ( defined $streaming_threshold && length($output) > $streaming_threshold )
+	{
+	    $request->{stashed_output} = $output;
+	    $request->{stashed_results} = \@results;
+	    Dancer::Plugin::StreamData::stream_data($request, &_stream_compound_result);
+	}
+    }
+    
+    # If we get here, then we did not initiate streaming.  So add the
+    # footer and return the output data.
+    
+    # If we didn't output any records, give the formatter a chance to indicate
+    # this. 
+    
+    unless ( $request->{actual_count} )
+    {
+	$output .= $format_class->emit_empty($request);
+    }
+    
+    # Generate the final part of the output, after the last record.
+    
+    $output .= $format_class->emit_footer($request, $field_list);
+    
+    # Determine if we need to encode the output into the proper character set.
+    # Usually Dancer does this for us, but only if it recognizes the content
+    # type as text.  For these formats, the definition should set the
+    # attribute 'encode_as_text' to true.
+    
+    my $output_charset = $ds->{_config}{charset};
+    my $must_encode;
+    
+    if ( $output_charset 
+	 && $ds->{format}{$format}{encode_as_text}
+	 && ! $request->{content_type_is_text} )
+    {
+	$must_encode = 1;
+    }
+    
+    return $must_encode ? encode($output_charset, $output) : $output;
+}
 
 
 # _stream_compound_result ( )
@@ -2034,6 +2261,8 @@ sub _stream_compound_result {
     my $format = $request->output_format;
     my $format_class = $ds->{format}{$format}{package};
     my $format_is_text = $ds->{format}{$format}{is_text};
+    my $output_hook = $ds->{hook_enabled}{output_record_hook} &&
+	$ds->node_attr($request, 'output_record_hook');
     
     croak "could not generate a result in format '$format': no implementing class"
 	unless $format_class;
@@ -2060,6 +2289,7 @@ sub _stream_compound_result {
     
     # Then process the remaining rows.
     
+  RECORD:
     while ( my $record = $ds->_next_record($request) )
     {
 	# If there are any processing steps to do, then process this record.
@@ -2069,10 +2299,10 @@ sub _stream_compound_result {
 	# If there is an output_record_hook defined for this path, call it now.
 	# If it returns false, do not output the record.
 	
-	if ( $request->{output_record_hook} )
+	if ( $output_hook )
 	{
-	    $ds->call_hook($request->{output_record_hook}, $request, $request->{main_record})
-		or return;
+	    $ds->_boolean_hook($output_hook, $request, $request->{main_record})
+		or next RECORD;
 	}
 	
 	# Generate the output for this record, preceded by a record separator
@@ -2144,15 +2374,22 @@ sub _next_record {
     
     my ($ds, $request) = @_;
     
-    # If the result limit is 0, return nothing.  This prevents any records
-    # from being returned.
+    # If the request has a zero limit, and no processing needs to be done on
+    # the result set, then no records need to be returned.
     
-    return if defined $request->{result_limit} && $request->{result_limit} eq '0';
+    return if $request->{limit_zero};
+    
+    # If we have a stashed result list, return the next item in it.
+    
+    if ( ref $request->{stashed_results} eq 'ARRAY' )
+    {
+	return shift @{$request->{stashed_results}};
+    }
     
     # If we have a 'main_result' array with something in it, return the next
     # item in it.
     
-    if ( ref $request->{main_result} eq 'ARRAY' and @{$request->{main_result}} )
+    elsif ( ref $request->{main_result} eq 'ARRAY' and @{$request->{main_result}} )
     {
 	return shift @{$request->{main_result}};
     }

@@ -24,7 +24,7 @@ Otherwise, all files necessary for the example application will be installed.
 
 =cut
 
-eval 'exec /opt/local/bin/perl5.12  -S $0 ${1+"$@"}'
+eval 'exec /opt/local/bin/perl5 -S $0 ${1+"$@"}'
     if 0; # not running under some shell
 
 use lib 'lib';
@@ -381,6 +381,8 @@ sub make_program {
     my $source_name = $0;
     my $target_name = $source_name;
     $target_name =~ s{ [^/]+ $ }{ $TARGET_NAME }xe;
+    
+    print STDERR "Making target file: $target_name\n";
     
     open my $source, "<", $source_name or die "File $source_name: $!";
     open my $target, ">", $target_name or die "File $target_name: $!";

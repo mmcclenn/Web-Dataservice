@@ -8,7 +8,7 @@ build_requires:
 configure_requires:
   Module::Build: '0.42'
 dynamic_config: 1
-generated_by: 'Module::Build version 0.4212, CPAN::Meta::Converter version 2.150001'
+generated_by: 'Module::Build version 0.4214, CPAN::Meta::Converter version 2.150005'
 license: perl
 meta-spec:
   url: http://module-build.sourceforge.net/META-spec-v1.4.html
@@ -17,7 +17,9 @@ name: Web-DataService
 provides:
   Web::DataService:
     file: lib/Web/DataService.pm
-    version: '0.26'
+    version: '0.3'
+  Web::DataService::Diagnostic:
+    file: lib/Web/DataService/Diagnostic.pm
   Web::DataService::Document:
     file: lib/Web/DataService/Document.pm
   Web::DataService::Execute:
@@ -64,9 +66,11 @@ requires:
   HTTP::Validate: '0.47'
   JSON: '2'
   Moo: '1'
+  Pod::Simple: '3.32'
   YAML: '0'
   namespace::clean: '0.16'
   perl: '5.012'
 resources:
   license: http://dev.perl.org/licenses/
-version: '0.26'
+version: '0.3'
+x_serialization_backend: 'CPAN::Meta::YAML version 0.016'

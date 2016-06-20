@@ -44,11 +44,13 @@ our (%NODE_DEF) = ( path => 'ignore',
 		    default_linebreak => 'single',
 		    default_save_filename => 'single',
 		    stream_theshold => 'single',
-		    init_operation_hook => 'hook',
-		    post_params_hook => 'hook',
-		    post_configure_hook => 'hook',
-		    post_process_hook => 'hook',
+		    before_execute_hook => 'hook',
+		    before_config_hook => 'hook',
+		    before_setup_hook => 'hook',
+		    before_operation_hook => 'hook',
+		    before_output_hook => 'hook',
 		    output_record_hook => 'hook',
+		    post_configure_hook => 'hook',	# deprecated
 		    use_cache => 'single',
 		    allow_method => 'set',
 		    allow_format => 'set',
@@ -922,6 +924,11 @@ sub add_node_doc {
 	    $node->{undocumented} = 1;
 	}
     }
+    
+    # Change any initial > or >> into a blank line, to indicate a new
+    # paragraph.
+    
+    $doc =~ s{^>>?}{\n}xs;
     
     # Now add the documentation string.
     

@@ -15,6 +15,7 @@ my $builder = Module::Build->new(
 	'Moo' => 1,
         'namespace::clean' => 0.16,
         'HTTP::Validate' => 0.47,
+	'Pod::Simple' => 3.32,
 	'JSON' => 2,
 	'YAML' => 0,
     },
@@ -34,7 +35,8 @@ my $builder = Module::Build->new(
 	 script => $Config{installbin},
     },
     script_files => {
-    	'script/wdsinstallfiles' => 1 
+    	'script/wdsinstallfiles' => 1, 
+	'script/wdsdiff' => 1
     },
     create_makefile_pl => 'traditional',
 );

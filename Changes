@@ -1,5 +1,16 @@
 Revision history for Web-DataService
 
+0.3     2016-01-13
+
+- Pod parser has been rewritten as a subclass of Pod::Simple.  If you are upgrading
+  from an earlier version of Web::DataService you should update doc_defs.tt and dsdoc.css.
+  Note that this new parser requires all command paragraphs to be preceded and followed by
+  blank lines, whereas the earlier version was looser about it.
+- New Pod directives "=for wds_pod on", "=for wds_pod off" can be used to bracket content
+  that should be included if the target format is Pod and ignored for other formats such
+  as HTML.
+- New option 'diag' for running on the command line, 
+
 0.261   2015-06-22
 
 - Documentation nodes are now automatically auto-instantiated if a template file

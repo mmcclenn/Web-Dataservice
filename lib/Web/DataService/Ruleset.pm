@@ -63,30 +63,28 @@ sub define_ruleset {
     {
 	next unless defined $arg;
 	
-	# Documentation strings are just passed on through.
+	# Documentation strings that do not start with >> are just added to
+	# the documentation for the current rule (or are added to the
+	# beginning of the documentation if there is no current rule).
 	
-	unless ( ref $arg )
+	if ( ! ref $arg && $arg !~ qr{^>>}s )
 	{
 	    push @pending_doc, $arg;
 	    next ARG;
 	}
 	
-	# Any reference that is not a hashref should be flagged.
-	
-	if ( ref $arg ne 'HASH' )
-	{
-	    croak "define_ruleset: the arguments must be a list of hashrefs and strings\n";
-	}
-	
-	# Otherwise, we have a new rule that needs to be checked.  So first
-	# take care of any pending rule and its documentation.
+	# Otherwise, we have a new top-level item (either a rule or a
+	# documentation paragraph.  So if there is a pending rule then finish
+	# it now.
 	
 	if ( $pending_rule )
 	{
-	    push @rules_and_doc, $pending_rule, @pending_doc, @final_doc;
+	    if ( $ds->check_rule($pending_rule, \@pending_doc) )
+	    {
+		push @rules_and_doc, $pending_rule, @pending_doc, @final_doc;
+	    }
+	    
 	    $pending_rule = undef;
-	    @pending_doc = ();
-	    @final_doc = ();
 	}
 	
 	# If there is just pending documentation, then add it.
@@ -94,13 +92,31 @@ sub define_ruleset {
 	elsif ( @pending_doc )
 	{
 	    push @rules_and_doc, @pending_doc;
-	    @pending_doc = ();
-	    @final_doc = ();
 	}
 	
-	# Now we consider the new rule.  If it is a substitution rule, then
-	# move its value to the RS_SUBST hash and otherwise ignore it.  This
-	# is a feature implemented by Web::DataService and not by
+	# Then clear the "pending" lists.
+	
+	@pending_doc = ();
+	@final_doc = ();
+	
+	# Now, if we have a documentation string starting with ">>", add it.
+	
+	if ( ! ref $arg )
+	{
+	    push @rules_and_doc, $arg;
+	    next ARG;
+	}
+	
+	# Any reference that is not a hashref should be flagged.
+	
+	elsif ( ref $arg ne 'HASH' )
+	{
+	    croak "define_ruleset: the arguments must be a list of hashrefs and strings\n";
+	}
+	
+	# If we get here, then $arg must be a new rule.  If it is a substitution
+	# rule, then move its value to the RS_SUBST hash and otherwise ignore
+	# it.  This is a feature implemented by Web::DataService and not by
 	# HTTP::Validate, so we cannot pass this rule to the latter module.
 	
 	if ( $arg->{substitute} )
@@ -243,14 +259,12 @@ sub define_ruleset {
 		{
 		    $arg->{$ruletype} = $ds->{special}{show};
 		    $arg->{list} = ',';
-		    @pending_doc = $ds->generate_special_doc($special_arg)
-			unless @pending_doc;
+		    $arg->{special} = 'show';
 		}
 		
 		else
 		{
-		    $pending_rule = undef;
-		    next ARG;
+		    $arg->{special} = 'IGNORE';
 		}
 	    }
 	    
@@ -268,21 +282,21 @@ sub define_ruleset {
 		
 		unless ( $ds->{special}{$special_arg} )
 		{
-		    $pending_rule = undef;
+		    $pending_rule = { special => 'IGNORE' };
 		    next ARG;
 		}
 		
 		$pending_rule = $ds->generate_special_rule($special_arg);
-		@pending_doc = $ds->generate_special_doc($special_arg)
-		    unless @pending_doc;
+		$pending_rule->{special} = $special_arg;
 		
 		# If the original rule specified any of 'errmsg', 'warn', 
 		# 'alias', or 'clean', copy these over to the new rule.
 		
 		$pending_rule->{errmsg} = $arg->{errmsg} if defined $arg->{errmsg};
 		$pending_rule->{warn} = $arg->{warn} if defined $arg->{warn};
-		$pending_rule->{alias} = $arg->{alias} if defined $arg->{alias};
 		$pending_rule->{clean} = $arg->{clean} if defined $arg->{clean};
+		$pending_rule->{alias} = $arg->{alias} if defined $arg->{alias} &&
+		    $arg->{alias} ne $pending_rule->{optional};
 		
 		# Mark that this parameter has already been dealt with, so
 		# that a later rule with 'all' will not include it a second
@@ -307,7 +321,10 @@ sub define_ruleset {
     
     if ( $pending_rule )
     {
-	push @rules_and_doc, $pending_rule, @pending_doc, @final_doc;
+	if ( $ds->check_rule($pending_rule, \@pending_doc) )
+	{
+	    push @rules_and_doc, $pending_rule, @pending_doc, @final_doc;
+	}
     }
     
     # If we are in 'diagnostic' mode, then stash a copy of the ruleset
@@ -367,6 +384,26 @@ sub define_ruleset {
 }
 
 
+# check_rule ( rr, doc_ref )
+# 
+# Check and adjust the special rule and its documentation.  Return true if
+# this rule should be included in the ruleset, false otherwise.
+
+sub check_rule {
+    
+    my ($ds, $rr, $doc_ref) = @_;
+    
+    return 1 unless $rr->{special};
+    return 0 if $rr->{special} eq 'IGNORE';
+    
+    @$doc_ref = $ds->generate_special_doc($rr->{special})
+	unless @$doc_ref;
+    
+    delete $rr->{special};
+    return 1;
+}
+
+
 # generate_special_rule ( param )
 # 
 # Generate a rule for the given special parameter.
@@ -403,7 +440,7 @@ sub generate_special_rule {
 	$rule->{valid} = FLAG_VALUE;
     }
     elsif ( $param eq 'linebreak' ) {
-	$rule->{valid} = ENUM_VALUE('cr', 'crlf');
+	$rule->{valid} = ENUM_VALUE('cr', 'lf', 'crlf');
     }
     elsif ( $param eq 'vocab' ) {
 	$rule->{valid} = $ds->valid_vocab;

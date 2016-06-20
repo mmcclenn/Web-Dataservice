@@ -155,7 +155,7 @@ sub generate_doc {
     {
 	my $doc_string = $ds->render_doc($doc_template, $doc_defs, $doc_header, $doc_footer, $vars);
 	
-	my $url_generator = sub {
+	my $url_formatter = sub {
 	    if ( $_[0] =~ qr{ ^ (node|op|path) (abs|rel|site)? [:] ( [^#?]* ) (?: [?] ( [^#]* ) )? (?: [#] (.*) )? }xs )
 	    {
 		my $arg = $1;
@@ -170,7 +170,7 @@ sub generate_doc {
 		    $path = $1; $format = $2;
 		}
 		
-		return $request->generate_url({ $arg => $path, type => $type, format => $format, 
+		return $request->generate_url({ $arg => $path, type => $type, format => $format,
 						params => $params, fragment => $frag });
 	    }
 	    else
@@ -186,7 +186,7 @@ sub generate_doc {
 	if ( defined $format && $format eq 'pod' )
 	{
 	    $ds->_set_content_type($request, 'text/plain');
-	    return $ds->convert_pod_links($doc_string, $url_generator);
+	    return $ds->convert_pod_links($doc_string, $url_formatter);
 	}
 	
 	# Otherwise, convert the POD to HTML using the PodParser and return the result.
@@ -196,8 +196,8 @@ sub generate_doc {
 	    my $stylesheet = $ds->node_attr($path, 'doc_stylesheet') || 
 		$ds->generate_site_url({ path => 'css/dsdoc.css' });
 	    
-	    my $parser = Web::DataService::PodParser->new({ target => 'html', css => $stylesheet,
-							    url_generator => $url_generator,
+	    my $parser = Web::DataService::PodParser->new({ target => 'html', css => $stylesheet, 
+							    url_formatter => $url_formatter,
 							    page_title => $doc_title });
 	    
 	    $parser->parse_string_document($doc_string);
@@ -250,7 +250,7 @@ sub make_doc_node {
     
     my ($ds, $path, $doc_path) = @_;
     
-    my $new_attrs = { path => $path };
+    my $new_attrs = { path => $path, title => 'NULL' };
     
     my $partial_contents = $ds->read_doc_partial($doc_path);
     
@@ -258,9 +258,47 @@ sub make_doc_node {
     {
 	my $expr = $1;
 	
-	if ( $expr =~ qr{ (\w+) \s* = \s* (.+) }xs )
+	while ( $expr )
 	{
-	    $new_attrs->{$1} = $2;
+	    if ( $expr =~ qr{ ^ (\w+) \s* = \s* " ( (?: [^"] | \\{2} | \\" )+ ) " \s* (.*) }xs )
+	    {
+		$expr = $3;
+		my $attr = $1;
+		my $value = $2;
+		$value =~ s{\\{2}}{\\}g;
+		
+		unless ( $Web::DataService::Node::NODE_DEF{$attr} )
+		{
+		    die "500 Invalid attribute '$attr' for wds_node\n";
+		}
+		
+		$new_attrs->{$attr} = $value;
+	    }
+	    
+	    elsif ( $expr =~ qr{ ^ (\w+) \s* = \s* ( (?: [^;] | \\{2} | \\; )+ ) \s* (.*) }xs )
+	    {
+		$expr = $3;
+		my $attr = $1;
+		my $value = $2;
+		$value =~ s{\\{2}}{\\}g;
+		
+		unless ( $Web::DataService::Node::NODE_DEF{$attr} )
+		{
+		    die "500 Invalid attribute '$attr' for wds_node\n";
+		}
+		
+		$new_attrs->{$attr} = $value;
+	    }
+	    
+	    elsif ( $expr =~ qr{ ^ ; \s* (.*) }xs )
+	    {
+		$expr = $1;
+	    }
+	    
+	    else
+	    {
+		die "500 Invalid syntax for wds_node: '$expr'\n";
+	    }
 	}
     }
     

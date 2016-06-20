@@ -16,7 +16,7 @@ Web::DataService - a framework for building data service applications for the We
 
 =head1 VERSION
 
-Version 0.3
+Version 0.31
 
 =head1 SYNOPSIS
 
@@ -55,7 +55,7 @@ as Mojolicious and Catalyst soon.
 
 package Web::DataService;
 
-our $VERSION = '0.3';
+our $VERSION = '0.31';
 
 use feature qw(say);
 
@@ -90,7 +90,7 @@ with 'Web::DataService::Node', 'Web::DataService::Set',
      'Web::DataService::Document', 'Web::DataService::Diagnostic';
 
 
-our (@CARP_NOT) = qw(Web::DataService::Request Moo);
+our (@CARP_NOT) = qw(Web::DataService::Request Web::DataService::Node Moo);
 
 HTTP::Validate->VERSION(0.47);
 
@@ -1449,9 +1449,9 @@ before using it as a secondary role for '$primary_role'"
     }
     
     my $string =  " package $request_class;
-			use Try::Tiny;
-			use Scalar::Util qw(reftype);
-			use Carp qw(carp croak);
+			# use Try::Tiny;
+			# use Scalar::Util qw(reftype);
+			# use Carp qw(carp croak);
 			use Moo;
 			use namespace::clean;
 			
@@ -1462,6 +1462,20 @@ before using it as a secondary role for '$primary_role'"
 			our(\$_CREATED) = 1";
     
     my $result = eval $string;
+    
+    if ( $@ )
+    {
+	if ( $@ =~ qr{method name conflict.*the method '(.*?)'} )
+	{
+	    my $method = $1;
+	    croak "The method name '$method' in $primary_role conflicts with the same name in Web::DataService::IRequest; you must choose another name for this subroutine";
+	}
+	
+	else
+	{
+	    croak "$@";
+	}
+    }
     
     # Now initialize the primary role, unless of course it has already been
     # initialized.  This will also cause any uninitialized secondary roles to

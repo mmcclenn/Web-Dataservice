@@ -4,7 +4,7 @@
       "Michael McClennen <mmcclenn@cpan.org>"
    ],
    "dynamic_config" : 1,
-   "generated_by" : "Module::Build version 0.4212",
+   "generated_by" : "Module::Build version 0.4214",
    "license" : [
       "perl_5"
    ],
@@ -35,6 +35,7 @@
             "HTTP::Validate" : "0.47",
             "JSON" : "2",
             "Moo" : "1",
+            "Pod::Simple" : "3.32",
             "YAML" : "0",
             "namespace::clean" : "0.16",
             "perl" : "5.012"
@@ -44,7 +45,10 @@
    "provides" : {
       "Web::DataService" : {
          "file" : "lib/Web/DataService.pm",
-         "version" : "0.26"
+         "version" : "0.3"
+      },
+      "Web::DataService::Diagnostic" : {
+         "file" : "lib/Web/DataService/Diagnostic.pm"
       },
       "Web::DataService::Document" : {
          "file" : "lib/Web/DataService/Document.pm"
@@ -110,5 +114,6 @@
          "http://dev.perl.org/licenses/"
       ]
    },
-   "version" : "0.26"
+   "version" : "0.3",
+   "x_serialization_backend" : "JSON::PP version 2.27203"
 }

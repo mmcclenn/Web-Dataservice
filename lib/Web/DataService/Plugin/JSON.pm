@@ -83,11 +83,12 @@ sub emit_header {
     # Check if we have been asked to report the result count, and if it is
     # available.
     
+    $output .= '"elapsed_time":' . sprintf("%.3g", $request->{elapsed}) . ",\n";
+    
     if ( $request->display_counts )
     {
 	my $counts = $request->result_counts;
 	
-	$output .= '"elapsed_time":' . sprintf("%.3g", $request->{elapsed}) . ",\n";
 	$output .= '"records_found":' . json_clean($counts->{found} || '0') . ",\n";
 	$output .= '"records_returned":' . json_clean($counts->{returned} || '0') . ",\n";
 	$output .= '"record_offset":' . json_clean($counts->{offset}) . ",\n"
@@ -265,7 +266,7 @@ sub emit_object {
 	    
 	    if ( ref $value && reftype $value eq 'HASH' )
 	    {
-		$request->process_record($value, $proc_list) if $proc_list && @$proc_list;
+		$request->_process_record($value, $proc_list) if $proc_list && @$proc_list;
 		
 		if ( $output_list && @$output_list )
 		{
@@ -286,7 +287,7 @@ sub emit_object {
 		{
 		    foreach my $v ( @$value )
 		    {
-			$request->process_record($v, $proc_list) if $proc_list;
+			$request->_process_record($v, $proc_list) if $proc_list;
 		    }
 		}
 		

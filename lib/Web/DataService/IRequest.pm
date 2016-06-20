@@ -369,11 +369,11 @@ sub debug {
 }
 
 
-# process_record ( record, steps )
+# _process_record ( record, steps )
 # 
 # Process the specified record using the specified steps.
 
-sub process_record {
+sub _process_record {
     
     my ($request, $record, $steps) = @_;
     my $ds = $request->{ds};
@@ -439,6 +439,42 @@ sub sql_limit_clause {
     else
     {
 	return '';
+    }
+}
+
+
+# require_preprocess ( arg )
+# 
+# If the argument is true, then the result set will be processed before
+# output. This will mean that the entire result set will be held in the memory
+# of the dataservice process before being sent to the client, no matter how
+# big it is.
+# 
+# If the argument is '2', then this will only be done if row counts were
+# requested and not otherwise.
+
+sub require_preprocess {
+    
+    my ($request, $arg) = @_;
+    
+    croak "you must provide a defined argument, either 0, 1, or 2"
+	unless defined $arg && ($arg eq '0' || $arg eq '1' || $arg eq '2');
+    
+    if ( $arg eq '2' )
+    {
+	$request->{process_before_count} = 1;
+	$request->{preprocess} = 0;
+    }
+    
+    elsif ( $arg eq '1' )
+    {
+	$request->{preprocess} = 1;
+    }
+    
+    elsif ( $arg eq '0' )
+    {
+	$request->{process_before_count} = 0;
+	$request->{preprocess} = 0;
     }
 }
 
@@ -592,6 +628,17 @@ sub params_for_display {
 	
 	my @values = $request->clean_param_list($p);
 	
+	# Go through the values; if any one is an object with a 'regenerate'
+	# method, then call it.
+	
+	foreach my $v (@values)
+	{
+	    if ( ref $v && $v->can('regenerate' ) )
+	    {
+		$v = $v->regenerate;
+	    }
+	}
+	
 	push @display, $p, join(q{,}, @values);
     }
     
@@ -659,7 +706,9 @@ sub result_counts {
 
 sub linebreak {
 
-    return $_[0]->{linebreak_cr} ? "\n" : "\r\n";
+    return $_[0]->{output_linebreak} eq 'cr' ? "\r"
+	 : $_[0]->{output_linebreak} eq 'lf' ? "\n"
+					     : "\r\n";
 }
 
 
