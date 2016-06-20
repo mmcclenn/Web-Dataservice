@@ -359,6 +359,7 @@ sub configure_request {
 	    {
 		my $value = $result->value($p);
 		$value = join(', ', @$value) if ref $value eq 'ARRAY';
+		$value ||= '[ NO GOOD VALUES FOUND ]';
 		print STDERR "$p = $value\n";
 	    }
 	}
