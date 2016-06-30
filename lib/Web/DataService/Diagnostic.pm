@@ -99,7 +99,7 @@ sub diagnostic_request {
     
     my $params = $Web::DataService::FOUNDATION->get_params($request);
     
-    my $diag = lc $params->{show};
+    my $diag = $params->{show} ? lc $params->{show} : '';
     
     if ( $diag eq 'fields' )
     {
@@ -113,7 +113,7 @@ sub diagnostic_request {
     
     else
     {
-	print STDERR "Usage: you must specify one of the following: 'show=fieldnames', 'show=digest'.\n";
+	print STDERR "Usage:\n\n    $0 diag [path] 'show=fields'\n    $0 diag [path] 'show=digest'\n\n";
 	return;
     }
 }
