@@ -50,6 +50,8 @@ our (%NODE_DEF) = ( path => 'ignore',
 		    before_operation_hook => 'hook',
 		    before_output_hook => 'hook',
 		    output_record_hook => 'hook',
+		    output_serialized_hook => 'hook',
+		    after_output_hook => 'hook',
 		    post_configure_hook => 'hook',	# deprecated
 		    use_cache => 'single',
 		    allow_method => 'set',

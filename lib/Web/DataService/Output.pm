@@ -1937,8 +1937,13 @@ sub _generate_compound_result {
     
     my $format = $request->output_format;
     my $format_class = $ds->{format}{$format}{package};
+    my $format_is_text = $ds->{format}{$format}{is_text};
+    my $output_charset = $ds->{_config}{charset};
+    my $serial_charset = $format_is_text ? $output_charset : '';
     my $output_hook = $ds->{hook_enabled}{output_record_hook} &&
 	$ds->node_attr($request, 'output_record_hook');
+    my $serial_hook = $ds->{hook_enabled}{output_serialized_hook} &&
+	$ds->node_attr($request, 'output_serialized_hook');
     
     die "could not generate a result in format '$format': no implementing module was found"
 	unless $format_class;
@@ -1957,6 +1962,11 @@ sub _generate_compound_result {
     # Generate the initial part of the output, before the first record.
     
     my $output = $format_class->emit_header($request, $field_list);
+    
+    if ( $serial_hook )
+    {
+	$ds->_boolean_hook($serial_hook, $request, 'header', $serial_charset, $output);
+    }
     
     # A record separator is emitted before every record except the first.  If
     # this format class does not define a record separator, use the empty
@@ -2011,14 +2021,23 @@ sub _generate_compound_result {
 	# Generate the output for this record, preceded by a record separator if
 	# it is not the first record.
 	
-	$output .= $request->{rs} if $emit_rs; $emit_rs = 1;
+	my $record_output = '';
 	
-	$output .= $format_class->emit_record($request, $record, $field_list);
+	$record_output .= $request->{rs} if $emit_rs; $emit_rs = 1;
 	
-	# Keep count of the output records, and stop if we have exceeded the
+	$record_output .= $format_class->emit_record($request, $record, $field_list);
+	
+	# Keep count of the output records, and stop if we have reached or exceeded the
 	# limit.
 	
 	$request->{actual_count}++;
+	
+	if ( $serial_hook )
+	{
+	    $ds->_boolean_hook($serial_hook, $request, 'record', $serial_charset, $record_output);
+	}
+	
+	$output .= $record_output;
 	
 	if ( defined $request->{result_limit} && $request->{result_limit} ne 'all' )
 	{
@@ -2046,19 +2065,32 @@ sub _generate_compound_result {
     
     unless ( $request->{actual_count} )
     {
-	$output .= $format_class->emit_empty($request);
+	my $empty = $format_class->emit_empty($request);
+
+	if ( $serial_hook )
+	{
+	    $ds->_boolean_hook($serial_hook, $request, 'empty', $serial_charset, $empty);
+	}
+	
+	$output .= $empty;
     }
     
     # Generate the final part of the output, after the last record.
     
-    $output .= $format_class->emit_footer($request, $field_list);
+    my $footer = $format_class->emit_footer($request, $field_list);
+
+    if ( $serial_hook )
+    {
+	$ds->_boolean_hook($serial_hook, $request, 'footer', $serial_charset, $footer);
+    }
+    
+    $output .= $footer;
     
     # Determine if we need to encode the output into the proper character set.
     # Usually Dancer does this for us, but only if it recognizes the content
     # type as text.  For these formats, the definition should set the
     # attribute 'encode_as_text' to true.
     
-    my $output_charset = $ds->{_config}{charset};
     my $must_encode;
     
     if ( $output_charset 
@@ -2089,8 +2121,13 @@ sub _generate_processed_result {
     
     my $format = $request->output_format;
     my $format_class = $ds->{format}{$format}{package};
+    my $format_is_text = $ds->{format}{$format}{is_text};
+    my $output_charset = $ds->{_config}{charset};
+    my $serial_charset = $format_is_text ? $output_charset : '';
     my $output_hook = $ds->{hook_enabled}{output_record_hook} &&
 	$ds->node_attr($request, 'output_record_hook');
+    my $serial_hook = $ds->{hook_enabled}{output_serialized_hook} &&
+	$ds->node_attr($request, 'output_serialized_hook');
     
     die "could not generate a result in format '$format': no implementing module was found"
 	unless $format_class;
@@ -2138,6 +2175,11 @@ sub _generate_processed_result {
     
     my $output = $format_class->emit_header($request, $field_list);
     
+    if ( $serial_hook )
+    {
+	$ds->_boolean_hook($serial_hook, $request, 'header', $serial_charset, $output);
+    }
+    
     # A record separator is emitted before every record except the first.  If
     # this format class does not define a record separator, use the empty
     # string.
@@ -2175,14 +2217,23 @@ sub _generate_processed_result {
 	# Generate the output for this record, preceded by a record separator if
 	# it is not the first record.
 	
-	$output .= $request->{rs} if $emit_rs; $emit_rs = 1;
+	my $record_output = '';
 	
-	$output .= $format_class->emit_record($request, $record, $field_list);
+	$record_output .= $request->{rs} if $emit_rs; $emit_rs = 1;
+	
+	$record_output .= $format_class->emit_record($request, $record, $field_list);
 	
 	# Keep count of the output records, and stop if we have exceeded the
 	# limit.
 	
 	$request->{actual_count}++;
+	
+	if ( $serial_hook )
+	{
+	    $ds->_boolean_hook($serial_hook, $request, 'record', $serial_charset, $record_output);
+	}
+	
+	$output .= $record_output;
 	
 	if ( defined $request->{result_limit} && $request->{result_limit} ne 'all' )
 	{
@@ -2211,12 +2262,26 @@ sub _generate_processed_result {
     
     unless ( $request->{actual_count} )
     {
-	$output .= $format_class->emit_empty($request);
+	my $empty = $format_class->emit_empty($request);
+
+	if ( $serial_hook )
+	{
+	    $ds->_boolean_hook($serial_hook, $request, 'empty', $serial_charset, $empty);
+	}
+	
+	$output .= $empty;
     }
     
     # Generate the final part of the output, after the last record.
     
-    $output .= $format_class->emit_footer($request, $field_list);
+    my $footer = $format_class->emit_footer($request, $field_list);
+    
+    if ( $serial_hook )
+    {
+	$ds->_boolean_hook($serial_hook, $request, 'footer', $serial_charset, $footer);
+    }
+    
+    $output .= $footer;
     
     # Determine if we need to encode the output into the proper character set.
     # Usually Dancer does this for us, but only if it recognizes the content
@@ -2261,25 +2326,22 @@ sub _stream_compound_result {
     my $format = $request->output_format;
     my $format_class = $ds->{format}{$format}{package};
     my $format_is_text = $ds->{format}{$format}{is_text};
+    my $output_charset = $ds->{_config}{charset};
+    my $serial_charset = $format_is_text ? $output_charset : '';
     my $output_hook = $ds->{hook_enabled}{output_record_hook} &&
 	$ds->node_attr($request, 'output_record_hook');
+    my $serial_hook = $ds->{hook_enabled}{output_serialized_hook} &&
+	$ds->node_attr($request, 'output_serialized_hook');
     
     croak "could not generate a result in format '$format': no implementing class"
 	unless $format_class;
     
-    # Determine the output character set, because we will need to encode text
-    # responses in it.
-    
-    my $output_charset = $ds->{_config}{charset};
-    
-    #return $must_encode ? encode($output_charset, $output) : $output;
-    
     # First send out the partial output previously stashed by
     # generate_compound_result().
     
-    if ( $output_charset && $format_is_text )
+    if ( $serial_charset )
     {
-	$writer->write( encode($output_charset, $ds->{stashed_output}) );
+	$writer->write( encode($serial_charset, $ds->{stashed_output}) );
     }
     
     else
@@ -2301,7 +2363,7 @@ sub _stream_compound_result {
 	
 	if ( $output_hook )
 	{
-	    $ds->_boolean_hook($output_hook, $request, $request->{main_record})
+	    $ds->_boolean_hook($output_hook, $request, $record)
 		or next RECORD;
 	}
 	
@@ -2312,15 +2374,20 @@ sub _stream_compound_result {
 	my $output = $request->{rs};
 	
 	$output .= $format_class->emit_record($request, $record);
+
+	if ( $serial_hook )
+	{
+	    $ds->_boolean_hook($serial_hook, $request, 'record', $serial_charset, $output);
+	}
 	
 	unless ( defined $output and $output ne '' )
 	{
 	    # do nothing
 	}
 	
-	elsif ( $output_charset && $format_is_text )
+	elsif ( $serial_charset )
 	{
-	    $writer->write( encode($output_charset, $output) );
+	    $writer->write( encode($serial_charset, $output) );
 	}
 	
 	else
@@ -2344,14 +2411,19 @@ sub _stream_compound_result {
     
     my $footer = $format_class->emit_footer($request);
     
+    if ( $serial_hook )
+    {
+	$ds->_boolean_hook($serial_hook, $request, 'footer', $serial_charset, $footer);
+    }
+    
     unless ( defined $footer and $footer ne '' )
     {
 	# do nothing
     }
     
-    elsif ( $output_charset && $format_is_text )
+    elsif ( $serial_charset )
     {
-	$writer->write( encode($output_charset, $footer) );
+	$writer->write( encode($serial_charset, $footer) );
     }
     
     else
@@ -2422,6 +2494,9 @@ sub _generate_empty_result {
     
     my $format = $request->output_format;
     my $format_class = $ds->{format}{$format}{package};
+    my $format_is_text = $ds->{format}{$format}{is_text};
+    my $output_charset = $ds->{_config}{charset};
+    my $serial_charset = $format_is_text ? $output_charset : '';
     
     croak "could not generate a result in format '$format': no implementing class"
 	unless $format_class;
@@ -2429,12 +2504,45 @@ sub _generate_empty_result {
     # Call the appropriate methods from this class to generate the header,
     # and footer.
     
-    my $output = $format_class->emit_header($request);
+    my $header = $format_class->emit_header($request);
+
+    if ( $serial_hook )
+    {
+	$ds->_boolean_hook($serial_hook, $request, 'header', $serial_charset, $header);
+    }
     
-    $output .= $format_class->emit_empty($request);
-    $output .= $format_class->emit_footer($request);
+    my $empty = $format_class->emit_empty($request);
+
+    if ( $serial_hook )
+    {
+	$ds->_boolean_hook($serial_hook, $request, 'empty', $serial_charset, $empty);
+    }
     
-    return $output;
+    my $footer = $format_class->emit_footer($request);
+    
+    if ( $serial_hook )
+    {
+	$ds->_boolean_hook($serial_hook, $request, 'footer', $serial_charset, $footer);
+    }
+    
+    my $must_encode;
+    
+    if ( $output_charset 
+	 && $ds->{format}{$format}{encode_as_text}
+	 && ! $request->{content_type_is_text} )
+    {
+	$must_encode = 1;
+    }
+    
+    if ( $must_encode )
+    {
+	return encode($output_charset, $header . $empty . $footer);
+    }
+
+    else
+    {
+	return $header . $empty . $footer;
+    }
 }
 
 
